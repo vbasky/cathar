@@ -9,6 +9,15 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-18
+
+### Fixed
+
+- `declick` no longer panics on signals shorter than the analysis window: the
+  loop bound `n - half` could underflow `usize` (the CLI always uses a 64-sample
+  window, so any clip under ~32 samples triggered it). Such signals are now
+  passed through unchanged.
+
 ## [0.1.0] - 2026-06-18
 
 ### Added

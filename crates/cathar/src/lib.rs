@@ -372,10 +372,15 @@ pub fn declick(signal: &[f32], threshold: f32, window: usize) -> Vec<f32> {
     let n = signal.len();
     let half = window / 2;
     let mut output = signal.to_vec();
+    // A signal shorter than the analysis window has no interior to scan; bail
+    // out before `n - half` (computed below) can underflow `usize`.
+    if half == 0 || n <= window {
+        return output;
+    }
     let rms = local_rms(signal, window);
 
     let mut i = half;
-    while i < n - half {
+    while i + half < n {
         if signal[i].abs() > threshold * rms[i] {
             let start = i.saturating_sub(half);
             let end = (i + half).min(n - 1);
@@ -1139,6 +1144,17 @@ mod tests {
         signal[500] = 10.0; // big click
         let cleaned = declick(&signal, 5.0, 32);
         assert!(cleaned[500].abs() < 5.0, "click should be attenuated");
+    }
+
+    #[test]
+    fn declick_handles_short_signal() {
+        // Regression: a signal shorter than the window used to underflow
+        // `n - half` and panic. It should now pass through untouched.
+        for len in [0usize, 1, 5, 31, 32, 64] {
+            let signal = vec![0.2f32; len];
+            let out = declick(&signal, 5.0, 64);
+            assert_eq!(out, signal, "short signal (len {len}) should be unchanged");
+        }
     }
 
     #[test]
