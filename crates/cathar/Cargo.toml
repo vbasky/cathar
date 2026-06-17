@@ -1,5 +1,5 @@
 [package]
-name = "tersus"
+name = "cathar"
 version = "0.1.0"
 description = "AI audio denoising for video — clean dialogue, remove noise, isolate speech."
 edition.workspace = true
@@ -10,7 +10,8 @@ authors.workspace = true
 
 [features]
 default = []
-ort = ["dep:ort", "dep:ndarray"]
+# Pure Rust ML denoising via candle (HuggingFace). No C++ bindings.
+ml = ["dep:candle-core", "dep:candle-nn"]
 
 [lints]
 workspace = true
@@ -18,6 +19,8 @@ workspace = true
 [dependencies]
 thiserror.workspace = true
 hound.workspace = true
-# Optional: ONNX Runtime for AI inference (gated behind `ort` feature)
-ort = { workspace = true, optional = true }
-ndarray = { workspace = true, optional = true }
+symphonia = { workspace = true }
+rustfft.workspace = true
+realfft.workspace = true
+candle-core = { workspace = true, optional = true }
+candle-nn = { workspace = true, optional = true }

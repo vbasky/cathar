@@ -1,91 +1,287 @@
-# tersus
+# Cathar
 
-*tersus* — Latin for **"clean, neat, polished."** AI denoising and audio
-cleanup for video. Extracts the audio track from a video file, runs a deep
-learning denoiser, and writes a clean version — testing it in the CLI with
-waveform visualisation so you can see and hear the difference.
+![cathar — studio-grade audio restoration for any recording, in pure Rust](https://raw.githubusercontent.com/vbasky/cathar/main/docs/banner.png)
 
-Given a noisy recording (video or audio), tersus:
-1. Demuxes the audio track (if video input).
-2. Runs inference through a speech-denoising model (Demucs / DNS Challenge
-   family, ONNX Runtime).
-3. Writes the cleaned audio alongside an original-vs-cleaned spectrogram for
-   visual comparison.
+**Name:** *cathar* is from Greek **katharós** (καθαρός), *"pure, clean"* — the
+same root as **catharsis** (κάθαρσις), a cleansing. That's the whole job: take a
+noisy recording and give back clean audio.
 
-**Scope is deliberately bounded.** tersus owns the denoise loop and the model
-inference — not a full NLE, not real-time processing, not a model zoo. The
-default build ships a deterministic mock so the loop runs end-to-end with no
-model weights.
-
-[![CI](https://github.com/vbasky/tersus/actions/workflows/ci.yml/badge.svg)](https://github.com/vbasky/tersus/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/vbasky/cathar/ci.yml?branch=main&logo=github&label=CI)](https://github.com/vbasky/cathar/actions)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+[![MSRV](https://img.shields.io/badge/MSRV-1.85-blue)](https://www.rust-lang.org)
+[![Edition](https://img.shields.io/badge/edition-2024-blue?logo=rust)](https://doc.rust-lang.org/edition-guide/)
+[![Pure Rust](https://img.shields.io/badge/pure%20Rust-no%20ffmpeg-orange?logo=rust)](#design)
 
-## Layout
+**Cathar is a studio-grade audio-restoration toolbox for video — in pure Rust.**
+It reads the audio out of any common media file, runs it through a chain of
+classic DSP repair stages — denoise, de-hum, de-click, de-clip, de-reverb,
+de-ess, breath removal, voice isolation, bandwidth extension, loudness
+normalisation — and writes a clean 32-bit float WAV.
 
-```
-crates/
-  tersus/       # library crate
-  tersus-cli/   # binary crate (clap), installs as `tersus`
-```
+No ffmpeg, no C/C++, no system libraries. Decoding is [`symphonia`], the FFT is
+[`realfft`]/[`rustfft`], WAV writing is [`hound`] — a single `cargo build` gives
+you a self-contained restoration binary. Every effect is also a plain function
+over `&[f32]`, so the same pipeline drops straight into a Rust program or an
+[`aeris`](#pipeline-integration)-style media-orchestration step.
+
+[`symphonia`]: https://crates.io/crates/symphonia
+[`realfft`]: https://crates.io/crates/realfft
+[`rustfft`]: https://crates.io/crates/rustfft
+[`hound`]: https://crates.io/crates/hound
 
 ## Quick start
 
 ```bash
+cargo install --path crates/cathar-cli      # installs the `cathar` binary
+# or, from a checkout:
 just setup        # one-time: enable the auto-format pre-commit hook
 just build        # build the workspace
 just test         # run all tests
-
-# Generate a test sine wave with noise:
-just run -- wave --out test.wav --duration 5 --freq 440 --noise 0.1
-
-# Denoise a file (mock backend until you wire real inference):
-just run -- denoise test.wav --out clean.wav
 ```
-
-If you don't have [`just`](https://github.com/casey/just):
-`cargo install just`.
-
-## The real thing: AI denoising
-
-With the `ort` feature on, tersus runs a Demucs-style speech denoiser:
 
 ```bash
-cargo run -p tersus-cli --features ort -- denoise \
-  noisy_interview.m4a --model demucs.onnx --out clean.wav
+# A noisy interview straight off a camera → clean dialogue:
+cathar denoise interview.mp4 --out clean.wav
+
+# Learn the room tone from a silent segment, then denoise with it:
+cathar noiseprint room_tone.wav --out room.np.json
+cathar denoise interview.mp4 --noiseprint room.np.json --out clean.wav
+
+# A restoration chain, one stage at a time:
+cathar dehum     recording.wav --freq 60        # kill 60 Hz mains buzz
+cathar declick   recording.wav                  # interpolate impulse clicks
+cathar declip    recording.wav                  # rebuild clipped peaks
+cathar normalize recording.wav --target -16     # to -16 LUFS (podcast)
+
+# Generate a synthetic noisy tone to experiment with:
+cathar wave --out test.wav --duration 3 --freq 440 --noise 0.15
 ```
 
-Models are standard ONNX exports. See `docs/` for model setup.
+## The restoration toolbox
 
-## CLI subcommands
+Every command reads any supported format and writes a 32-bit float WAV. They are
+grouped here by what they fix; run them in any order, or chain them.
 
-| Command | What it does |
-|---------|-------------|
-| `denoise` | Run the denoiser on a video or audio file |
-| `wave` | Generate a synthetic waveform for testing |
-| `spectrogram` | Render original vs. cleaned spectrograms |
+### Reduce — pull noise out of the signal
+
+| Command | What it does | Key flags |
+| --- | --- | --- |
+| `denoise` | Broadband denoiser — spectral subtraction (default) or Wiener filter | `--alpha` 3.0, `--beta` 0.01, `--noiseprint <f>`, `--wiener` |
+| `noiseprint` | Learn a noise profile from a silence/room-tone clip → JSON | `--out noise.np.json` |
+| `dehum` | Notch out mains hum (50/60 Hz) and its harmonics | `--freq` 60, `--harmonics` 5 |
+| `dereverb` | Suppress room reverb by gating the spectral decay tail | `--strength` 2.0 |
+| `voiceisolate` | Keep speech, gate everything else (energy VAD + spectral gate) | `--noiseprint <f>` |
+| `deesser` | Tame harsh sibilance ("sss") above a crossover frequency | `--freq` 4000, `--threshold` -24 |
+| `breath` | Detect and high-pass the breaths before speech onsets | — |
+
+### Repair — reconstruct damaged samples
+
+| Command | What it does | Key flags |
+| --- | --- | --- |
+| `declick` | Detect impulse clicks against the local RMS and interpolate across them | `--threshold` 10.0 |
+| `declip` | Find flat-topped clipped runs and rebuild the missing peaks | `--threshold` 0.95 |
+
+### Enhance & level
+
+| Command | What it does | Key flags |
+| --- | --- | --- |
+| `enhance` | Bandwidth extension — resample up and synthesise the missing highs | `--rate` 48000 |
+| `normalize` | Loudness (LUFS) or peak (dBFS) normalisation | `--target` -16, `--peak` |
+
+### Utility
+
+| Command | What it does | Key flags |
+| --- | --- | --- |
+| `wave` | Generate a synthetic sine + noise test tone | `--freq` 440, `--duration` 3, `--noise` 0.1, `--sample_rate` 44100 |
+| `batch` | Denoise (and optionally de-hum / normalise) a whole directory | `--indir`, `--outdir`, `--dehum <hz>`, `--normalize <lufs>`, `--exts` |
+
+`--target` for `normalize` is roughly: `-23` broadcast (EBU R128), `-16`
+podcast, `-14` streaming.
+
+## How denoising works
+
+Cathar decodes to interleaved `f32` PCM, then most reduction stages run as an
+**STFT (short-time Fourier transform) → modify the spectrum → inverse STFT**
+loop. The denoiser uses a 2048-point FFT with a 512-sample hop (75 % overlap)
+and a Hann window on both analysis and synthesis, reconstructed by overlap-add:
+
+```text
+  input.mp4 ──► symphonia decode ──► f32 PCM, one Vec per channel
+                                          │
+            ┌─────────────────────────────┘
+            ▼   per analysis frame (Hann-windowed, 2048 samples, hop 512)
+   frame ──► FFT (realfft) ──► magnitude  +  phase
+                                  │            │
+   noise estimate ────────────────┤            │  (phase is preserved
+   • min-statistics over the       ▼           │   untouched)
+     first 15 % of frames, or      spectral subtraction
+   • a learned --noiseprint        mag' = max( mag − α·noise , β·mag , 0 )
+                                  │            │
+                                  ▼            │
+                       recombine  mag' ∠ phase ◄┘
+                                  │
+                                  ▼
+                  IFFT ──► Hann ──► overlap-add ──► clean f32 PCM
+                                                       │
+                                                       ▼
+                                    hound ──► clean.wav (32-bit float)
+```
+
+Two denoiser flavours share that frame loop:
+
+- **Spectral subtraction** (default) — estimate the noise magnitude per bin and
+  subtract `α ×` it, held above a spectral floor `β·mag` so you trade artifacts
+  ("musical noise") against aggressiveness. `α` from 1→6 goes gentle→aggressive.
+- **Wiener filter** (`--wiener`) — apply the statistically optimal per-bin gain
+  `gain = S / (S + N)` from the estimated signal and noise power; smoother on
+  stationary noise.
+
+The noise spectrum comes either from **minimum-statistics** (the quietest ~15 %
+of frames are taken as noise) or, for a cleaner result, from a **`noiseprint`**
+learned off a dedicated silent segment.
+
+## Inside each tool
+
+Every stage is classic, inspectable DSP — no black boxes.
+
+| Tool | Technique |
+| --- | --- |
+| `denoise` | STFT 2048/512, Hann; spectral subtraction `max(mag−α·N, β·mag)` or Wiener `S/(S+N)` |
+| `noiseprint` | Per-bin magnitude spectrum of a noise clip, serialised to JSON |
+| `dehum` | Cascade of 2nd-order IIR notch biquads (Q = 30) at the base frequency and each harmonic up to Nyquist |
+| `declick` | Sliding-window local RMS; samples exceeding `threshold × RMS` are clicks, replaced by cubic-Hermite interpolation |
+| `declip` | Detect runs at/above `threshold` (shoulders extended ±4 samples), rebuild with cubic-Hermite interpolation |
+| `dereverb` | Two-pass spectral-decay gating: track each bin's envelope (8 ms attack / 50 ms release), gate bins sitting near their reverb floor |
+| `voiceisolate` | Energy VAD on 20 ms frames (gap-fill < 120 ms, drop segments < 50 ms) + spectral gating of non-speech (tighter with a noiseprint) |
+| `deesser` | STFT 2048/256; where the high-frequency power ratio above the crossover exceeds the threshold, apply frequency-dependent compression |
+| `breath` | VAD-flag the frames just before a speech onset (≤ 150 ms) and high-pass them at 200 Hz, mixed 40 / 60 dry/wet |
+| `enhance` | Windowed-sinc resample to the target rate, then spectral band replication (4096 FFT) folds the existing top band into the empty highs with a tiled rolloff |
+| `normalize` | Peak: scale so the loudest sample hits the dBFS target. Loudness: scale by RMS to approximate a LUFS target |
+
+## Library usage
+
+The `cathar` crate is the same engine the CLI drives.
+
+```rust
+use cathar::{AudioData, Denoiser, SpectralDenoiser, dehum, normalize_loudness};
+
+let audio = AudioData::from_file("interview.mp4")?;   // symphonia decode → f32
+let sr = audio.sample_rate;
+
+// Denoise, then de-hum and normalise. Each effect is a plain fn over &[f32],
+// applied to every channel via `map_channels`.
+let clean = SpectralDenoiser::default()
+    .denoise(&audio)?
+    .map_channels(|ch| dehum(ch, sr, 60.0, 5))
+    .map_channels(|ch| normalize_loudness(ch, -16.0));
+
+clean.to_file("clean.wav")?;   // 32-bit float WAV via hound
+```
+
+Learn a noise print once and reuse it for a tighter subtraction:
+
+```rust
+use cathar::{AudioData, Denoiser, SpectralDenoiser, learn_noise_print};
+
+let print = learn_noise_print(&AudioData::from_file("room_tone.wav")?)?;
+
+let audio = AudioData::from_file("interview.mp4")?;
+let clean = SpectralDenoiser::with_noise_print(print, /* alpha */ 3.0, /* beta */ 0.01)
+    .denoise(&audio)?;
+clean.to_file("clean.wav")?;
+```
+
+The public surface is small and direct:
+
+- **`AudioData { sample_rate, channels: Vec<Vec<f32>> }`** — `from_file`,
+  `to_file`, and `map_channels(|&[f32]| -> Vec<f32>)` for per-channel effects.
+- **`Denoiser`** trait + **`SpectralDenoiser`** (configurable `fft_size`,
+  `hop_size`, `alpha`, `beta`, `noise_frame_ratio`, optional `noise_print`).
+- **`NoisePrint`** + `learn_noise_print` + `wiener_denoise`.
+- Free functions: `dehum`, `declick`, `declip`, `dereverb`, `voice_isolate`,
+  `deesser`, `breath_remove`, `bandwidth_extend`, `normalize_peak`,
+  `normalize_loudness`, `generate_wave`.
+
+## Formats & I/O
+
+| Stage | Detail |
+| --- | --- |
+| **Reads** | MP4, M4A, MKV, MP3, FLAC, WAV, OGG — any container/codec [`symphonia`] decodes (built with `features = ["all"]`) |
+| **Decodes to** | 32-bit float PCM, one `Vec<f32>` per channel, at the file's native sample rate |
+| **Writes** | 32-bit float WAV via [`hound`] — no inter-stage quantisation |
+| **Resampling** | Only on the `enhance` path (windowed sinc); every other stage runs at the source rate |
+| **Channels** | Preserved; effects run independently per channel |
+
+## Architecture
+
+A deliberately small two-crate workspace — a library and the binary that drives it.
+
+```text
+cathar/
+├─ crates/
+│  ├─ cathar/        # the engine: decode (symphonia) · DSP · encode (hound)
+│  └─ cathar-cli/    # the `cathar` binary — clap subcommands over the engine
+└─ docs/             # banner + assets
+```
+
+| Dependency | Role |
+| --- | --- |
+| `symphonia` (`all`) | Decode every supported container/codec to `f32` PCM |
+| `realfft` / `rustfft` | Forward/inverse real FFT behind every STFT stage |
+| `hound` | Write 32-bit float WAV |
+| `clap` (derive) | CLI parsing |
+| `serde` / `serde_json` | `NoisePrint` serialisation (`*.np.json`) |
+| `thiserror` / `anyhow` | Library error type / CLI error reporting |
+| `candle-core`, `candle-nn` | *(optional `ml` feature)* scaffolding for a future learned denoiser |
+
+## Design
+
+| Principle | What it means |
+| --- | --- |
+| **Pure Rust** | No ffmpeg, no C/C++ FFI, no `pkg-config` — one `cargo build` produces a self-contained binary |
+| **Lossless float pipeline** | Decode → `f32` → process → 32-bit float WAV; nothing is quantised between stages |
+| **Composable** | Every effect is a plain `fn(&[f32], …) -> Vec<f32>`; chain them in any order, in the CLI or as a library |
+| **Inspectable DSP** | Classic, documented algorithms (STFT subtraction, Wiener, IIR notches, cubic interpolation) — not opaque models |
+| **Deterministic** | Single-threaded and frame-synchronous: the same input always yields the same output |
+
+## Pipeline integration
+
+Because the whole toolbox is a library of `&[f32]` functions plus a single
+static binary with no system dependencies, cathar slots cleanly into a larger
+media pipeline (e.g. an `aeris`-style orchestrator): call it in-process through
+the `cathar` crate, or shell out to `cathar <stage> …` between transcode steps.
+Inputs are read straight from camera/container files, so it can sit immediately
+after ingest and before encoding.
+
+## Roadmap
+
+Cathar is `0.1.x`. The DSP chain above is implemented and unit-tested; these are
+the next steps:
+
+- **Learned denoiser** — the optional `ml` feature already wires in
+  [`candle`](https://crates.io/crates/candle-core); the neural model itself is
+  not implemented yet.
+- **True EBU R128 loudness** — `normalize --target` is currently an RMS-based
+  LUFS approximation, not K-weighted gated loudness.
+- **Parallel batch** — `batch` processes files sequentially today; rayon
+  fan-out is the obvious win.
+- **Main-path resampling** — extend the `enhance` resampler to every stage so
+  mixed-rate inputs are handled uniformly.
 
 ## Development
 
-`just check-all` runs the exact gate CI enforces — formatting, clippy
-(`-D warnings`), tests, and docs — before you push.
+`just check-all` runs fmt-check, clippy (`-D warnings`), tests, and docs — the
+same gate CI enforces on Linux and macOS.
 
 | Task | Command |
 | --- | --- |
-| Format | `just fmt` |
+| Build | `just build` / `just build-release` |
+| Format | `just fmt` (`just fmt-check` to verify) |
 | Lint | `just lint` |
 | Test | `just test` |
 | Docs | `just docs` |
-| Dependency audit | `just deny` (needs `cargo install cargo-deny`) |
-
-## Releasing
-
-1. Update `CHANGELOG.md` under a new `## [x.y.z]` heading and commit.
-2. `just release x.y.z` — bumps versions, tags, and pushes.
-3. CI (`.github/workflows/release.yml`) builds binaries for macOS (arm64 +
-   x86_64), Linux, and Windows, and publishes a GitHub Release with checksums
-   and the changelog notes.
-4. To also publish to crates.io: `PUBLISH=1 just release x.y.z` (needs
-   `cargo login`).
+| Audit | `just deny` (needs `cargo install cargo-deny`) |
+| Run | `just run -- <args>` |
 
 ## License
 

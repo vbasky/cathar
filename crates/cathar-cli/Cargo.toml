@@ -1,29 +1,31 @@
 [package]
-name = "tersus-cli"
+name = "cathar-cli"
 version = "0.1.0"
-description = "Command-line interface for tersus."
+description = "Command-line interface for cathar."
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
-# The binary is named after the project (not `-cli`), so `tersus ...`
+# The binary is named after the project (not `-cli`), so `cathar ...`
 # is the command users run. CI archives this binary by repository name.
 [[bin]]
-name = "tersus"
+name = "cathar"
 path = "src/main.rs"
 
 [features]
 default = []
-ort = ["tersus/ort"]
+ml = ["cathar/ml"]
 
 [lints]
 workspace = true
 
 [dependencies]
-tersus = { workspace = true }
+cathar = { workspace = true }
 anyhow.workspace = true
 clap.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }
 tracing.workspace = true
 tracing-subscriber.workspace = true

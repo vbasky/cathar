@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Release tersus.
+# Release cathar.
 #
 # Binary builds + the GitHub Release happen automatically in CI
 # (.github/workflows/release.yml) when the tag is pushed. This script bumps the
@@ -21,8 +21,8 @@ cd "$(git rev-parse --show-toplevel)"
 
 # Crates in dependency order: a crate must follow everything it depends on.
 CRATES=(
-    tersus
-    tersus-cli
+    cathar
+    cathar-cli
 )
 
 # ── pre-flight ──────────────────────────────────────────────────────────────
@@ -30,7 +30,7 @@ CRATES=(
 [ -z "$(git status --porcelain)" ]                || { echo "✗ working tree not clean — commit or stash first"; exit 1; }
 git rev-parse "$TAG" >/dev/null 2>&1              && { echo "✗ tag $TAG already exists"; exit 1; }
 
-echo "==> releasing tersus ${VERSION}"
+echo "==> releasing cathar ${VERSION}"
 cargo test --workspace
 
 # ── bump versions: each crate's package version + internal path-dep pins ─────
@@ -45,7 +45,7 @@ cargo build --workspace   # validate the manifests compile before tagging
 # ── commit, tag, push (triggers CI binary build + GitHub Release) ───────────
 git add Cargo.toml crates/*/Cargo.toml CHANGELOG.md
 git commit -m "release: ${TAG}"
-git tag -a "${TAG}" -m "tersus ${VERSION}"
+git tag -a "${TAG}" -m "cathar ${VERSION}"
 git push origin main
 git push origin "${TAG}"
 echo "==> tag pushed — CI is building binaries and creating the GitHub Release"
@@ -56,7 +56,7 @@ if [ "$PUBLISH" = "1" ]; then
         echo "==> cargo publish ${c}@${VERSION}"
         cargo publish -p "${c}"
     done
-    echo "✓ published tersus ${VERSION} to crates.io"
+    echo "✓ published cathar ${VERSION} to crates.io"
 fi
 
-echo "✓ released tersus ${TAG}"
+echo "✓ released cathar ${TAG}"

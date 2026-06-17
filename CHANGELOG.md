@@ -13,4 +13,15 @@ The release workflow extracts the notes for a version from the matching
 
 ### Added
 
-- Initial project scaffold: library + CLI with `denoise` and `wave` subcommands.
+- Audio-restoration library (`cathar`) and CLI: decode any
+  [`symphonia`](https://crates.io/crates/symphonia)-supported media file
+  (MP4, M4A, MKV, MP3, FLAC, WAV, OGG) to `f32` PCM and write 32-bit float WAV
+  — no ffmpeg.
+- Denoising: spectral subtraction and Wiener filter, driven by learned noise
+  prints (`noiseprint`) or minimum-statistics noise estimation.
+- Repair & reduction: `dehum`, `declick`, `declip`, `dereverb`,
+  `voiceisolate`, `deesser`, `breath`.
+- Enhancement & levelling: `enhance` (bandwidth extension) and `normalize`
+  (LUFS / peak).
+- Utilities: `wave` test-tone generator and `batch` directory processing.
+- Optional `ml` feature scaffolding (candle) for a future learned denoiser.

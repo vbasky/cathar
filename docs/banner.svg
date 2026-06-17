@@ -1,0 +1,175 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="cathar — restore the audio in any video, in pure Rust">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f3f4fb"/>
+      <stop offset="1" stop-color="#fdfdff"/>
+    </linearGradient>
+    <!-- waveform colour journey: raw/clipped orange -> processing indigo -> clean teal -->
+    <linearGradient id="wave" x1="70" y1="0" x2="1130" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0"    stop-color="#f97316"/>
+      <stop offset="0.22" stop-color="#f4843a"/>
+      <stop offset="0.45" stop-color="#6f6ae6"/>
+      <stop offset="0.72" stop-color="#2ba0c8"/>
+      <stop offset="1"    stop-color="#13b9a6"/>
+    </linearGradient>
+    <!-- product tile gradient (cool clean-signal: indigo into cyan) -->
+    <linearGradient id="cat" x1="30" y1="20" x2="210" y2="220" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="0.55" stop-color="#3284e0"/>
+      <stop offset="1" stop-color="#15c0c6"/>
+    </linearGradient>
+    <linearGradient id="catEdge" x1="120" y1="16" x2="120" y2="224" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.4"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.16"/>
+    </linearGradient>
+    <pattern id="dots" width="34" height="34" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.5" fill="#d6dbea"/>
+    </pattern>
+    <radialGradient id="vignette" cx="50%" cy="58%" r="60%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.94"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.62"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="0.6" stop-color="#ffffff" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="tileShadow" x="-40%" y="-40%" width="180%" height="190%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#2a3566" flood-opacity="0.22"/>
+    </filter>
+    <clipPath id="card"><rect x="1" y="1" width="1198" height="628" rx="18"/></clipPath>
+  </defs>
+
+  <rect x="1" y="1" width="1198" height="628" rx="18" fill="url(#bg)" stroke="#e6e8f1" stroke-width="2"/>
+
+  <g clip-path="url(#card)">
+    <rect width="1200" height="630" fill="url(#dots)"/>
+    <rect width="1200" height="630" fill="url(#vignette)"/>
+
+    <!-- hero waveform: one continuous track, noisy(left) -> clean(right) -->
+    <line x1="70" y1="116" x2="1130" y2="116" stroke="#c7cde0" stroke-width="1.5" opacity="0.5"/>
+      <circle cx="72.5" cy="56.7" r="2.3" fill="#f97316" opacity="0.50"/>
+      <circle cx="85.5" cy="40.9" r="2.1" fill="#f97316" opacity="0.49"/>
+      <circle cx="98.5" cy="173.1" r="1.6" fill="#f97316" opacity="0.48"/>
+      <circle cx="163.5" cy="61.1" r="2.7" fill="#f97316" opacity="0.42"/>
+      <circle cx="202.5" cy="34.7" r="2.5" fill="#f97316" opacity="0.38"/>
+      <circle cx="215.5" cy="32.3" r="1.9" fill="#f97316" opacity="0.37"/>
+      <circle cx="267.5" cy="14.4" r="2.1" fill="#f97316" opacity="0.32"/>
+      <circle cx="280.5" cy="25.2" r="2.5" fill="#f97316" opacity="0.31"/>
+      <circle cx="436.5" cy="146.3" r="1.6" fill="#f97316" opacity="0.17"/>
+      <circle cx="462.5" cy="165.5" r="2.8" fill="#f97316" opacity="0.14"/>
+    <g fill="url(#wave)">
+      <rect x="70" y="77.0" width="5" height="78.0" rx="2.5"/>
+      <rect x="83" y="58.1" width="5" height="115.8" rx="2.5"/>
+      <rect x="96" y="74.2" width="5" height="83.5" rx="2.5"/>
+      <rect x="109" y="53.8" width="5" height="124.5" rx="2.5"/>
+      <rect x="122" y="42.0" width="5" height="148.0" rx="2.5"/>
+      <rect x="135" y="52.3" width="5" height="127.5" rx="2.5"/>
+      <rect x="148" y="99.7" width="5" height="32.6" rx="2.5"/>
+      <rect x="161" y="69.7" width="5" height="92.7" rx="2.5"/>
+      <rect x="174" y="64.0" width="5" height="104.0" rx="2.5"/>
+      <rect x="187" y="42.0" width="5" height="148.0" rx="2.5"/>
+      <rect x="200" y="42.0" width="5" height="148.0" rx="2.5"/>
+      <rect x="213" y="51.1" width="5" height="129.7" rx="2.5"/>
+      <rect x="226" y="42.6" width="5" height="146.7" rx="2.5"/>
+      <rect x="239" y="81.4" width="5" height="69.2" rx="2.5"/>
+      <rect x="252" y="48.2" width="5" height="135.5" rx="2.5"/>
+      <rect x="265" y="42.0" width="5" height="148.0" rx="2.5"/>
+      <rect x="278" y="42.0" width="5" height="148.0" rx="2.5"/>
+      <rect x="291" y="42.0" width="5" height="148.0" rx="2.5"/>
+      <rect x="304" y="48.5" width="5" height="135.0" rx="2.5"/>
+      <rect x="317" y="66.8" width="5" height="98.4" rx="2.5"/>
+      <rect x="330" y="62.3" width="5" height="107.5" rx="2.5"/>
+      <rect x="343" y="43.9" width="5" height="144.2" rx="2.5"/>
+      <rect x="356" y="63.4" width="5" height="105.2" rx="2.5"/>
+      <rect x="369" y="89.3" width="5" height="53.4" rx="2.5"/>
+      <rect x="382" y="74.0" width="5" height="83.9" rx="2.5"/>
+      <rect x="395" y="77.6" width="5" height="76.8" rx="2.5"/>
+      <rect x="408" y="88.3" width="5" height="55.5" rx="2.5"/>
+      <rect x="421" y="97.9" width="5" height="36.2" rx="2.5"/>
+      <rect x="434" y="93.0" width="5" height="46.0" rx="2.5"/>
+      <rect x="447" y="94.3" width="5" height="43.3" rx="2.5"/>
+      <rect x="460" y="82.4" width="5" height="67.2" rx="2.5"/>
+      <rect x="473" y="91.5" width="5" height="49.0" rx="2.5"/>
+      <rect x="486" y="104.0" width="5" height="24.1" rx="2.5"/>
+      <rect x="499" y="100.8" width="5" height="30.4" rx="2.5"/>
+      <rect x="512" y="90.0" width="5" height="52.1" rx="2.5"/>
+      <rect x="525" y="106.8" width="5" height="18.5" rx="2.5"/>
+      <rect x="538" y="108.5" width="5" height="15.0" rx="2.5"/>
+      <rect x="551" y="107.0" width="5" height="18.0" rx="2.5"/>
+      <rect x="564" y="113.0" width="5" height="6.0" rx="2.5"/>
+      <rect x="577" y="108.6" width="5" height="14.8" rx="2.5"/>
+      <rect x="590" y="108.8" width="5" height="14.4" rx="2.5"/>
+      <rect x="603" y="109.1" width="5" height="13.7" rx="2.5"/>
+      <rect x="616" y="111.5" width="5" height="9.1" rx="2.5"/>
+      <rect x="629" y="113.0" width="5" height="6.0" rx="2.5"/>
+      <rect x="642" y="113.0" width="5" height="6.0" rx="2.5"/>
+      <rect x="655" y="110.2" width="5" height="11.6" rx="2.5"/>
+      <rect x="668" y="107.0" width="5" height="18.0" rx="2.5"/>
+      <rect x="681" y="105.1" width="5" height="21.8" rx="2.5"/>
+      <rect x="694" y="105.4" width="5" height="21.2" rx="2.5"/>
+      <rect x="707" y="108.5" width="5" height="15.0" rx="2.5"/>
+      <rect x="720" y="112.0" width="5" height="7.9" rx="2.5"/>
+      <rect x="733" y="104.5" width="5" height="23.1" rx="2.5"/>
+      <rect x="746" y="97.6" width="5" height="36.9" rx="2.5"/>
+      <rect x="759" y="93.5" width="5" height="45.0" rx="2.5"/>
+      <rect x="772" y="94.1" width="5" height="43.9" rx="2.5"/>
+      <rect x="785" y="99.8" width="5" height="32.4" rx="2.5"/>
+      <rect x="798" y="109.9" width="5" height="12.3" rx="2.5"/>
+      <rect x="811" y="99.0" width="5" height="34.0" rx="2.5"/>
+      <rect x="824" y="87.7" width="5" height="56.7" rx="2.5"/>
+      <rect x="837" y="81.1" width="5" height="69.8" rx="2.5"/>
+      <rect x="850" y="81.6" width="5" height="68.8" rx="2.5"/>
+      <rect x="863" y="89.7" width="5" height="52.7" rx="2.5"/>
+      <rect x="876" y="103.7" width="5" height="24.6" rx="2.5"/>
+      <rect x="889" y="96.9" width="5" height="38.3" rx="2.5"/>
+      <rect x="902" y="81.8" width="5" height="68.3" rx="2.5"/>
+      <rect x="915" y="73.0" width="5" height="86.1" rx="2.5"/>
+      <rect x="928" y="72.9" width="5" height="86.3" rx="2.5"/>
+      <rect x="941" y="81.8" width="5" height="68.3" rx="2.5"/>
+      <rect x="954" y="97.7" width="5" height="36.5" rx="2.5"/>
+      <rect x="967" y="99.1" width="5" height="33.9" rx="2.5"/>
+      <rect x="980" y="82.5" width="5" height="67.0" rx="2.5"/>
+      <rect x="993" y="72.5" width="5" height="87.1" rx="2.5"/>
+      <rect x="1006" y="71.5" width="5" height="89.0" rx="2.5"/>
+      <rect x="1019" y="79.7" width="5" height="72.5" rx="2.5"/>
+      <rect x="1032" y="94.7" width="5" height="42.5" rx="2.5"/>
+      <rect x="1045" y="104.4" width="5" height="23.3" rx="2.5"/>
+      <rect x="1058" y="89.1" width="5" height="53.8" rx="2.5"/>
+      <rect x="1071" y="79.7" width="5" height="72.6" rx="2.5"/>
+      <rect x="1084" y="78.2" width="5" height="75.6" rx="2.5"/>
+      <rect x="1097" y="84.5" width="5" height="63.0" rx="2.5"/>
+      <rect x="1110" y="96.3" width="5" height="39.4" rx="2.5"/>
+      <rect x="1123" y="110.2" width="5" height="11.6" rx="2.5"/>
+    </g>
+    <!-- soft halo so the tile reads cleanly over the track -->
+    <circle cx="600" cy="116" r="120" fill="url(#halo)"/>
+  </g>
+
+  <!-- product tile, centred on the track -->
+  <g transform="translate(545, 56) scale(0.5)" filter="url(#tileShadow)">
+    <rect x="16" y="16" width="208" height="208" rx="52" fill="url(#cat)"/>
+    <rect x="16" y="16" width="208" height="208" rx="52" fill="url(#catEdge)"/>
+    <line x1="36" y1="120" x2="204" y2="120" stroke="#ffffff" stroke-opacity="0.18" stroke-width="3"/>
+      <rect x="50" y="98" width="13" height="44" rx="6.5" fill="#ffffff" opacity="0.78"/>
+      <rect x="73" y="80" width="13" height="80" rx="6.5" fill="#ffffff" opacity="0.9"/>
+      <rect x="96" y="60" width="13" height="120" rx="6.5" fill="#ffffff" opacity="1"/>
+      <rect x="119" y="40" width="13" height="160" rx="6.5" fill="#ffe2c4" opacity="1"/>
+      <rect x="142" y="60" width="13" height="120" rx="6.5" fill="#ffffff" opacity="1"/>
+      <rect x="165" y="80" width="13" height="80" rx="6.5" fill="#ffffff" opacity="0.9"/>
+      <rect x="188" y="98" width="13" height="44" rx="6.5" fill="#ffffff" opacity="0.78"/>
+  </g>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" text-anchor="middle">
+    <text x="600" y="360" font-size="116" font-weight="700" fill="#20264a" letter-spacing="-2">cathar</text>
+    <rect x="454" y="382" width="292" height="8" rx="4" fill="#f97316"/>
+
+    <text x="600" y="456" font-size="33" font-weight="500" fill="#565d6d">Studio-grade audio restoration for any recording &#8212; in pure Rust</text>
+
+    <text x="600" y="518" font-size="22" font-weight="600" fill="#98a0b0" letter-spacing="3">DENOISE &#183; DE-HUM &#183; DE-CLICK &#183; DE-CLIP &#183; NORMALISE</text>
+
+    <text x="600" y="584" font-size="20" font-weight="400" fill="#aab0bd" letter-spacing="1">github.com/vbasky/cathar &#183; symphonia &#183; no ffmpeg &#183; MIT / Apache-2.0</text>
+  </g>
+</svg>
