@@ -1,0 +1,23 @@
+[package]
+name = "tersus"
+version = "0.1.0"
+description = "AI audio denoising for video — clean dialogue, remove noise, isolate speech."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+default = []
+ort = ["dep:ort", "dep:ndarray"]
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+hound.workspace = true
+# Optional: ONNX Runtime for AI inference (gated behind `ort` feature)
+ort = { workspace = true, optional = true }
+ndarray = { workspace = true, optional = true }

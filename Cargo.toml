@@ -1,0 +1,48 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/tersus",
+    "crates/tersus-cli",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/vbasky/tersus"
+authors = ["Vikram Bhaskaran <vikram.bhaskaran@outlook.com>"]
+
+[workspace.lints.rust]
+unreachable_pub = "warn"
+unused_import_braces = "warn"
+unused_extern_crates = "warn"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "warn"
+
+[workspace.lints.clippy]
+# Starts strict (clippy defaults + -D warnings in CI). Relax pedantic lints
+# per-project here, each with an inline comment explaining why — e.g.:
+#   cast_possible_truncation = "allow"  # pervasive intentional casts in parsers
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[workspace.dependencies]
+# Internal crates
+tersus = { path = "crates/tersus", version = "0.1.0" }
+
+# Common third-party — trim to what you actually use.
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+ort = "2"
+image = "0.25"
+ndarray = "0.16"
+hound = "0.3"

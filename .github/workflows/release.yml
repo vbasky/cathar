@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags: [v*]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: aarch64-apple-darwin,     os: macos-latest }
+          - { target: x86_64-apple-darwin,      os: macos-latest }
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest }
+          - { target: x86_64-pc-windows-msvc,   os: windows-latest }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup update stable --no-self-update
+          rustup target add ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --workspace --target ${{ matrix.target }}
+
+      - name: Archive (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          bin="${{ github.event.repository.name }}"
+          cd "target/${{ matrix.target }}/release"
+          archive="${bin}-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
+          tar czf "$archive" "$bin"
+          echo "archive=$archive" >> "$GITHUB_ENV"
+
+      - name: Archive (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          bin="${{ github.event.repository.name }}"
+          cd "target/${{ matrix.target }}/release"
+          archive="${bin}-${{ github.ref_name }}-${{ matrix.target }}.zip"
+          7z a "$archive" "${bin}.exe"
+          echo "archive=$archive" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/${{ env.archive }}
+
+  release:
+    name: Create GitHub Release
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*"
+          merge-multiple: true
+          path: /tmp/assets
+
+      - name: Checksums
+        working-directory: /tmp/assets
+        run: |
+          for f in *; do
+            [[ "$f" != *.sha256 ]] && shasum -a 256 "$f" > "$f.sha256"
+          done
+
+      - name: Generate release notes from CHANGELOG
+        run: |
+          VERSION="${{ github.ref_name }}"
+          awk -v ver="${VERSION#v}" '
+            $0 ~ "^## \\[" ver "\\]" { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > /tmp/release-notes.md
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: tersus ${{ github.ref_name }}
+          body_path: /tmp/release-notes.md
+          files: /tmp/assets/*
+          fail_on_unmatched_files: true
