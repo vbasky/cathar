@@ -1,4 +1,4 @@
-# tersus developer tasks — `just` command runner
+# cathar developer tasks — `just` command runner
 
 _default:
     @just --list
@@ -44,11 +44,11 @@ check-all: fmt-check
 
 # Run the CLI, passing through args:  just run -- denoise noisy.wav
 run *args:
-    cargo run -p tersus-cli -- {{args}}
+    cargo run -p cathar-cli -- {{args}}
 
 # Generate a test waveform:  just wave  --out test.wav --duration 3 --freq 440
 wave *args:
-    cargo run -p tersus-cli -- wave {{args}}
+    cargo run -p cathar-cli -- wave {{args}}
 
 # Audit advisories + licenses + bans (requires: cargo install cargo-deny)
 deny:
