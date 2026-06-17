@@ -1,4 +1,4 @@
-# Contributing to tersus
+# Contributing to cathar
 
 Thanks for contributing! This project keeps the dev loop simple and the `main`
 branch always green.
@@ -6,8 +6,8 @@ branch always green.
 ## Setup
 
 ```bash
-git clone https://github.com/vbasky/tersus.git
-cd tersus
+git clone https://github.com/vbasky/cathar.git
+cd cathar
 just setup   # points git at .githooks (pre-commit auto-formats staged code)
 ```
 

@@ -1,0 +1,26 @@
+[package]
+name = "cathar"
+version = "0.1.0"
+description = "Audio toolkit in pure Rust — denoise, de-hum, de-click, de-clip, de-reverb, normalise, and more."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+default = []
+# Pure Rust ML denoising via candle (HuggingFace). No C++ bindings.
+ml = ["dep:candle-core", "dep:candle-nn"]
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+hound.workspace = true
+symphonia = { workspace = true }
+rustfft.workspace = true
+realfft.workspace = true
+candle-core = { workspace = true, optional = true }
+candle-nn = { workspace = true, optional = true }

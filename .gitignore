@@ -1,6 +1,7 @@
 /target
 /.idea
 /.vscode
+/.serena
 *~
 
 # Cargo.lock IS committed: this workspace ships a binary, so a locked, reproducible

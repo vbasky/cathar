@@ -90,7 +90,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: tersus ${{ github.ref_name }}
+          name: cathar ${{ github.ref_name }}
           body_path: /tmp/release-notes.md
           files: /tmp/assets/*
           fail_on_unmatched_files: true
