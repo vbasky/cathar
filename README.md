@@ -108,27 +108,7 @@ Cathar decodes to interleaved `f32` PCM, then most reduction stages run as an
 loop. The denoiser uses a 2048-point FFT with a 512-sample hop (75 % overlap)
 and a Hann window on both analysis and synthesis, reconstructed by overlap-add:
 
-```text
-input.mp4
-   |   symphonia decode
-   v
-f32 PCM  (one Vec<f32> per channel, native sample rate)
-   |   STFT:  Hann window, 2048-point FFT, 512-sample hop (75% overlap)
-   v
-each frame  ->  magnitude  +  phase
-   |
-   |   1. estimate the noise magnitude, from either:
-   |        - minimum-statistics (the quietest ~15% of frames), or
-   |        - a learned --noiseprint
-   |
-   |   2. subtract it -- magnitudes only, phase is left untouched:
-   |        mag' = max( mag - alpha*noise,  beta*mag,  0 )
-   v
-recombine  mag'  with the original phase
-   |   inverse FFT  ->  Hann  ->  overlap-add
-   v
-clean f32 PCM  ->  hound  ->  clean.wav  (32-bit float)
-```
+![cathar STFT denoise pipeline: input.mp4 → symphonia decode → f32 PCM → STFT (Hann, 2048-pt FFT, 512 hop) → magnitude + phase → spectral subtraction (phase preserved) → recombine → inverse FFT / overlap-add → clean.wav](docs/stft-pipeline.svg)
 
 Two denoiser flavours share that frame loop:
 

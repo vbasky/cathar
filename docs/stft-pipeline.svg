@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 500" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="ah" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <!-- card -->
+  <rect x="8" y="8" width="744" height="484" rx="14" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+
+  <!-- arrows -->
+  <line x1="230" y1="64"  x2="230" y2="92"  stroke="#94a3b8" stroke-width="2" marker-end="url(#ah)"/>
+  <line x1="230" y1="136" x2="230" y2="170" stroke="#94a3b8" stroke-width="2" marker-end="url(#ah)"/>
+  <line x1="230" y1="214" x2="230" y2="248" stroke="#94a3b8" stroke-width="2" marker-end="url(#ah)"/>
+  <line x1="230" y1="308" x2="230" y2="342" stroke="#94a3b8" stroke-width="2" marker-end="url(#ah)"/>
+  <line x1="230" y1="386" x2="230" y2="420" stroke="#94a3b8" stroke-width="2" marker-end="url(#ah)"/>
+
+  <!-- right-column captions -->
+  <g fill="#64748b" font-size="12.5" font-style="italic">
+    <text x="420" y="82">symphonia decode</text>
+    <text x="420" y="149">STFT — Hann window, 2048-pt FFT,</text>
+    <text x="420" y="164">512-sample hop (75% overlap)</text>
+    <text x="420" y="227">estimate noise magnitude —</text>
+    <text x="420" y="242">min-statistics (~15%) or --noiseprint</text>
+    <text x="420" y="320">magnitudes only;</text>
+    <text x="420" y="335">phase left untouched</text>
+    <text x="420" y="407">inverse FFT · Hann · overlap-add</text>
+  </g>
+
+  <!-- input pill -->
+  <rect x="155" y="28" width="150" height="36" rx="18" fill="#0f172a"/>
+  <text x="230" y="51" text-anchor="middle" font-size="14.5" fill="#ffffff" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">input.mp4</text>
+
+  <!-- box 2 -->
+  <rect x="60" y="92" width="340" height="44" rx="8" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="230" y="119" text-anchor="middle" font-size="14" fill="#0f172a">f32 PCM — one Vec&lt;f32&gt; per channel</text>
+
+  <!-- box 3 -->
+  <rect x="60" y="170" width="340" height="44" rx="8" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="230" y="197" text-anchor="middle" font-size="14" fill="#0f172a">each frame  →  magnitude + phase</text>
+
+  <!-- box 4: spectral subtraction (accent) -->
+  <rect x="60" y="248" width="340" height="60" rx="8" fill="#fff7ed" stroke="#fdba74" stroke-width="1.5"/>
+  <text x="230" y="272" text-anchor="middle" font-size="14" font-weight="600" fill="#c2410c">spectral subtraction</text>
+  <text x="230" y="295" text-anchor="middle" font-size="13" fill="#7c2d12" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">mag' = max( mag − α·noise, β·mag, 0 )</text>
+
+  <!-- box 5 -->
+  <rect x="60" y="342" width="340" height="44" rx="8" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="230" y="369" text-anchor="middle" font-size="14" fill="#0f172a">recombine mag' with the original phase</text>
+
+  <!-- box 6: output (accent) -->
+  <rect x="60" y="420" width="340" height="44" rx="8" fill="#ecfdf5" stroke="#6ee7b7" stroke-width="1.5"/>
+  <text x="230" y="447" text-anchor="middle" font-size="13.5" fill="#065f46">clean f32 PCM  →  hound  →  clean.wav</text>
+</svg>
