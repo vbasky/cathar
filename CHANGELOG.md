@@ -9,6 +9,8 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-20
+
 ### Changed
 
 - `batch` now processes files in parallel across the rayon thread pool instead
