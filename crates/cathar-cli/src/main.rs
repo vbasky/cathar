@@ -366,7 +366,8 @@ fn main() -> Result<()> {
                     let mut clean = denoiser.denoise(&audio)?;
 
                     if let Some(freq) = dehum {
-                        clean = clean.map_channels(|c| cathar::dehum(c, clean.sample_rate, freq, 5));
+                        clean =
+                            clean.map_channels(|c| cathar::dehum(c, clean.sample_rate, freq, 5));
                     }
                     if let Some(lu) = normalize {
                         clean = clean.map_channels(|c| cathar::normalize_loudness(c, lu));
