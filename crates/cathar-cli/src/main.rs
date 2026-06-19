@@ -3,6 +3,7 @@
 use anyhow::Result;
 use cathar::Denoiser;
 use clap::{Parser, Subcommand};
+use rayon::prelude::*;
 
 /// Audio restoration toolbox — denoise, de-hum, de-click, de-clip, normalise.
 #[derive(Debug, Parser)]
@@ -351,31 +352,37 @@ fn main() -> Result<()> {
             files.sort();
 
             let total = files.len();
-            for (i, path) in files.iter().enumerate() {
-                let name = path.file_stem().unwrap().to_string_lossy();
-                eprintln!("[{}/{}] {name}", i + 1, total);
+            let done = std::sync::atomic::AtomicUsize::new(0);
 
-                let audio = match cathar::AudioData::from_file(&path.to_string_lossy()) {
-                    Ok(a) => a,
-                    Err(e) => {
-                        eprintln!("  skip: {e}");
-                        continue;
+            // Files are independent — each reads, processes, and writes its own
+            // output — so fan out across the rayon thread pool. Per-file errors
+            // are reported and skipped rather than aborting the whole batch.
+            files.par_iter().for_each(|path| {
+                let name = path.file_stem().unwrap().to_string_lossy();
+
+                let process = || -> Result<()> {
+                    let audio = cathar::AudioData::from_file(&path.to_string_lossy())?;
+                    let denoiser = cathar::SpectralDenoiser { alpha, beta, ..Default::default() };
+                    let mut clean = denoiser.denoise(&audio)?;
+
+                    if let Some(freq) = dehum {
+                        clean = clean.map_channels(|c| cathar::dehum(c, clean.sample_rate, freq, 5));
                     }
+                    if let Some(lu) = normalize {
+                        clean = clean.map_channels(|c| cathar::normalize_loudness(c, lu));
+                    }
+
+                    let out_path = std::path::Path::new(&outdir).join(format!("{name}.wav"));
+                    clean.to_file(&out_path.to_string_lossy())?;
+                    Ok(())
                 };
 
-                let denoiser = cathar::SpectralDenoiser { alpha, beta, ..Default::default() };
-                let mut clean = denoiser.denoise(&audio)?;
-
-                if let Some(freq) = dehum {
-                    clean = clean.map_channels(|c| cathar::dehum(c, clean.sample_rate, freq, 5));
+                let i = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                match process() {
+                    Ok(()) => eprintln!("[{i}/{total}] {name}"),
+                    Err(e) => eprintln!("[{i}/{total}] {name}  skip: {e}"),
                 }
-                if let Some(lu) = normalize {
-                    clean = clean.map_channels(|c| cathar::normalize_loudness(c, lu));
-                }
-
-                let out_path = std::path::Path::new(&outdir).join(format!("{name}.wav"));
-                clean.to_file(&out_path.to_string_lossy())?;
-            }
+            });
             eprintln!("done  {total} files  →  {outdir}/");
         }
     }

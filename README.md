@@ -245,8 +245,6 @@ the next steps:
   not implemented yet.
 - **True EBU R128 loudness** — `normalize --target` is currently an RMS-based
   LUFS approximation, not K-weighted gated loudness.
-- **Parallel batch** — `batch` processes files sequentially today; rayon
-  fan-out is the obvious win.
 - **Main-path resampling** — extend the `enhance` resampler to every stage so
   mixed-rate inputs are handled uniformly.
 

@@ -46,6 +46,7 @@ hound = "3"
 symphonia = { version = "0.6", features = ["all"] }
 rustfft = "6"
 realfft = "3"
+rayon = "1"
 # candle for AI denoising models — pure Rust ML (enable via `ml` feature in cathar crate)
 candle-core = "0.10"
 candle-nn = "0.10"

@@ -9,6 +9,12 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+### Changed
+
+- `batch` now processes files in parallel across the rayon thread pool instead
+  of sequentially. Per-file errors are reported and skipped rather than aborting
+  the run.
+
 ## [0.1.0] - 2026-06-18
 
 Initial release.

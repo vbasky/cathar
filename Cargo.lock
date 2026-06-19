@@ -200,6 +200,7 @@ dependencies = [
  "anyhow",
  "cathar",
  "clap",
+ "rayon",
  "serde",
  "serde_json",
  "tracing",
