@@ -14,7 +14,6 @@ noisy recording and give back clean audio.
 [![MSRV](https://img.shields.io/badge/MSRV-1.87-blue)](https://www.rust-lang.org)
 [![Edition](https://img.shields.io/badge/edition-2024-blue?logo=rust)](https://doc.rust-lang.org/edition-guide/)
 [![Stars](https://img.shields.io/github/stars/vbasky/cathar?style=social)](https://github.com/vbasky/cathar/stargazers)
-[![Follow @vbasky](https://img.shields.io/github/followers/vbasky?style=social&label=Follow%20%40vbasky)](https://github.com/vbasky)
 
 **Cathar is a transparent, dependency-free audio restoration toolkit — in pure
 Rust.** It works on a standalone audio file (WAV, MP3, FLAC, OGG, M4A) just as
