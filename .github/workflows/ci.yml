@@ -51,6 +51,11 @@ jobs:
       - name: test
         run: cargo test --workspace
 
+      - name: clippy + test (tui feature)
+        run: |
+          cargo clippy -p cathar-cli --features tui --all-targets -- -D warnings
+          cargo test -p cathar-cli --features tui
+
       - name: doc
         env:
           RUSTDOCFLAGS: "-D warnings"
