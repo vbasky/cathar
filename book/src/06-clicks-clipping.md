@@ -94,13 +94,15 @@ across the gap, and they're why a top declipper can rebuild a peak so convincing
   continuous crackle of old records. For serious restoration of damaged vinyl or
   badly clipped masters, RX is the tool the pros reach for.
 
-Cathar's de-click is solid and reliable, and its de-clip uses **exactly the
-classic method described above** — least-squares autoregressive interpolation
-(the AR approach the restoration literature is built on). It rebuilds each
-clipped run by solving for the samples that best fit an AR model of the
-surrounding audio, so a peak is restored toward its true height rather than
-flattened to a plateau. Light-to-moderate clipping cleans up convincingly. It's
-still not a substitute for RX on *heavily* distorted material — across long flat
-runs any tool is guessing, and cathar deliberately **softens** there (falling
-back to a smooth fill) rather than risk a wild overshoot. As always: knowing
-*how badly* something is damaged tells you whether any tool can save it.
+Cathar's de-click is solid and reliable, and its de-clip uses **the modern
+"sparse reconstruction" method described above** — A-SPADE (Kitić, Bertin &
+Gribonval, 2015), the same family iZotope-class tools use. It treats the clipped
+samples as unknowns and solves for the signal that is *simplest in the frequency
+view* (sparsest across a windowed, overlapping spectrum) while keeping every
+reliable sample exact and every clipped sample beyond the threshold — so a peak
+is rebuilt toward its true height rather than flattened to a plateau. It's an
+iterative solve (a little slower than a one-shot fill, and worth it). Light-to-
+moderate clipping cleans up convincingly; it's still not a substitute for RX on
+*heavily* distorted material — across long flat runs any tool is guessing. As
+always: knowing *how badly* something is damaged tells you whether any tool can
+save it.

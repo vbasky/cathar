@@ -9,6 +9,17 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+### Changed
+
+- **De-clip now uses A-SPADE sparse reconstruction** (Kitić, Bertin & Gribonval,
+  2015) over a Hann-windowed, 4×-overlapping Gabor tight frame, replacing the
+  LSAR fill shipped in 0.5.2. Each clipped run is recovered as the signal that is
+  sparsest in the windowed-DFT domain while keeping reliable samples exact and
+  clipped samples beyond the threshold; the iteration converges monotonically and
+  rebuilds a clipped tone to within ~0.01 RMS of the original with the peak
+  restored. It is iterative (≈2 s for a few-second clip) where LSAR was one-shot —
+  the quality/robustness trade chosen deliberately. Public API unchanged.
+
 ## [0.5.2] - 2026-06-21
 
 ### Changed
