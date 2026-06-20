@@ -9,6 +9,22 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-06-21
+
+Backport of the LSAR de-clip improvement from 0.5.2 to the 0.4 line.
+
+### Changed
+
+- **De-clip now reconstructs clipped peaks with least-squares autoregressive
+  interpolation (LSAR)** — the classical audio-restoration method (Janssen,
+  Veldhuis & Vries, 1986) — instead of a cubic fill. An AR model is fit to the
+  reliable audio either side of each clipped run (two-sided autocorrelation →
+  Levinson-Durbin) and the gap samples that minimise its prediction error are
+  solved for (banded normal equations via Cholesky), so a clipped peak is rebuilt
+  toward its true amplitude rather than flattened to the shoulder level. A
+  stability guard falls back to the previous smooth fill when a solve rings or
+  overshoots, so badly-clipped material softens gracefully.
+
 ## [0.4.1] - 2026-06-20
 
 ### Fixed
