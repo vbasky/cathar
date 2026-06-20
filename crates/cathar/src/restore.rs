@@ -3,6 +3,8 @@
 
 use crate::util::hann_window;
 use realfft::RealFftPlanner;
+use realfft::num_complex::Complex;
+use rustfft::FftPlanner;
 
 /// Remove mains hum (50/60 Hz + harmonics) using cascaded notch filters.
 pub fn dehum(signal: &[f32], sample_rate: u32, base_freq: f32, num_harmonics: usize) -> Vec<f32> {
@@ -153,33 +155,144 @@ fn cubic_interpolate(signal: &mut [f32], start: usize, end: usize) {
     }
 }
 
-// ── De-clip ──────────────────────────────────────────────────────────────────
+// ── De-clip (A-SPADE sparse declipping) ──────────────────────────────────────
+//
+// WORK IN PROGRESS: A-SPADE builds and runs but does NOT yet converge — the
+// non-convex ADMM dual blows up, so `k` runs to the cap and clipped peaks
+// overshoot (~2x). Reliable samples reconstruct perfectly. The deterministic
+// alternative (LSAR / AR interpolation) is the likely path to finish this.
 
-/// Detect and reconstruct clipped samples.
-///
-/// Clipping is detected as consecutive samples at or above `threshold` (e.g. 0.95).
-/// Clipped segments are reconstructed by cubic interpolation.
-pub fn declip(signal: &[f32], threshold: f32) -> Vec<f32> {
-    let n = signal.len();
-    let mut output = signal.to_vec();
-    let mut i = 0;
-    while i < n {
-        if signal[i].abs() >= threshold {
-            let start = i;
-            while i < n && signal[i].abs() >= threshold {
-                i += 1;
-            }
-            let end = (i).min(n - 1);
-            // Extend detection a few samples to catch the rounded shoulders
-            let clip_start = start.saturating_sub(4);
-            let clip_end = (end + 4).min(n - 1);
-            if clip_end > clip_start + 4 {
-                cubic_interpolate(&mut output, clip_start, clip_end);
-            }
-        }
-        i += 1;
+/// Keep the `k` largest-magnitude bins of `c` in place, zeroing the rest
+/// (the hard-thresholding / sparse-approximation step of A-SPADE).
+fn hard_threshold_k(c: &mut [Complex<f32>], k: usize) {
+    if k >= c.len() {
+        return;
     }
-    output
+    let mut mags: Vec<f32> = c.iter().map(|v| v.norm_sqr()).collect();
+    let mut sorted = mags.clone();
+    sorted.sort_unstable_by(|a, b| b.partial_cmp(a).unwrap());
+    let cutoff = sorted[k.saturating_sub(1)];
+    for (cj, &m) in c.iter_mut().zip(mags.iter()) {
+        if m < cutoff {
+            *cj = Complex::new(0.0, 0.0);
+        }
+    }
+    mags.clear();
+}
+
+/// Declip one `block` with **A-SPADE** (Kitić, Bertin & Gribonval, 2015): find
+/// the signal sparsest in the orthonormal DFT whose reliable samples match the
+/// observation and whose clipped samples stay beyond `theta` with the correct
+/// sign. ADMM-style iteration that relaxes the sparsity `k` until the constraints
+/// are consistent. Uses a full complex DFT (a genuine orthonormal/tight frame),
+/// so hard-thresholding selects bins by true energy and conjugate pairs — which
+/// share a magnitude — are kept together, keeping the reconstruction real.
+fn spade_block(
+    block: &[f32],
+    theta: f32,
+    fft: &std::sync::Arc<dyn rustfft::Fft<f32>>,
+    ifft: &std::sync::Arc<dyn rustfft::Fft<f32>>,
+    n: usize,
+) -> Vec<f32> {
+    let scale = 1.0 / (n as f32).sqrt(); // orthonormal DFT
+    let energy: f32 = block.iter().map(|v| v * v).sum::<f32>().sqrt();
+    let eps = 1e-3 * energy.max(1e-9);
+
+    let mut x: Vec<Complex<f32>> = block.iter().map(|&v| Complex::new(v, 0.0)).collect();
+    let mut u = vec![Complex::new(0.0, 0.0); n]; // dual variable (coeff domain)
+    let mut buf = vec![Complex::new(0.0, 0.0); n];
+    let mut k = 2usize; // a real tone is a conjugate pair, so start at 2
+
+    for _ in 0..100 {
+        // z = hard_k(A x + u)
+        buf.copy_from_slice(&x);
+        fft.process(&mut buf);
+        let mut z: Vec<Complex<f32>> = buf.iter().zip(&u).map(|(a, b)| *a * scale + *b).collect();
+        hard_threshold_k(&mut z, k);
+
+        // x = proj_Gamma( A^H (z - u) )
+        for (dst, (zj, uj)) in buf.iter_mut().zip(z.iter().zip(&u)) {
+            *dst = *zj - *uj;
+        }
+        ifft.process(&mut buf);
+        for (xi, (&obs, t)) in x.iter_mut().zip(block.iter().zip(buf.iter())) {
+            let cand = t.re * scale;
+            let v = if obs.abs() < theta {
+                obs // reliable — must match the observation
+            } else if obs >= theta {
+                cand.max(theta) // clipped high — stays ≥ +theta
+            } else {
+                cand.min(-theta) // clipped low — stays ≤ -theta
+            };
+            *xi = Complex::new(v, 0.0);
+        }
+
+        // dual update u += A x - z, and consistency check ||A x - z||
+        buf.copy_from_slice(&x);
+        fft.process(&mut buf);
+        let mut resid = 0.0f32;
+        for (uj, (sj, zj)) in u.iter_mut().zip(buf.iter().zip(z.iter())) {
+            let d = *sj * scale - *zj;
+            resid += d.norm_sqr();
+            *uj += d;
+        }
+        if resid.sqrt() <= eps {
+            break;
+        }
+        k += 2;
+        if k >= n {
+            break;
+        }
+    }
+    x.iter().map(|c| c.re).collect()
+}
+
+/// Reconstruct clipped samples with **A-SPADE** sparse declipping.
+///
+/// Clipping is detected as samples at or beyond `threshold` (e.g. 0.95). Rather
+/// than guessing an interpolation curve, A-SPADE (the modern reference method,
+/// Kitić · Bertin · Gribonval 2015) recovers, per overlapping STFT frame, the
+/// signal that is *sparsest in the DFT* while keeping every reliable sample exact
+/// and every clipped sample beyond the threshold with its original sign. Frames
+/// are Hann-windowed and overlap-added. Signals shorter than one frame pass
+/// through. (Note: convergence is not yet reliable — see the section comment.)
+pub fn declip(signal: &[f32], threshold: f32) -> Vec<f32> {
+    const BLOCK: usize = 1024;
+    const HOP: usize = 256;
+    let n = signal.len();
+    if n < BLOCK || !signal.iter().any(|&v| v.abs() >= threshold) {
+        return signal.to_vec();
+    }
+    let mut planner = FftPlanner::<f32>::new();
+    let fft = planner.plan_fft_forward(BLOCK);
+    let ifft = planner.plan_fft_inverse(BLOCK);
+    let hann = hann_window(BLOCK);
+
+    let mut out = vec![0.0f32; n];
+    let mut wsum = vec![0.0f32; n];
+    // Frame starts: every HOP, plus a final frame flush against the end.
+    let mut starts: Vec<usize> = (0..=n - BLOCK).step_by(HOP).collect();
+    if *starts.last().unwrap() != n - BLOCK {
+        starts.push(n - BLOCK);
+    }
+    for &pos in &starts {
+        let block = &signal[pos..pos + BLOCK];
+        let declipped = if block.iter().any(|&v| v.abs() >= threshold) {
+            spade_block(block, threshold, &fft, &ifft, BLOCK)
+        } else {
+            block.to_vec()
+        };
+        for i in 0..BLOCK {
+            out[pos + i] += declipped[i] * hann[i];
+            wsum[pos + i] += hann[i];
+        }
+    }
+    for (o, &w) in out.iter_mut().zip(wsum.iter()) {
+        if w > 1e-6 {
+            *o /= w;
+        }
+    }
+    out
 }
 
 /// Remove room reverb using spectral envelope decay gating.
