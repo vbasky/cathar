@@ -6,5 +6,5 @@ language = "en"
 src = "src"
 
 [output.html]
-default-theme = "rust"
+default-theme = "light"
 git-repository-url = "https://github.com/vbasky/cathar"
