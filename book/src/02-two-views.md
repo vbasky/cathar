@@ -53,6 +53,17 @@ present at each moment. On a spectrogram:
 - A **click** is a thin vertical streak — a single instant where *every* pitch
   flares at once.
 
+```text
+ pitch
+  high ┤ ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   ← hiss: faint haze, everywhere, always
+       │ ░░░░░░░░░░░ █ ░░░░░░░░░░░░░░░░░░░
+   mid ┤ ▓▓▓▓   ▓▓▓  █  ▓▓▓▓▓   ▓▓▓▓▓▓      ← voice: bright bands that move
+       │  ▓▓▓  ▓▓▓▓  █   ▓▓▓    ▓▓▓          with the words
+   low ┤ ━━━━━━━━━━━━█━━━━━━━━━━━━━━━━━━━   ← hum: one steady line, low down
+       └──────────────────────────────►  time
+                     ↑ click: a vertical streak (one instant, all pitches)
+```
+
 Suddenly the soup is unstirred. The hiss, the hum, the voice and the click are
 in visibly different places. *That* is why nearly every restoration tool works in
 the frequency view: in the spectrogram, the problem and the wanted sound usually
@@ -67,6 +78,14 @@ program, run the same three-step loop, over and over, on each short slice:
 2. **Modify** — turn down (or rebuild) the parts you don't want.
 3. **Resynthesise** — add the pitches back together into a cleaned slice, and
    glue the slices back into a waveform (a careful blend called *overlap-add*).
+
+```mermaid
+flowchart LR
+    A["one short slice<br/>of the waveform"] --> B["FFT<br/><i>analyse</i><br/>split into pitches"]
+    B --> C["<b>modify</b><br/>turn down / rebuild<br/>the unwanted pitches"]
+    C --> D["inverse FFT<br/><i>resynthesise</i><br/>add pitches back"]
+    D --> E["overlap-add<br/>→ cleaned waveform"]
+```
 
 Cathar uses a 2,048-sample slice with a 75% overlap between neighbours and a
 gentle taper (a *Hann window*) so the joins are seamless. Those exact numbers

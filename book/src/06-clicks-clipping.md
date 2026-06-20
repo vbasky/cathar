@@ -37,6 +37,19 @@ hot, overdrive a preamp — and the system can't go higher, so it just **flatten
 the peak off**. The rounded tops of the wave become flat plateaus. You hear it as
 a harsh, fuzzy, "broken speaker" distortion on the loud parts.
 
+```text
+  recorded fine:                 CLIPPED (overloaded):
+                                 ceiling ┄┄┏━━━━━┓┄┄  ← the top is chopped flat;
+        ╭───╮                            ┃     ┃        the real curve is GONE
+       ╱     ╲                          ╱       ╲
+     ─╯       ╰─                      ─╯         ╰─
+
+  de-clip's job: guess the missing dotted peak from the slopes either side
+                                 ┄┄┄╭╴╴╮┄┄┄  ← an invented, plausible curve
+                                  ╱      ╲     (a guess, not a recovery)
+                                ─╯        ╰─
+```
+
 Here's the cruel part: when the top is flattened, **the information about how high
 the wave really wanted to go is gone.** Unlike a click (a brief spike you can
 delete), clipping erases whole stretches of the true waveform and leaves a flat

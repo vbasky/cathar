@@ -15,7 +15,19 @@ about how loud something *sounds*.
 
 A sudden snare hit and a sustained shout can have the *same* peak height, yet the
 shout sounds far louder, because loudness is about *how much energy there is over
-time*, not how tall one instant is. Peak-normalize a quiet, even podcast and a
+time*, not how tall one instant is.
+
+```text
+   a brief tick                a sustained tone
+   (same PEAK height, but much quieter to the ear)
+
+  +1 ┤   █                    ████████████████████
+   0 ┼───█──────────          ████████████████████
+  -1 ┤   █                    ████████████████████
+       one tall spike          loud the whole time
+       PEAK: maxed             PEAK: identical
+       LOUDNESS: low      ◄──►  LOUDNESS: high
+``` Peak-normalize a quiet, even podcast and a
 punchy one to the same peak and the punchy one will sound much louder. That's why,
 for decades, some adverts felt like they were screaming at you between TV shows:
 everyone was peak-normalizing and then squashing their audio to be as dense as

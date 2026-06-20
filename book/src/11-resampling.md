@@ -26,6 +26,16 @@ pitch*, a ghostly tone that was never in the music. This folding is called
 audio version of why wagon wheels seem to spin backwards in old films — too few
 "samples" per rotation.)
 
+```text
+  A fast wiggle, measured too rarely, masquerades as a SLOW one:
+
+  the real (fast) wave:   /\  /\  /\  /\  /\  /\
+  we only sample here:    ●           ●           ●
+                           ╲         ╱ ╲         ╱
+  so we "see" this:         ╲_______╱   ╲_______╱     ← a wrong, low tone
+                                                        that was never there
+```
+
 ## The fix: filter, then convert
 
 So correct downsampling has two parts: **first remove every pitch above the new

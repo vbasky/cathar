@@ -39,6 +39,15 @@ surrounding good audio, like an art restorer repainting a scratched corner of a
 canvas. The good news: done well, you can't tell. The honest catch: it's a guess,
 and the bigger the hole, the more it's guessing.
 
+```mermaid
+flowchart TD
+    P["a problem in the recording"] --> Q{"is the good sound <b>destroyed</b>,<br/>or just <b>mixed</b> with junk?"}
+    Q -->|"mixed alongside it"| R["<b>REDUCER</b><br/>find the unwanted pitches,<br/>turn them down<br/><br/>denoise · de-hum · de-reverb<br/>de-ess · de-wind"]
+    Q -->|"destroyed"| S["<b>REPAIRER</b><br/>invent a plausible<br/>replacement<br/><br/>de-click · de-clip"]
+    R --> RR["good sound still there<br/>underneath → can be<br/>nearly invisible"]
+    S --> SS["original is gone → it's an<br/>educated guess; bigger hole,<br/>more guessing"]
+```
+
 Keeping these two families straight saves you a lot of disappointment. Asking a
 *reducer* to remove hiss that's quieter than the voice? Easy. Asking a *repairer*
 to perfectly rebuild a badly clipped scream? It'll help, but don't expect a

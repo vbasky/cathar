@@ -28,7 +28,17 @@ copies are called **harmonics**, and they're why hum often sounds more like a
 "buzz" than a pure tone — your ear hears the whole stack.
 
 So a hum remover doesn't place one notch; it places a **comb** of them — one at
-the base frequency and one at each harmonic up the spectrum. In cathar you say
+the base frequency and one at each harmonic up the spectrum.
+
+```text
+  loudness
+     │  voice and music live in the gaps — untouched
+     │   ▁▂▃▅▇█▇▅▃▂▁    ▁▂▃▅▇▇▅▃▂▁     ▁▂▃▅▅▃▂▁
+     └──┬─────┬─────┬─────┬─────┬─────┬──────►  pitch
+       60    120   180   240   300   360  Hz
+        V     V     V     V     V          ← one narrow "notch" snipped at the
+       hum  +harmonics (exact multiples)      hum and each of its harmonics
+``` In cathar you say
 `dehum --freq 60 --harmonics 5`, and it snips 60, 120, 180, 240, and 300 cycles.
 If a hum still buzzes after you remove the base tone, you simply haven't notched
 enough of its harmonics.

@@ -25,6 +25,17 @@ isn't really moving, it's just a stack of still drawings shown fast enough to
 fool your eye. Digital audio is the same trick for sound — a stack of still
 "heights," played back fast enough to fool your ear.
 
+```text
+ height
+  +1 ┤        ●                 ●                          loud  = tall wiggles
+     │     ●     ●           ●     ●                        quiet = small wiggles
+   0 ┼──●───────────●─────●───────────●─────────►  time    fast  = high pitch
+     │                 ●                   ●               slow  = low pitch
+  -1 ┤                    ●  ●         ●
+       └ each ● is ONE sample: a single measured height.
+         Join the dots and you get the "waveform".
+```
+
 Two numbers describe how finely the computer captured the sound:
 
 - **Sample rate** — how many measurements per second. CD audio uses **44,100**

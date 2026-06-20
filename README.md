@@ -72,11 +72,13 @@ cathar normalize recording.wav --target -16     # to -16 LUFS (podcast)
 cathar wave --out test.wav --duration 3 --freq 440 --noise 0.15
 ```
 
-> **New to audio cleanup?** [**Cleaning Up Sound**](book/src/SUMMARY.md) — a
-> short book in [`book/`](book/) — explains every concept this toolkit uses from
-> first principles, for readers who have never touched a DAW or DSP, with a
-> comparison to the industry tools (iZotope RX, Audition, Audacity, SoX, FFmpeg).
-> Render it with `mdbook build book`.
+> **New to audio cleanup?** Read [**Cleaning Up Sound**](book/) — a short,
+> illustrated book that explains every concept this toolkit uses from first
+> principles, for readers who have never touched a DAW or DSP, with honest
+> comparisons to the industry tools (iZotope RX, Audition, Audacity, SoX,
+> FFmpeg). Browse it on GitHub starting from the [cover](book/), read it rendered
+> at <https://vbasky.github.io/cathar/> (once Pages is enabled), or build it with
+> `mdbook serve book`.
 
 ## The toolkit
 
