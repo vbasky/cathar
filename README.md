@@ -13,7 +13,6 @@ noisy recording and give back clean audio.
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![MSRV](https://img.shields.io/badge/MSRV-1.87-blue)](https://www.rust-lang.org)
 [![Edition](https://img.shields.io/badge/edition-2024-blue?logo=rust)](https://doc.rust-lang.org/edition-guide/)
-[![Pure Rust](https://img.shields.io/badge/pure%20Rust-no%20ffmpeg-orange?logo=rust)](#design)
 [![Stars](https://img.shields.io/github/stars/vbasky/cathar?style=social)](https://github.com/vbasky/cathar/stargazers)
 [![Follow @vbasky](https://img.shields.io/github/followers/vbasky?style=social&label=Follow%20%40vbasky)](https://github.com/vbasky)
 
