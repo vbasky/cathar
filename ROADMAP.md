@@ -60,10 +60,15 @@ stands next to iZotope RX's core.
   per time-frequency bin, transient outliers (vs the temporal median) are pulled
   back to the median with phase preserved, so brief whistles/bursts/glitches are
   painted out while sustained content passes through untouched.
-- **De-rustle, de-wind, de-plosive** — round out the `de-*` family.
-- **Multiband / adaptive** denoise and de-ess.
-- **Phase-coherent stereo** processing (today each channel is independent;
-  joint-stereo matters for imaging).
+- ✅ **De-wind, de-plosive, de-rustle** (`v0.5.1`) — round out the `de-*` family:
+  a 4th-order high-pass for wind rumble, and band-limited transient suppression
+  (low band for plosive pops, mid band for clothing/lav rustle).
+- ✅ **Multiband / adaptive de-ess** (`v0.5.1`) — `deess_multiband` splits the
+  sibilant region into sub-bands, each compressed when it rises above its own
+  EMA-tracked running level (`deesser --bands N`).
+- ✅ **Phase-coherent stereo** (`v0.5.1`) — `denoise_coherent` (`denoise
+  --coherent`) derives one gain mask from the mid signal and applies it to every
+  channel, so the stereo image no longer wanders.
 
 ### `0.6` — Learned denoise (make the `ml` feature real)
 

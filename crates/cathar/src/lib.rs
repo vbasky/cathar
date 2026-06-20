@@ -496,6 +496,83 @@ impl SpectralDenoiser {
         output.truncate(n);
         Ok(output)
     }
+
+    /// Denoise **phase-coherently** across channels: the per-bin suppression gain
+    /// is computed once from the mid signal (the channel average) and applied
+    /// identically to every channel. Independent per-channel denoising gates bins
+    /// differently in L and R, which makes the residual noise floor pan; one
+    /// shared gain keeps the stereo image stable while each channel keeps its own
+    /// phase. Equivalent to [`denoise`](Self::denoise) for mono input.
+    pub fn denoise_coherent(&self, input: &AudioData) -> Result<AudioData, Error> {
+        let n_ch = input.channels.len();
+        if n_ch <= 1 {
+            return self.denoise(input);
+        }
+        let len = input.channels.iter().map(|c| c.len()).min().unwrap_or(0);
+        if len < self.fft_size {
+            return Err(Error::TooShort);
+        }
+        let mid: Vec<f32> = (0..len)
+            .map(|i| input.channels.iter().map(|c| c[i]).sum::<f32>() / n_ch as f32)
+            .collect();
+        let noise_spectrum = self.noise_spectrum(&mid)?;
+
+        let mut planner = RealFftPlanner::<f32>::new();
+        let r2c = planner.plan_fft_forward(self.fft_size);
+        let c2r = planner.plan_fft_inverse(self.fft_size);
+        let hann = hann_window(self.fft_size);
+        let scale = 1.0f32 / self.fft_size as f32;
+        let frames = len / self.hop_size;
+        let n_bins = self.fft_size / 2 + 1;
+
+        let mut outputs = vec![vec![0.0f32; len + self.fft_size]; n_ch];
+        let mut mid_in = r2c.make_input_vec();
+        let mut mid_out = r2c.make_output_vec();
+        let mut ch_in = r2c.make_input_vec();
+        let mut ch_out = r2c.make_output_vec();
+        let mut inv = c2r.make_output_vec();
+        let mut gains = vec![1.0f32; n_bins];
+
+        for fi in 0..frames {
+            let offset = fi * self.hop_size;
+            if offset + self.fft_size > len {
+                break;
+            }
+            // One shared gain mask from the mid signal.
+            for i in 0..self.fft_size {
+                mid_in[i] = mid[offset + i] * hann[i];
+            }
+            r2c.process(&mut mid_in, &mut mid_out).unwrap();
+            for (k, ns) in noise_spectrum.iter().enumerate() {
+                let mag = (mid_out[k].re * mid_out[k].re + mid_out[k].im * mid_out[k].im).sqrt();
+                let clean = (mag - self.alpha * ns).max(self.beta * mag).max(0.0);
+                gains[k] = if mag > 1e-10 { clean / mag } else { 0.0 };
+            }
+            // Apply it to every channel, preserving each channel's phase.
+            for (ch, out) in outputs.iter_mut().enumerate() {
+                for i in 0..self.fft_size {
+                    ch_in[i] = input.channels[ch][offset + i] * hann[i];
+                }
+                r2c.process(&mut ch_in, &mut ch_out).unwrap();
+                for (c, &g) in ch_out.iter_mut().zip(gains.iter()) {
+                    c.re *= g;
+                    c.im *= g;
+                }
+                c2r.process(&mut ch_out, &mut inv).unwrap();
+                for i in 0..self.fft_size {
+                    out[offset + i] += inv[i] * hann[i] * scale;
+                }
+            }
+        }
+        let channels = outputs
+            .into_iter()
+            .map(|mut o| {
+                o.truncate(len);
+                o
+            })
+            .collect();
+        Ok(AudioData { sample_rate: input.sample_rate, channels })
+    }
 }
 
 // ── De-hum ───────────────────────────────────────────────────────────────────
@@ -538,6 +615,43 @@ fn notch_filter(signal: &mut [f32], freq: f32, sample_rate: u32, q: f32) {
         y1 = y0;
         *s = y0;
     }
+}
+
+// ── De-wind ──────────────────────────────────────────────────────────────────
+
+/// Apply a second-order IIR high-pass (RBJ cookbook) in-place at the given `q`.
+fn highpass_biquad(signal: &mut [f32], freq: f32, sample_rate: u32, q: f32) {
+    let w0 = 2.0 * std::f32::consts::PI * freq / sample_rate as f32;
+    let cos = w0.cos();
+    let alpha = w0.sin() / (2.0 * q);
+    let a0 = 1.0 + alpha;
+    let b0 = ((1.0 + cos) / 2.0) / a0;
+    let b1 = (-(1.0 + cos)) / a0;
+    let b2 = ((1.0 + cos) / 2.0) / a0;
+    let a1 = (-2.0 * cos) / a0;
+    let a2 = (1.0 - alpha) / a0;
+    let (mut x1, mut x2, mut y1, mut y2) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+    for s in signal.iter_mut() {
+        let x0 = *s;
+        let y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+        x2 = x1;
+        x1 = x0;
+        y2 = y1;
+        y1 = y0;
+        *s = y0;
+    }
+}
+
+/// Remove low-frequency wind rumble with a 4th-order Butterworth high-pass
+/// (two cascaded biquads, ~24 dB/octave). `cutoff_hz` is the corner frequency
+/// (≈ 80 Hz suits most handheld/outdoor wind); content above it is untouched.
+pub fn dewind(signal: &[f32], sample_rate: u32, cutoff_hz: f32) -> Vec<f32> {
+    let mut out = signal.to_vec();
+    // Butterworth 4th-order section Qs.
+    for q in [0.541_196_1, 1.306_563] {
+        highpass_biquad(&mut out, cutoff_hz, sample_rate, q);
+    }
+    out
 }
 
 // ── De-click ─────────────────────────────────────────────────────────────────
@@ -1030,6 +1144,118 @@ pub fn spectral_repair(signal: &[f32], strength: f32) -> Vec<f32> {
     output
 }
 
+// ── De-plosive / De-rustle (band-limited transient suppression) ──────────────
+
+/// Suppress transient energy bursts confined to a frequency band. STFT, then per
+/// frame measure the energy in `[lo_hz, hi_hz]`; a frame whose band energy spikes
+/// far above its temporal median is a transient (a plosive pop, a rustle), and
+/// its band bins are scaled down toward the median with phase preserved.
+/// Sustained band content matches its own median and is left alone; the
+/// overlap-add is window-normalised to unity gain.
+fn attenuate_band_transients(
+    signal: &[f32],
+    sample_rate: u32,
+    lo_hz: f32,
+    hi_hz: f32,
+    strength: f32,
+) -> Vec<f32> {
+    let fft_size = 2048;
+    let hop_size = 512;
+    let n = signal.len();
+    if n < fft_size {
+        return signal.to_vec();
+    }
+    let mut planner = RealFftPlanner::<f32>::new();
+    let r2c = planner.plan_fft_forward(fft_size);
+    let c2r = planner.plan_fft_inverse(fft_size);
+    let hann = hann_window(fft_size);
+    let scale = 1.0f32 / fft_size as f32;
+    let n_bins = fft_size / 2 + 1;
+
+    let mut spectra = Vec::new();
+    let mut in_buf = r2c.make_input_vec();
+    let mut out_buf = r2c.make_output_vec();
+    let mut offset = 0;
+    while offset + fft_size <= n {
+        for i in 0..fft_size {
+            in_buf[i] = signal[offset + i] * hann[i];
+        }
+        r2c.process(&mut in_buf, &mut out_buf).unwrap();
+        spectra.push(out_buf.clone());
+        offset += hop_size;
+    }
+    let frames = spectra.len();
+    if frames == 0 {
+        return signal.to_vec();
+    }
+
+    let bin =
+        |hz: f32| ((hz * fft_size as f32 / sample_rate as f32).round() as usize).min(n_bins - 1);
+    let (lo, hi) = (bin(lo_hz), bin(hi_hz).max(bin(lo_hz)));
+
+    // Per-frame energy in the target band (from the original spectra).
+    let band: Vec<f32> = spectra
+        .iter()
+        .map(|fr| fr[lo..=hi].iter().map(|c| c.re * c.re + c.im * c.im).sum::<f32>())
+        .collect();
+
+    let ratio = 1.0 + 8.0 / strength.max(0.1);
+    const T: usize = 6;
+    for t in 0..frames {
+        let a = t.saturating_sub(T);
+        let b = (t + T).min(frames - 1);
+        let mut nb: Vec<f32> = (a..=b).filter(|&s| s != t).map(|s| band[s]).collect();
+        if nb.is_empty() {
+            continue;
+        }
+        nb.sort_by(|x, y| x.partial_cmp(y).unwrap());
+        let med = nb[nb.len() / 2];
+        if band[t] > ratio * med.max(1e-12) {
+            // Bring the band energy down to the median (energy ratio → amplitude gain).
+            let g = (med / band[t]).sqrt().clamp(0.0, 1.0);
+            for c in spectra[t][lo..=hi].iter_mut() {
+                c.re *= g;
+                c.im *= g;
+            }
+        }
+    }
+
+    let mut output = vec![0.0f32; n + fft_size];
+    let mut wsum = vec![0.0f32; n + fft_size];
+    let mut spec_buf = c2r.make_input_vec();
+    let mut time_buf = c2r.make_output_vec();
+    for (t, frame) in spectra.iter().enumerate() {
+        spec_buf.copy_from_slice(frame);
+        c2r.process(&mut spec_buf, &mut time_buf).unwrap();
+        let off = t * hop_size;
+        for i in 0..fft_size {
+            output[off + i] += time_buf[i] * hann[i] * scale;
+            wsum[off + i] += hann[i] * hann[i];
+        }
+    }
+    for i in 0..n {
+        if wsum[i] > 1e-6 {
+            output[i] /= wsum[i];
+        }
+    }
+    output.truncate(n);
+    output
+}
+
+/// Tame plosive pops — the low-frequency bursts on "p"/"b" sounds — by
+/// attenuating transient energy below ~250 Hz. `strength` 1–10 (higher removes
+/// more). Sustained low-frequency content is preserved.
+pub fn deplosive(signal: &[f32], sample_rate: u32, strength: f32) -> Vec<f32> {
+    attenuate_band_transients(signal, sample_rate, 0.0, 250.0, strength)
+}
+
+/// Suppress lavalier / clothing rustle — transient bursts in the ~1.5–6 kHz band
+/// are scaled back toward the local temporal median. `strength` 1–10. Sustained
+/// speech in that band is left largely intact.
+pub fn derustle(signal: &[f32], sample_rate: u32, strength: f32) -> Vec<f32> {
+    attenuate_band_transients(signal, sample_rate, 1500.0, 6000.0, strength)
+}
+
 // ── Voice isolation ─────────────────────────────────────────────────────────
 
 /// Isolate speech from background using energy-based VAD + spectral gating.
@@ -1215,6 +1441,100 @@ pub fn deesser(
         c2r.process(&mut out_buf, &mut in_buf).unwrap();
         for i in 0..fft_size {
             output[offset + i] += in_buf[i] * hann[i] * scale;
+        }
+    }
+    output.truncate(n);
+    output
+}
+
+/// Multiband, adaptive de-esser. The region above `crossover_freq` is split into
+/// `bands` sub-bands; each tracks its own short-term level (an exponential moving
+/// average) and is compressed by `ratio` only when its instantaneous level rises
+/// `threshold_db` above that adaptive average. Adapting *per band* and *over
+/// time* catches sibilance concentrated in part of the band and follows a
+/// speaker's changing level, where a single fixed-threshold band over- or
+/// under-reacts. Falls back to a single band when `bands <= 1`.
+pub fn deess_multiband(
+    signal: &[f32],
+    sample_rate: u32,
+    crossover_freq: f32,
+    threshold_db: f32,
+    ratio: f32,
+    bands: usize,
+) -> Vec<f32> {
+    let fft_size = 2048;
+    let hop_size = 256;
+    let n = signal.len();
+    if n < fft_size {
+        return signal.to_vec();
+    }
+    let bands = bands.max(1);
+    let mut planner = RealFftPlanner::<f32>::new();
+    let r2c = planner.plan_fft_forward(fft_size);
+    let c2r = planner.plan_fft_inverse(fft_size);
+    let hann = hann_window(fft_size);
+    let scale = 1.0f32 / fft_size as f32;
+    let n_bins = fft_size / 2 + 1;
+    let nyquist = sample_rate as f32 / 2.0;
+    let crossover_bin =
+        (((crossover_freq / nyquist) * (n_bins - 1) as f32).round() as usize).min(n_bins - 1);
+    let frames = n / hop_size;
+    // `threshold_db` is how far above the running average triggers compression.
+    let threshold_linear = 10.0f32.powf(threshold_db / 20.0);
+    let span = n_bins.saturating_sub(crossover_bin).max(1);
+    let band_width = span.div_ceil(bands);
+    // Adaptive per-band level; EMA smoothing — slow enough that a sibilant
+    // transient stands above the running average, fast enough to follow speech.
+    let mut avg = vec![0.0f32; bands];
+    let smoothing = 0.85f32;
+
+    let mut output = vec![0.0f32; n + fft_size];
+    let mut wsum = vec![0.0f32; n + fft_size];
+    let mut in_buf = r2c.make_input_vec();
+    let mut out_buf = r2c.make_output_vec();
+
+    for fi in 0..frames {
+        let offset = fi * hop_size;
+        if offset + fft_size > n {
+            break;
+        }
+        for i in 0..fft_size {
+            in_buf[i] = signal[offset + i] * hann[i];
+        }
+        r2c.process(&mut in_buf, &mut out_buf).unwrap();
+
+        for (band, level) in avg.iter_mut().enumerate() {
+            let lo = crossover_bin + band * band_width;
+            let hi = (lo + band_width).min(n_bins);
+            if lo >= hi {
+                continue;
+            }
+            let power: f32 = out_buf[lo..hi].iter().map(|v| v.re * v.re + v.im * v.im).sum();
+            let rms = power.sqrt();
+            if *level <= 0.0 {
+                *level = rms; // seed
+            }
+            let over = rms / (*level * threshold_linear).max(1e-10);
+            if over > 1.0 {
+                let gr = 1.0 / (1.0 + (over - 1.0) * ratio);
+                for v in out_buf[lo..hi].iter_mut() {
+                    v.re *= gr;
+                    v.im *= gr;
+                }
+            }
+            // Track the pre-compression level so transient sibilance reads as "over".
+            *level = smoothing * *level + (1.0 - smoothing) * rms;
+        }
+
+        c2r.process(&mut out_buf, &mut in_buf).unwrap();
+        for i in 0..fft_size {
+            output[offset + i] += in_buf[i] * hann[i] * scale;
+            wsum[offset + i] += hann[i] * hann[i];
+        }
+    }
+    for i in 0..n {
+        if wsum[i] > 1e-6 {
+            output[i] /= wsum[i];
         }
     }
     output.truncate(n);
@@ -1876,6 +2196,124 @@ mod tests {
             tone_after > tone_before * 0.8,
             "sustained tone not preserved: {tone_before} -> {tone_after}"
         );
+    }
+
+    // Single-frequency magnitude over a sample range (a one-bin DFT).
+    fn mag_at(x: &[f32], f: f32, fs: usize, lo: usize, hi: usize) -> f64 {
+        let two_pi = 2.0 * std::f64::consts::PI;
+        let (mut re, mut im) = (0.0f64, 0.0f64);
+        for (i, &v) in x.iter().enumerate().take(hi).skip(lo) {
+            let p = two_pi * f as f64 * i as f64 / fs as f64;
+            re += v as f64 * p.cos();
+            im -= v as f64 * p.sin();
+        }
+        (re * re + im * im).sqrt() / (hi - lo) as f64
+    }
+
+    #[test]
+    fn dewind_attenuates_low_passes_high() {
+        let fs = 48_000u32;
+        let tone = |f: f32| -> Vec<f32> {
+            (0..fs).map(|i| (2.0 * std::f32::consts::PI * f * i as f32 / fs as f32).sin()).collect()
+        };
+        let rms = |x: &[f32]| (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt();
+        let low = dewind(&tone(40.0), fs, 80.0); // octave below the corner
+        let high = dewind(&tone(1000.0), fs, 80.0); // well above
+        assert!(rms(&low) < 0.2, "40 Hz wind should be cut, rms {}", rms(&low));
+        assert!(rms(&high) > 0.6, "1 kHz should pass, rms {}", rms(&high));
+    }
+
+    #[test]
+    fn deplosive_reduces_low_transient_keeps_tone() {
+        let fs = 48_000usize;
+        let two_pi = 2.0 * std::f32::consts::PI;
+        let mut sig: Vec<f32> =
+            (0..fs).map(|i| 0.3 * (two_pi * 2000.0 * i as f32 / fs as f32).sin()).collect();
+        let (start, len) = (fs / 2, fs * 40 / 1000); // 40 ms 100 Hz pop
+        for (i, s) in sig.iter_mut().enumerate().skip(start).take(len) {
+            *s += 0.6 * (two_pi * 100.0 * i as f32 / fs as f32).sin();
+        }
+        let out = deplosive(&sig, fs as u32, 6.0);
+        let (b, a) = (
+            mag_at(&sig, 100.0, fs, start, start + len),
+            mag_at(&out, 100.0, fs, start, start + len),
+        );
+        assert!(a < b * 0.6, "plosive not reduced: {b} -> {a}");
+        let (tb, ta) =
+            (mag_at(&sig, 2000.0, fs, 2000, fs / 4), mag_at(&out, 2000.0, fs, 2000, fs / 4));
+        assert!(ta > tb * 0.8, "tone not preserved: {tb} -> {ta}");
+    }
+
+    #[test]
+    fn derustle_reduces_midband_transient_keeps_low_tone() {
+        let fs = 48_000usize;
+        let two_pi = 2.0 * std::f32::consts::PI;
+        let mut sig: Vec<f32> =
+            (0..fs).map(|i| 0.3 * (two_pi * 500.0 * i as f32 / fs as f32).sin()).collect();
+        let (start, len) = (fs / 2, fs * 40 / 1000); // 40 ms 3 kHz rustle burst
+        for (i, s) in sig.iter_mut().enumerate().skip(start).take(len) {
+            *s += 0.5 * (two_pi * 3000.0 * i as f32 / fs as f32).sin();
+        }
+        let out = derustle(&sig, fs as u32, 6.0);
+        let (b, a) = (
+            mag_at(&sig, 3000.0, fs, start, start + len),
+            mag_at(&out, 3000.0, fs, start, start + len),
+        );
+        assert!(a < b * 0.6, "rustle not reduced: {b} -> {a}");
+        let (tb, ta) =
+            (mag_at(&sig, 500.0, fs, 2000, fs / 4), mag_at(&out, 500.0, fs, 2000, fs / 4));
+        assert!(ta > tb * 0.8, "low tone not preserved: {tb} -> {ta}");
+    }
+
+    #[test]
+    fn denoise_coherent_preserves_stereo_balance() {
+        let fs = 44_100u32;
+        let two_pi = 2.0 * std::f32::consts::PI;
+        let n = fs as usize;
+        let mut rng_l = 1u64;
+        let mut rng_r = 2u64;
+        let noise = |rng: &mut u64| -> f32 {
+            *rng ^= *rng << 13;
+            *rng ^= *rng >> 7;
+            *rng ^= *rng << 17;
+            ((*rng as f32) / (u64::MAX as f32) - 0.5) * 0.1
+        };
+        // 1 kHz tone panned 2:1 (L louder), plus independent noise per channel.
+        let l: Vec<f32> = (0..n)
+            .map(|i| 0.4 * (two_pi * 1000.0 * i as f32 / fs as f32).sin() + noise(&mut rng_l))
+            .collect();
+        let r: Vec<f32> = (0..n)
+            .map(|i| 0.2 * (two_pi * 1000.0 * i as f32 / fs as f32).sin() + noise(&mut rng_r))
+            .collect();
+        let audio = AudioData { sample_rate: fs, channels: vec![l, r] };
+        let out = SpectralDenoiser::default().denoise_coherent(&audio).unwrap();
+        assert_eq!(out.channels.len(), 2);
+        let rl = mag_at(&out.channels[0], 1000.0, n, 0, n);
+        let rr = mag_at(&out.channels[1], 1000.0, n, 0, n);
+        let ratio = rl / rr;
+        assert!((ratio - 2.0).abs() < 0.4, "stereo balance shifted from 2.0 to {ratio}");
+    }
+
+    #[test]
+    fn deess_multiband_reduces_sibilance_keeps_tone() {
+        let fs = 48_000usize;
+        let two_pi = 2.0 * std::f32::consts::PI;
+        let mut sig: Vec<f32> =
+            (0..fs).map(|i| 0.3 * (two_pi * 500.0 * i as f32 / fs as f32).sin()).collect();
+        // 8 kHz sibilance bursts at 0.25 s and 0.75 s
+        for &start in &[fs / 4, fs * 3 / 4] {
+            for (i, s) in sig.iter_mut().enumerate().skip(start).take(fs * 50 / 1000) {
+                *s += 0.4 * (two_pi * 8000.0 * i as f32 / fs as f32).sin();
+            }
+        }
+        let out = deess_multiband(&sig, fs as u32, 4000.0, 3.0, 6.0, 4);
+        let (b, a) = (
+            mag_at(&sig, 8000.0, fs, fs / 4, fs / 4 + fs * 50 / 1000),
+            mag_at(&out, 8000.0, fs, fs / 4, fs / 4 + fs * 50 / 1000),
+        );
+        assert!(a < b * 0.85, "sibilance not reduced: {b} -> {a}");
+        let (tb, ta) = (mag_at(&sig, 500.0, fs, 0, fs / 8), mag_at(&out, 500.0, fs, 0, fs / 8));
+        assert!(ta > tb * 0.8, "tone not preserved: {tb} -> {ta}");
     }
 
     #[test]

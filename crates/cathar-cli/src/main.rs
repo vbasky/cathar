@@ -34,6 +34,9 @@ enum Command {
         /// Use Wiener filter instead of spectral subtraction
         #[arg(long)]
         wiener: bool,
+        /// Phase-coherent stereo: one shared gain mask keeps the stereo image stable
+        #[arg(long)]
+        coherent: bool,
     },
     /// Learn a noise profile from a silence/noise-only recording.
     Noiseprint {
@@ -111,9 +114,45 @@ enum Command {
         /// Crossover frequency in Hz
         #[arg(short, long, default_value_t = 4000.0)]
         freq: f32,
-        /// Threshold in dB
+        /// Threshold in dB (single-band: vs HF/broadband ratio; multiband: dB above each band's running average — try 6)
         #[arg(short, long, default_value_t = -24.0)]
         threshold: f32,
+        /// Split the sibilant region into N adaptive sub-bands (1 = classic single-band)
+        #[arg(long, default_value_t = 1)]
+        bands: usize,
+    },
+    /// Remove low-frequency wind rumble (high-pass).
+    Dewind {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "dewinded.wav")]
+        out: String,
+        /// High-pass cutoff in Hz
+        #[arg(short, long, default_value_t = 80.0)]
+        cutoff: f32,
+    },
+    /// Tame plosive pops ("p"/"b" low-frequency bursts).
+    Deplosive {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "deplosived.wav")]
+        out: String,
+        /// Aggressiveness 1–10
+        #[arg(short, long, default_value_t = 4.0)]
+        strength: f32,
+    },
+    /// Suppress lavalier / clothing rustle (mid-band transient bursts).
+    Derustle {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "derustled.wav")]
+        out: String,
+        /// Aggressiveness 1–10
+        #[arg(short, long, default_value_t = 4.0)]
+        strength: f32,
     },
     /// Attenuate breath sounds between speech segments.
     Breath {
@@ -220,7 +259,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Denoise { input, out, alpha, beta, noiseprint, wiener } => {
+        Command::Denoise { input, out, alpha, beta, noiseprint, wiener, coherent } => {
             let audio = cathar::AudioData::from_file(&input)?;
             let orig_power = power(&audio.channels[0]);
 
@@ -237,14 +276,22 @@ fn main() -> Result<()> {
                 let np: Vec<f32> = serde_json::from_str(&np_json)?;
                 let noise_print = cathar::NoisePrint { fft_size: 2048, spectrum: np };
                 let denoiser = cathar::SpectralDenoiser::with_noise_print(noise_print, alpha, beta);
-                denoiser.denoise(&audio)?
+                if coherent {
+                    denoiser.denoise_coherent(&audio)?
+                } else {
+                    denoiser.denoise(&audio)?
+                }
             } else if wiener {
                 let np = cathar::learn_noise_print(&audio)?;
                 let output = cathar::wiener_denoise(&audio.channels[0], &np, alpha)?;
                 cathar::AudioData { sample_rate: audio.sample_rate, channels: vec![output] }
             } else {
                 let denoiser = cathar::SpectralDenoiser { alpha, beta, ..Default::default() };
-                denoiser.denoise(&audio)?
+                if coherent {
+                    denoiser.denoise_coherent(&audio)?
+                } else {
+                    denoiser.denoise(&audio)?
+                }
             };
 
             clean.to_file(&out)?;
@@ -315,12 +362,39 @@ fn main() -> Result<()> {
             cleaned.to_file(&out)?;
             eprintln!("voice-isolated  →  {out}");
         }
-        Command::Deesser { input, out, freq, threshold } => {
+        Command::Deesser { input, out, freq, threshold, bands } => {
             let audio = cathar::AudioData::from_file(&input)?;
-            let cleaned =
-                audio.map_channels(|c| cathar::deesser(c, audio.sample_rate, freq, threshold, 3.0));
+            let cleaned = audio.map_channels(|c| {
+                if bands > 1 {
+                    cathar::deess_multiband(c, audio.sample_rate, freq, threshold, 4.0, bands)
+                } else {
+                    cathar::deesser(c, audio.sample_rate, freq, threshold, 3.0)
+                }
+            });
             cleaned.to_file(&out)?;
-            eprintln!("de-essed  crossover={freq} Hz  threshold={threshold} dB  →  {out}");
+            let mode =
+                if bands > 1 { format!("{bands}-band adaptive") } else { "single-band".into() };
+            eprintln!(
+                "de-essed  crossover={freq} Hz  threshold={threshold} dB  ({mode})  →  {out}"
+            );
+        }
+        Command::Dewind { input, out, cutoff } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let cleaned = audio.map_channels(|c| cathar::dewind(c, audio.sample_rate, cutoff));
+            cleaned.to_file(&out)?;
+            eprintln!("de-winded  high-pass {cutoff} Hz  →  {out}");
+        }
+        Command::Deplosive { input, out, strength } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let cleaned = audio.map_channels(|c| cathar::deplosive(c, audio.sample_rate, strength));
+            cleaned.to_file(&out)?;
+            eprintln!("de-plosived  strength={strength}  →  {out}");
+        }
+        Command::Derustle { input, out, strength } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let cleaned = audio.map_channels(|c| cathar::derustle(c, audio.sample_rate, strength));
+            cleaned.to_file(&out)?;
+            eprintln!("de-rustled  strength={strength}  →  {out}");
         }
         Command::Breath { input, out } => {
             let audio = cathar::AudioData::from_file(&input)?;

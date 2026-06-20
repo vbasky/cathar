@@ -22,7 +22,8 @@ boxes, so a result you don't like is a knob you can turn rather than a model you
 have to re-roll. Cathar does three things and writes WAV, FLAC, or AIFF (chosen
 by the output extension):
 
-- **Restore** — denoise, de-hum, de-click, de-clip, de-reverb, spectral repair.
+- **Restore** — denoise (phase-coherent stereo), de-hum, de-wind, de-click,
+  de-clip, de-reverb, spectral repair, de-plosive, de-rustle.
 - **Enhance** — de-ess, breath removal, voice isolation, bandwidth extension.
 - **Level** — loudness (LUFS) and peak normalisation for delivery.
 
@@ -82,12 +83,15 @@ grouped here by what they fix; run them in any order, or chain them.
 
 | Command | What it does | Key flags |
 | --- | --- | --- |
-| `denoise` | Broadband denoiser — spectral subtraction (default) or Wiener filter | `--alpha` 3.0, `--beta` 0.01, `--noiseprint <f>`, `--wiener` |
+| `denoise` | Broadband denoiser — spectral subtraction (default) or Wiener filter; `--coherent` keeps the stereo image stable | `--alpha` 3.0, `--beta` 0.01, `--noiseprint <f>`, `--wiener`, `--coherent` |
 | `noiseprint` | Learn a noise profile from a silence/room-tone clip → JSON | `--out noise.np.json` |
 | `dehum` | Notch out mains hum (50/60 Hz) and its harmonics | `--freq` 60, `--harmonics` 5 |
+| `dewind` | Cut low-frequency wind rumble with a 4th-order high-pass | `--cutoff` 80 |
 | `dereverb` | Suppress room reverb by gating the spectral decay tail | `--strength` 2.0 |
 | `voiceisolate` | Keep speech, gate everything else (energy VAD + spectral gate) | `--noiseprint <f>` |
-| `deesser` | Tame harsh sibilance ("sss") above a crossover frequency | `--freq` 4000, `--threshold` -24 |
+| `deesser` | Tame harsh sibilance ("sss"); `--bands >1` is multiband + adaptive | `--freq` 4000, `--threshold` -24, `--bands` 1 |
+| `deplosive` | Tame plosive "p"/"b" pops (low-frequency transient bursts) | `--strength` 4 |
+| `derustle` | Suppress lavalier / clothing rustle (mid-band transient bursts) | `--strength` 4 |
 | `breath` | Detect and high-pass the breaths before speech onsets | — |
 
 ### Repair — reconstruct damaged samples
@@ -144,7 +148,8 @@ Every stage is classic, inspectable DSP — no black boxes.
 
 | Tool | Technique |
 | --- | --- |
-| `denoise` | STFT 2048/512, Hann; spectral subtraction `max(mag−α·N, β·mag)` or Wiener `S/(S+N)` |
+| `denoise` | STFT 2048/512, Hann; spectral subtraction `max(mag−α·N, β·mag)` or Wiener `S/(S+N)`. `--coherent` derives one gain mask from the mid (L+R) signal and applies it to every channel, so the stereo image stays put |
+| `dewind` | 4th-order Butterworth high-pass (two cascaded biquads, ~24 dB/oct) at `--cutoff` |
 | `noiseprint` | Per-bin magnitude spectrum of a noise clip, serialised to JSON |
 | `dehum` | Cascade of 2nd-order IIR notch biquads (Q = 30) at the base frequency and each harmonic up to Nyquist |
 | `declick` | Sliding-window local RMS; samples exceeding `threshold × RMS` are clicks, replaced by cubic-Hermite interpolation |
@@ -152,7 +157,8 @@ Every stage is classic, inspectable DSP — no black boxes.
 | `repair` | STFT 2048/512; per bin, compare magnitude to its temporal median (±4 frames) and pull transient outliers back to the median, phase preserved — sustained content is untouched, overlap-add is window-normalised to unity |
 | `dereverb` | Two-pass spectral-decay gating: track each bin's envelope (8 ms attack / 50 ms release), gate bins sitting near their reverb floor |
 | `voiceisolate` | Energy VAD on 20 ms frames (gap-fill < 120 ms, drop segments < 50 ms) + spectral gating of non-speech (tighter with a noiseprint) |
-| `deesser` | STFT 2048/256; where the high-frequency power ratio above the crossover exceeds the threshold, apply frequency-dependent compression |
+| `deesser` | STFT 2048/256; single-band compresses the HF region when its power ratio exceeds the threshold. `--bands >1` splits the sibilant region into sub-bands, each compressed when it rises `threshold` dB above its own EMA-tracked running level (multiband + adaptive) |
+| `deplosive` / `derustle` | STFT; per frame measure energy in a band (plosive < 250 Hz, rustle 1.5–6 kHz); frames whose band energy spikes above the temporal median are scaled back toward it, phase preserved, sustained content untouched |
 | `breath` | VAD-flag the frames just before a speech onset (≤ 150 ms) and high-pass them at 200 Hz, mixed 40 / 60 dry/wet |
 | `resample` | Kaiser-windowed sinc (16 lobes, β = 9), arbitrary ratio; cutoff tracks the lower Nyquist so downsampling is anti-aliased and upsampling adds no imaging |
 | `enhance` | Shared resampler to the target rate, then spectral band replication (4096 FFT) folds the existing top band into the empty highs with a tiled rolloff |
@@ -199,10 +205,12 @@ The public surface is small and direct:
   `normalize_r128(target_lufs, true_peak_ceiling_db)` for whole-signal loudness,
   and `resample(target_rate)` for the main-path resampler.
 - **`Denoiser`** trait + **`SpectralDenoiser`** (configurable `fft_size`,
-  `hop_size`, `alpha`, `beta`, `noise_frame_ratio`, optional `noise_print`).
+  `hop_size`, `alpha`, `beta`, `noise_frame_ratio`, optional `noise_print`);
+  `denoise` and `denoise_coherent` (phase-coherent stereo).
 - **`NoisePrint`** + `learn_noise_print` + `wiener_denoise`.
-- Free functions: `dehum`, `declick`, `declip`, `spectral_repair`, `dereverb`,
-  `voice_isolate`, `deesser`, `breath_remove`, `bandwidth_extend`, `resample`,
+- Free functions: `dehum`, `dewind`, `declick`, `declip`, `spectral_repair`,
+  `deplosive`, `derustle`, `dereverb`, `voice_isolate`, `deesser`,
+  `deess_multiband`, `breath_remove`, `bandwidth_extend`, `resample`,
   `normalize_peak`, `integrated_loudness`, `true_peak_dbtp`, `generate_wave`.
 
 ## Formats & I/O

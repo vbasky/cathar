@@ -9,6 +9,26 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-20
+
+Completes the `0.5` DSP-depth milestone (spectral repair shipped in 0.5.0).
+
+### Added
+
+- **De-wind** (`dewind` / `dewind` command) — 4th-order Butterworth high-pass
+  (two cascaded biquads) to cut low-frequency wind rumble at a chosen cutoff.
+- **De-plosive** (`deplosive`) and **de-rustle** (`derustle`) — band-limited
+  transient suppression: per frame, energy in a band (plosive < 250 Hz, rustle
+  1.5–6 kHz) that spikes above its temporal median is scaled back toward it with
+  phase preserved, leaving sustained content untouched.
+- **Multiband / adaptive de-ess** (`deess_multiband`, `deesser --bands N`) — the
+  sibilant region is split into sub-bands, each compressed only when it rises
+  `threshold` dB above its own EMA-tracked running level.
+- **Phase-coherent stereo** (`SpectralDenoiser::denoise_coherent`,
+  `denoise --coherent`) — one suppression gain mask is computed from the mid
+  (L+R) signal and applied to every channel, so the stereo image stays stable
+  instead of wandering as bins gate differently per channel.
+
 ## [0.5.0] - 2026-06-20
 
 ### Added
