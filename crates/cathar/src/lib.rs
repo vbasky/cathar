@@ -471,6 +471,21 @@ mod tests {
         assert!(ta > tb * 0.8, "tone not preserved: {tb} -> {ta}");
     }
 
+    /// A mono WAV must be tagged FRONT_CENTER, not FRONT_LEFT, so layout-aware
+    /// players route it to both speakers.
+    #[test]
+    fn mono_wav_is_centered_not_front_left() {
+        let audio = generate_wave(44_100, 440.0, 0.2, 0.0);
+        let path = std::env::temp_dir().join("cathar_mask_test.wav");
+        let p = path.to_str().unwrap();
+        audio.to_file(p).unwrap();
+        let bytes = std::fs::read(p).unwrap();
+        std::fs::remove_file(p).ok();
+        // WAVE_FORMAT_EXTENSIBLE dwChannelMask is at byte offset 40.
+        let mask = u32::from_le_bytes([bytes[40], bytes[41], bytes[42], bytes[43]]);
+        assert_eq!(mask, 0x4, "mono WAV should be FRONT_CENTER (0x4), got {mask:#x}");
+    }
+
     #[test]
     fn wiener_reduces_noise() {
         let noisy = generate_wave(44100, 440.0, 2.0, 0.2);

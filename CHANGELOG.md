@@ -9,6 +9,14 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+### Fixed
+
+- Mono WAV output played in the left speaker only. `hound` writes 32-bit float
+  WAV as `WAVE_FORMAT_EXTENSIBLE` and tags a single channel as `FRONT_LEFT`, so
+  layout-aware players (CoreAudio / `afplay`) routed it hard-left. Mono output is
+  now tagged `FRONT_CENTER` and plays centred. Stereo and FLAC/AIFF were
+  unaffected.
+
 ### Documentation
 
 - Documented every remaining public item (`Error` + variants, `AudioData` +

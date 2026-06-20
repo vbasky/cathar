@@ -125,6 +125,9 @@ impl AudioData {
             }
         }
         writer.finalize()?;
+        if self.channels.len() == 1 {
+            fix_mono_wav_channel_mask(path)?;
+        }
         Ok(())
     }
 
@@ -275,4 +278,35 @@ pub(crate) fn ieee754_extended(value: f64) -> [u8; 10] {
     bytes[1] = biased as u8;
     bytes[2..10].copy_from_slice(&mantissa.to_be_bytes());
     bytes
+}
+
+/// Rewrite a mono float WAV's channel mask from `FRONT_LEFT` to `FRONT_CENTER`.
+///
+/// `hound` writes 32-bit float WAV as `WAVE_FORMAT_EXTENSIBLE` and assigns a
+/// positional channel mask; for a single channel that mask is `FRONT_LEFT`,
+/// which makes layout-aware players (e.g. CoreAudio / `afplay`) route the file
+/// to the left speaker only. Patching the mask to `FRONT_CENTER` makes a mono
+/// file play centred. Leaves the file untouched if the header isn't the
+/// expected mono extensible layout.
+fn fix_mono_wav_channel_mask(path: &str) -> Result<(), Error> {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    let mut f = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
+    let mut hdr = [0u8; 24];
+    if f.read_exact(&mut hdr).is_err() {
+        return Ok(());
+    }
+    let fmt_tag = u16::from_le_bytes([hdr[20], hdr[21]]);
+    let n_ch = u16::from_le_bytes([hdr[22], hdr[23]]);
+    // RIFF/WAVE/fmt header, WAVE_FORMAT_EXTENSIBLE (0xFFFE), one channel.
+    if &hdr[0..4] == b"RIFF"
+        && &hdr[8..12] == b"WAVE"
+        && &hdr[12..16] == b"fmt "
+        && fmt_tag == 0xFFFE
+        && n_ch == 1
+    {
+        // dwChannelMask sits 20 bytes into the fmt data, which starts at offset 20.
+        f.seek(SeekFrom::Start(40))?;
+        f.write_all(&0x0000_0004u32.to_le_bytes())?; // SPEAKER_FRONT_CENTER
+    }
+    Ok(())
 }
