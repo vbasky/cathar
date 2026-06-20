@@ -53,6 +53,8 @@ jobs:
 
       - name: clippy + test (tui feature)
         run: |
+          # rodio/cpal needs ALSA headers to build on Linux.
+          sudo apt-get update && sudo apt-get install -y libasound2-dev
           cargo clippy -p cathar-cli --features tui --all-targets -- -D warnings
           cargo test -p cathar-cli --features tui
 

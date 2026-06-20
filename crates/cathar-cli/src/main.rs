@@ -6,6 +6,8 @@ use clap::{Parser, Subcommand};
 use rayon::prelude::*;
 
 #[cfg(feature = "tui")]
+mod player;
+#[cfg(feature = "tui")]
 mod tui;
 
 /// Audio restoration toolbox — denoise, de-hum, de-click, de-clip, normalise.
@@ -263,6 +265,15 @@ enum Command {
         /// Hop between frames in samples (smaller = more time detail)
         #[arg(long, default_value_t = 512)]
         hop: usize,
+    },
+    /// Play a file with a live spectrum-analyzer visualizer (Winamp-style).
+    #[cfg(feature = "tui")]
+    Play {
+        /// Input file (any supported format)
+        input: String,
+        /// FFT size for the analyzer (larger = finer frequency bands)
+        #[arg(long, default_value_t = 2048)]
+        fft: usize,
     },
 }
 
@@ -524,6 +535,10 @@ fn main() -> Result<()> {
         #[cfg(feature = "tui")]
         Command::View { input, fft, hop } => {
             tui::run(&input, fft, hop)?;
+        }
+        #[cfg(feature = "tui")]
+        Command::Play { input, fft } => {
+            player::run(&input, fft)?;
         }
     }
 

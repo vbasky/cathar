@@ -24,8 +24,9 @@ doc = false
 [features]
 default = []
 ml = ["cathar/ml"]
-# Optional terminal spectrogram viewer (`cathar view`) — pulls in ratatui.
-tui = ["dep:ratatui"]
+# Optional interactive terminal UI: spectrogram viewer (`view`) + a Winamp-style
+# player/visualizer (`play`). Pulls in ratatui (render) and rodio (playback).
+tui = ["dep:ratatui", "dep:rodio"]
 
 [lints]
 workspace = true
@@ -40,3 +41,4 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 rayon.workspace = true
 ratatui = { version = "0.30.0", optional = true }
+rodio = { version = "0.22.2", default-features = false, features = ["playback"], optional = true }

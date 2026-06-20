@@ -125,17 +125,24 @@ grouped here by what they fix; run them in any order, or chain them.
 | `resample` | Resample to a different rate (anti-aliased, any ratio) | `--rate` 48000 |
 | `wave` | Generate a synthetic sine + noise test tone | `--freq` 440, `--duration` 3, `--noise` 0.1, `--sample-rate` 44100 |
 | `batch` | Denoise (and optionally de-hum / normalise) a whole directory | `--indir`, `--outdir`, `--dehum <hz>`, `--normalize <lufs>`, `--exts` |
-| `view` *(opt-in)* | Interactive terminal **spectrogram viewer** — a lightweight nod to RX | `--fft` 2048, `--hop` 512 |
+| `play` *(opt-in)* | **Winamp-style player** — plays the file with a live spectrum-analyzer visualizer | `--fft` 2048 |
+| `view` *(opt-in)* | Interactive terminal **spectrogram viewer** for analysis | `--fft` 2048, `--hop` 512 |
 
 `--target` for `normalize` is roughly: `-23` broadcast (EBU R128), `-16`
 podcast, `-14` streaming.
 
-The `view` command is behind the optional `tui` feature (keeps the default build
-lean): install with `cargo install cathar-cli --features tui`, then
-`cathar view recording.wav` for a truecolor heatmap of time × frequency × level
-(arrows move the crosshair for a time/frequency/dB readout, `+`/`-` zoom, `f`
-toggles log frequency, `q` quits). The underlying `cathar::spectrogram` function
-is always available in the library.
+`play` and `view` are behind the optional `tui` feature, so the default build and
+its dependency set stay lean. Install with `cargo install cathar-cli --features tui`
+(on Linux this needs ALSA headers: `libasound2-dev`):
+
+- **`cathar play song.wav`** — plays the audio and animates a live, colored
+  spectrum analyzer with peak-hold caps (`space` pause, `←/→` seek, `m` switches
+  to an oscilloscope, `q` quits). The fun one.
+- **`cathar view noisy.wav`** — a static truecolor spectrogram heatmap for
+  *seeing* hiss/hum/clicks before you remove them (crosshair reads time/freq/dB,
+  `+/-` zoom, `f` log frequency). The analytical one.
+
+The underlying `cathar::spectrogram` function is always available in the library.
 
 ## How denoising works
 

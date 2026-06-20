@@ -11,6 +11,12 @@ The release workflow extracts the notes for a version from the matching
 
 ### Added
 
+- **Player + visualizer (`cathar play`, opt-in `tui` feature)** — a Winamp/cava-
+  style terminal player: streams the file to the system audio device (`rodio`) and
+  animates a live, colored spectrum analyzer (log-spaced bands, unicode eighth-
+  blocks, gravity decay + peak-hold caps) synced to playback, plus an oscilloscope
+  mode. `space` pause, `←/→` seek, `m` mode, `q` quit. On Linux the build needs
+  ALSA headers (`libasound2-dev`).
 - **`spectrogram` (library)** — `cathar::spectrogram(signal, sample_rate, fft_size,
   hop)` computes a Hann-windowed STFT magnitude spectrogram (dB), returned as a
   `Spectrogram` with `frames()`/`get()`/`bin_hz()`/`frame_time()` helpers.
