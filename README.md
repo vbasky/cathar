@@ -237,16 +237,20 @@ container files, so it can sit immediately after ingest and before encoding.
 
 ## Roadmap
 
-Cathar is `0.1.x`. The DSP chain above is implemented and unit-tested; these are
-the next steps:
+Cathar is `0.1.x`, restoration-first, and growing — before `1.0` — into a
+general-purpose, pure-Rust audio swiss-army knife (a SoX-class tool with no
+ffmpeg and no C/C++ FFI). See [`ROADMAP.md`](ROADMAP.md) for the full plan and
+SoX-parity checklist. Near-term (`0.2`):
 
-- **Learned denoiser** — the optional `ml` feature already wires in
-  [`candle`](https://crates.io/crates/candle-core); the neural model itself is
-  not implemented yet.
 - **True EBU R128 loudness** — `normalize --target` is currently an RMS-based
   LUFS approximation, not K-weighted gated loudness.
 - **Main-path resampling** — extend the `enhance` resampler to every stage so
   mixed-rate inputs are handled uniformly.
+- **Encode beyond WAV** — FLAC/AIFF on the pure-Rust default path; real format
+  conversion, the first step toward swiss-army breadth.
+
+The optional `ml` feature wires in [`candle`](https://crates.io/crates/candle-core)
+for a learned denoiser (`0.4`); the neural model itself is not implemented yet.
 
 ## Development
 
