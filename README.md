@@ -8,7 +8,7 @@ noisy recording and give back clean audio.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/vbasky/cathar/ci.yml?branch=main&logo=github&label=CI)](https://github.com/vbasky/cathar/actions)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
-[![MSRV](https://img.shields.io/badge/MSRV-1.85-blue)](https://www.rust-lang.org)
+[![MSRV](https://img.shields.io/badge/MSRV-1.87-blue)](https://www.rust-lang.org)
 [![Edition](https://img.shields.io/badge/edition-2024-blue?logo=rust)](https://doc.rust-lang.org/edition-guide/)
 [![Pure Rust](https://img.shields.io/badge/pure%20Rust-no%20ffmpeg-orange?logo=rust)](#design)
 [![Stars](https://img.shields.io/github/stars/vbasky/cathar?style=social)](https://github.com/vbasky/cathar/stargazers)
@@ -19,22 +19,24 @@ Rust.** It works on a standalone audio file (WAV, MP3, FLAC, OGG, M4A) just as
 readily as the audio track inside a video (MP4, MKV); video is never required.
 Every stage is inspectable, tunable DSP — no opaque neural models, no black
 boxes, so a result you don't like is a knob you can turn rather than a model you
-have to re-roll. Cathar does three things and writes a clean 32-bit float WAV:
+have to re-roll. Cathar does three things and writes WAV, FLAC, or AIFF (chosen
+by the output extension):
 
 - **Restore** — denoise, de-hum, de-click, de-clip, de-reverb.
 - **Enhance** — de-ess, breath removal, voice isolation, bandwidth extension.
 - **Level** — loudness (LUFS) and peak normalisation for delivery.
 
 No ffmpeg, no C/C++, no system libraries. Decoding is [`symphonia`], the FFT is
-[`realfft`]/[`rustfft`], WAV writing is [`hound`] — a single `cargo build` gives
-you a self-contained binary. Every effect is also a plain function over
-`&[f32]`, so the same pipeline drops straight into a Rust program or a larger
-media-processing pipeline.
+[`realfft`]/[`rustfft`], WAV writing is [`hound`] and FLAC is [`flacenc`] — all
+pure Rust, so a single `cargo build` gives you a self-contained binary. Every
+effect is also a plain function over `&[f32]`, so the same pipeline drops
+straight into a Rust program or a larger media-processing pipeline.
 
 [`symphonia`]: https://crates.io/crates/symphonia
 [`realfft`]: https://crates.io/crates/realfft
 [`rustfft`]: https://crates.io/crates/rustfft
 [`hound`]: https://crates.io/crates/hound
+[`flacenc`]: https://crates.io/crates/flacenc
 
 ## Quick start
 
@@ -66,7 +68,9 @@ cathar wave --out test.wav --duration 3 --freq 440 --noise 0.15
 
 ## The toolkit
 
-Every command reads any supported format and writes a 32-bit float WAV. They are
+Every command reads any supported format and writes WAV (32-bit float), FLAC
+(24-bit lossless), or AIFF (24-bit) — the container follows the `--out`
+extension (`.wav` / `.flac` / `.aif`/`.aiff`, defaulting to WAV). They are
 grouped here by what they fix; run them in any order, or chain them.
 
 ### Reduce — pull noise out of the signal
@@ -249,15 +253,17 @@ container files, so it can sit immediately after ingest and before encoding.
 Cathar is `0.1.x`, restoration-first, and growing — before `1.0` — into a
 general-purpose, pure-Rust audio swiss-army knife (a SoX-class tool with no
 ffmpeg and no C/C++ FFI). See [`ROADMAP.md`](ROADMAP.md) for the full plan and
-SoX-parity checklist. Remaining near-term:
+SoX-parity checklist. The `0.2`–`0.4` foundations are complete:
 
-- **Encode beyond WAV** — FLAC/AIFF on the pure-Rust default path; real format
-  conversion, the first step toward swiss-army breadth.
+- **True EBU R128 loudness** (`normalize`) — K-weighted gated LUFS with a
+  `--true-peak` dBTP ceiling.
+- **Main-path resampling** — the `resample` command + `AudioData::resample`, a
+  shared anti-aliased Kaiser-windowed sinc any stage can call.
+- **Encode beyond WAV** — 24-bit lossless FLAC and 24-bit AIFF on the pure-Rust
+  default path, selected by the output extension.
 
-Done in the `0.2`/`0.3` foundations: **true EBU R128 loudness** (`normalize` —
-K-weighted gated LUFS with a `--true-peak` dBTP ceiling) and **main-path
-resampling** (the `resample` command + `AudioData::resample`, a shared
-anti-aliased Kaiser-windowed sinc that any stage can call).
+Next up is restoration depth (Phase 1 `0.3`) and the swiss-army expansion
+(Phase 2) — see [`ROADMAP.md`](ROADMAP.md).
 
 The optional `ml` feature wires in [`candle`](https://crates.io/crates/candle-core)
 for a learned denoiser (`0.4`); the neural model itself is not implemented yet.

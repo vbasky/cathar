@@ -7,7 +7,7 @@ members = [
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.87"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/vbasky/cathar"
 authors = ["Vikram Bhaskaran <vikram.bhaskaran@outlook.com>"]
@@ -31,7 +31,7 @@ codegen-units = 1
 
 [workspace.dependencies]
 # Internal crates
-cathar = { path = "crates/cathar", version = "0.3.0" }
+cathar = { path = "crates/cathar", version = "0.4.0" }
 
 # Common third-party — trim to what you actually use.
 anyhow = "1"
@@ -47,6 +47,8 @@ symphonia = { version = "0.6", features = ["all"] }
 rustfft = "6"
 realfft = "3"
 rayon = "1"
+# Pure-Rust FLAC encoder (no C bindings).
+flacenc = { version = "0.5.1", default-features = false, features = ["par"] }
 # candle for AI denoising models — pure Rust ML (enable via `ml` feature in cathar crate)
 candle-core = "0.10"
 candle-nn = "0.10"

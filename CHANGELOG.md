@@ -9,6 +9,28 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-20
+
+### Added
+
+- **Encode beyond WAV.** `AudioData::to_file` now selects the container from the
+  output extension: 24-bit lossless FLAC (`.flac`, via the pure-Rust `flacenc`)
+  and 24-bit big-endian PCM AIFF (`.aif`/`.aiff`), in addition to 32-bit float
+  WAV (the default). Every CLI command picks the format from its `--out`
+  extension.
+
+### Changed
+
+- MSRV raised to 1.87 (required by a `flacenc` dependency).
+
+### Fixed
+
+- FLAC decoding: end-of-stream is now handled when symphonia signals it with an
+  `UnexpectedEof` I/O error rather than a clean end, so FLAC inputs decode fully.
+- FLAC encoding writes `min_block_size == max_block_size` in STREAMINFO for
+  fixed-block-size streams, so strict decoders (including symphonia) don't
+  misread cathar's FLAC output as variable-block-size.
+
 ## [0.3.0] - 2026-06-20
 
 ### Added
