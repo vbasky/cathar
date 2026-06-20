@@ -5,6 +5,9 @@ use cathar::Denoiser;
 use clap::{Parser, Subcommand};
 use rayon::prelude::*;
 
+#[cfg(feature = "tui")]
+mod tui;
+
 /// Audio restoration toolbox — denoise, de-hum, de-click, de-clip, normalise.
 #[derive(Debug, Parser)]
 #[command(name = "cathar", version, about)]
@@ -248,6 +251,18 @@ enum Command {
         /// Extensions to process (comma-separated)
         #[arg(long, default_value = "wav,mp3,mp4,m4a,mkv,flac,ogg,aac")]
         exts: String,
+    },
+    /// View a spectrogram in the terminal (interactive heatmap).
+    #[cfg(feature = "tui")]
+    View {
+        /// Input file (any supported format)
+        input: String,
+        /// FFT size (frequency resolution = sample_rate / fft)
+        #[arg(long, default_value_t = 2048)]
+        fft: usize,
+        /// Hop between frames in samples (smaller = more time detail)
+        #[arg(long, default_value_t = 512)]
+        hop: usize,
     },
 }
 
@@ -505,6 +520,10 @@ fn main() -> Result<()> {
                 }
             });
             eprintln!("done  {total} files  →  {outdir}/");
+        }
+        #[cfg(feature = "tui")]
+        Command::View { input, fft, hop } => {
+            tui::run(&input, fft, hop)?;
         }
     }
 

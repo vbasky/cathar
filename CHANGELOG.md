@@ -9,6 +9,18 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+### Added
+
+- **`spectrogram` (library)** — `cathar::spectrogram(signal, sample_rate, fft_size,
+  hop)` computes a Hann-windowed STFT magnitude spectrogram (dB), returned as a
+  `Spectrogram` with `frames()`/`get()`/`bin_hz()`/`frame_time()` helpers.
+- **Terminal spectrogram viewer (`cathar view`, opt-in `tui` feature)** — an
+  interactive truecolor heatmap of time × frequency × level built on `ratatui`, a
+  lightweight nod to RX's spectral display. Unicode half-blocks pack two frequency
+  bins per row; a movable crosshair reads out time/frequency/dB, `+`/`-` zoom time,
+  `f` toggles log frequency. Behind `--features tui` so the default build and its
+  dependency set are unchanged: `cargo install cathar-cli --features tui`.
+
 ## [0.5.3] - 2026-06-21
 
 ### Changed

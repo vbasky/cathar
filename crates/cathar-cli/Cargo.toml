@@ -24,6 +24,8 @@ doc = false
 [features]
 default = []
 ml = ["cathar/ml"]
+# Optional terminal spectrogram viewer (`cathar view`) — pulls in ratatui.
+tui = ["dep:ratatui"]
 
 [lints]
 workspace = true
@@ -37,3 +39,4 @@ serde_json = { workspace = true }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 rayon.workspace = true
+ratatui = { version = "0.30.0", optional = true }

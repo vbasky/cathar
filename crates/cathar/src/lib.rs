@@ -24,6 +24,7 @@ mod error;
 mod loudness;
 mod resample;
 mod restore;
+mod spectrum;
 mod util;
 
 pub use audio::AudioData;
@@ -33,6 +34,7 @@ pub use error::Error;
 pub use loudness::{integrated_loudness, normalize_peak, true_peak_dbtp};
 pub use resample::resample;
 pub use restore::{declick, declip, dehum, deplosive, dereverb, derustle, dewind, spectral_repair};
+pub use spectrum::{Spectrogram, spectrogram};
 pub use util::{generate_wave, variance};
 
 #[cfg(test)]
@@ -168,6 +170,31 @@ mod tests {
         let restored = declip(&clipped, 0.6);
         let min = (256..n - 256).map(|i| restored[i]).fold(0.0f32, f32::min);
         assert!(min < -0.85, "negative peak should be rebuilt toward -1.0, got {min}");
+    }
+
+    /// The spectrogram's loudest bin sits at the tone's frequency.
+    #[test]
+    fn spectrogram_peaks_at_tone_frequency() {
+        let fs = 44_100u32;
+        let sig: Vec<f32> = (0..fs)
+            .map(|i| (2.0 * std::f32::consts::PI * 1000.0 * i as f32 / fs as f32).sin())
+            .collect();
+        let spec = spectrogram(&sig, fs, 2048, 512);
+        assert!(spec.frames() > 0 && spec.bins == 1025);
+        let f = spec.frames() / 2;
+        let mut peak_bin = 0;
+        let mut peak_db = f32::MIN;
+        for b in 0..spec.bins {
+            if spec.get(f, b) > peak_db {
+                peak_db = spec.get(f, b);
+                peak_bin = b;
+            }
+        }
+        assert!(
+            (spec.bin_hz(peak_bin) - 1000.0).abs() < 50.0,
+            "peak at {} Hz, want ~1000",
+            spec.bin_hz(peak_bin)
+        );
     }
 
     /// Debug harness: run a clipped sine through A-SPADE and print the result
