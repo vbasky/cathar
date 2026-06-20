@@ -1,0 +1,10 @@
+[book]
+title = "Cleaning Up Sound"
+description = "Audio restoration from first principles — the concepts behind cathar, for people who have never touched a DAW or DSP, with comparisons to the industry-standard tools."
+authors = ["Vikram Bhaskaran"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "rust"
+git-repository-url = "https://github.com/vbasky/cathar"

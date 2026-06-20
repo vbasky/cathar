@@ -1,0 +1,18 @@
+# Summary
+
+[Preface — who this is for](preface.md)
+
+- [What digital sound actually is](01-digital-sound.md)
+- [The two ways to look at sound](02-two-views.md)
+- [The repair toolbox: what breaks, and the "de-" family](03-the-toolbox.md)
+- [Hiss and noise — denoising](04-noise.md)
+- [Hum — getting rid of the buzz](05-hum.md)
+- [Clicks and clipping — repairing damaged samples](06-clicks-clipping.md)
+- [Rooms and reverb — taking the echo away](07-reverb.md)
+- [Harsh "S" sounds — de-essing](08-sibilance.md)
+- [Wind, pops, and rustle](09-wind-pops-rustle.md)
+- [How loud is loud? — loudness and LUFS](10-loudness.md)
+- [Sample rate and resampling](11-resampling.md)
+- [Stereo, channels, and phase](12-stereo.md)
+- [How cathar compares to the big tools](13-vs-industry.md)
+- [Glossary in plain language](14-glossary.md)
