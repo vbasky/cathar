@@ -13,9 +13,13 @@ categories = ["command-line-utilities", "multimedia::audio"]
 
 # The binary is named after the project (not `-cli`), so `cathar ...`
 # is the command users run. CI archives this binary by repository name.
+# `doc = false`: the bin target is also named `cathar`, which would collide with
+# the `cathar` lib's rustdoc output dir under a workspace `cargo doc` (cargo
+# #6313). A CLI binary has no useful rustdoc, so skip it.
 [[bin]]
 name = "cathar"
 path = "src/main.rs"
+doc = false
 
 [features]
 default = []
