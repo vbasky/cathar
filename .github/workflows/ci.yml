@@ -57,15 +57,21 @@ jobs:
         run: cargo doc --no-deps --document-private-items
 
   msrv:
-    name: msrv (1.87)
+    name: msrv (rust-version from Cargo.toml)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
-      - name: install rust 1.87
+      - name: read MSRV from Cargo.toml
+        id: msrv
         run: |
-          rustup toolchain install 1.87 --no-self-update
-          rustup default 1.87
+          v=$(grep -m1 '^rust-version' Cargo.toml | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?')
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: install rust ${{ steps.msrv.outputs.version }}
+        run: |
+          rustup toolchain install ${{ steps.msrv.outputs.version }} --no-self-update
+          rustup default ${{ steps.msrv.outputs.version }}
 
       - name: cache
         uses: actions/cache@v5
@@ -76,8 +82,8 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-msrv-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: check
-        run: cargo check --workspace --all-targets
+      - name: check (consumer targets, matches published MSRV)
+        run: cargo check --workspace
 
   deny:
     name: cargo-deny (advisories + licenses + bans)
