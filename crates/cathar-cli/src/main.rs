@@ -134,6 +134,17 @@ enum Command {
         #[arg(short, long, default_value_t = 48000)]
         rate: u32,
     },
+    /// Resample to a different sample rate (anti-aliased, any ratio).
+    Resample {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "resampled.wav")]
+        out: String,
+        /// Target sample rate (Hz)
+        #[arg(short, long, default_value_t = 48000)]
+        rate: u32,
+    },
     /// Normalize loudness or peak level.
     Normalize {
         /// Input file
@@ -316,6 +327,14 @@ fn main() -> Result<()> {
             let result = cathar::AudioData { sample_rate: rate, channels };
             result.to_file(&out)?;
             eprintln!("enhanced  {} Hz → {rate} Hz  →  {out}", audio.sample_rate);
+        }
+
+        Command::Resample { input, out, rate } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let from = audio.sample_rate;
+            let resampled = audio.resample(rate);
+            resampled.to_file(&out)?;
+            eprintln!("resampled  {from} Hz → {rate} Hz  →  {out}");
         }
 
         Command::Normalize { input, out, target, peak, true_peak } => {

@@ -39,8 +39,10 @@ stands next to iZotope RX's core.
 - ✅ **True EBU R128 loudness** — K-weighting + gated integrated LUFS
   (ITU-R BS.1770-4), measured jointly across channels, with a 4×-oversampled
   true-peak (dBTP) ceiling. Replaces the RMS approximation in `normalize`.
-- **Main-path resampling** — high-quality resampler (e.g. `rubato`) available to
-  every stage, not just `enhance`, so mixed-rate inputs are handled uniformly.
+- ✅ **Main-path resampling** — a shared Kaiser-windowed sinc resampler
+  (anti-aliased, arbitrary ratio) exposed as `AudioData::resample` and the
+  `resample` command; `enhance` now uses it too, so mixed-rate inputs can be
+  brought to a common rate by any stage.
 - **Encode beyond WAV** — FLAC and AIFF on the pure-Rust default path; a
   `codecs` feature gates anything that needs C bindings. This is also the first
   brick of the swiss-army goal: real format conversion.
@@ -120,7 +122,7 @@ Tracks how close the swiss-army surface is. ✅ done · 🔶 partial · ⬜ plan
 | --- | --- | --- |
 | Decode common formats | ✅ | ✅ (Symphonia) |
 | Encode common formats | ✅ | 🔶 WAV only → FLAC/AIFF (`0.2`), more behind `codecs` |
-| Resample (`rate`) | ✅ | 🔶 `enhance` only → all stages (`0.2`) |
+| Resample (`rate`) | ✅ | ✅ `resample` command + `AudioData::resample` (anti-aliased) |
 | Noise profile + reduction | ✅ | ✅ `noiseprint` + `denoise` |
 | Normalize / loudness | ✅ | ✅ true EBU R128 (BS.1770-4) + true-peak ceiling |
 | Tone/synth generation | ✅ | ✅ `wave` |

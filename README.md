@@ -11,11 +11,15 @@ noisy recording and give back clean audio.
 [![MSRV](https://img.shields.io/badge/MSRV-1.85-blue)](https://www.rust-lang.org)
 [![Edition](https://img.shields.io/badge/edition-2024-blue?logo=rust)](https://doc.rust-lang.org/edition-guide/)
 [![Pure Rust](https://img.shields.io/badge/pure%20Rust-no%20ffmpeg-orange?logo=rust)](#design)
+[![Stars](https://img.shields.io/github/stars/vbasky/cathar?style=social)](https://github.com/vbasky/cathar/stargazers)
+[![Follow @vbasky](https://img.shields.io/github/followers/vbasky?style=social&label=Follow%20%40vbasky)](https://github.com/vbasky)
 
-**Cathar is an audio toolkit for any recording — in pure Rust.** It
-works on a standalone audio file (WAV, MP3, FLAC, OGG, M4A) just as readily as
-the audio track inside a video (MP4, MKV); video is never required. Cathar does
-three things and writes a clean 32-bit float WAV:
+**Cathar is a transparent, dependency-free audio restoration toolkit — in pure
+Rust.** It works on a standalone audio file (WAV, MP3, FLAC, OGG, M4A) just as
+readily as the audio track inside a video (MP4, MKV); video is never required.
+Every stage is inspectable, tunable DSP — no opaque neural models, no black
+boxes, so a result you don't like is a knob you can turn rather than a model you
+have to re-roll. Cathar does three things and writes a clean 32-bit float WAV:
 
 - **Restore** — denoise, de-hum, de-click, de-clip, de-reverb.
 - **Enhance** — de-ess, breath removal, voice isolation, bandwidth extension.
@@ -95,6 +99,7 @@ grouped here by what they fix; run them in any order, or chain them.
 
 | Command | What it does | Key flags |
 | --- | --- | --- |
+| `resample` | Resample to a different rate (anti-aliased, any ratio) | `--rate` 48000 |
 | `wave` | Generate a synthetic sine + noise test tone | `--freq` 440, `--duration` 3, `--noise` 0.1, `--sample-rate` 44100 |
 | `batch` | Denoise (and optionally de-hum / normalise) a whole directory | `--indir`, `--outdir`, `--dehum <hz>`, `--normalize <lufs>`, `--exts` |
 
@@ -138,7 +143,8 @@ Every stage is classic, inspectable DSP — no black boxes.
 | `voiceisolate` | Energy VAD on 20 ms frames (gap-fill < 120 ms, drop segments < 50 ms) + spectral gating of non-speech (tighter with a noiseprint) |
 | `deesser` | STFT 2048/256; where the high-frequency power ratio above the crossover exceeds the threshold, apply frequency-dependent compression |
 | `breath` | VAD-flag the frames just before a speech onset (≤ 150 ms) and high-pass them at 200 Hz, mixed 40 / 60 dry/wet |
-| `enhance` | Windowed-sinc resample to the target rate, then spectral band replication (4096 FFT) folds the existing top band into the empty highs with a tiled rolloff |
+| `resample` | Kaiser-windowed sinc (16 lobes, β = 9), arbitrary ratio; cutoff tracks the lower Nyquist so downsampling is anti-aliased and upsampling adds no imaging |
+| `enhance` | Shared resampler to the target rate, then spectral band replication (4096 FFT) folds the existing top band into the empty highs with a tiled rolloff |
 | `normalize` | Peak: scale so the loudest sample hits the dBFS target. Loudness: ITU-R BS.1770-4 / EBU R128 integrated LUFS (K-weighting, gated) measured jointly across channels, applied as one broadband gain and held back to the `--true-peak` dBTP ceiling (4× oversampled) so it never clips |
 
 ## Library usage
@@ -178,13 +184,14 @@ clean.to_file("clean.wav")?;
 The public surface is small and direct:
 
 - **`AudioData { sample_rate, channels: Vec<Vec<f32>> }`** — `from_file`,
-  `to_file`, `map_channels(|&[f32]| -> Vec<f32>)` for per-channel effects, and
-  `normalize_r128(target_lufs, true_peak_ceiling_db)` for whole-signal loudness.
+  `to_file`, `map_channels(|&[f32]| -> Vec<f32>)` for per-channel effects,
+  `normalize_r128(target_lufs, true_peak_ceiling_db)` for whole-signal loudness,
+  and `resample(target_rate)` for the main-path resampler.
 - **`Denoiser`** trait + **`SpectralDenoiser`** (configurable `fft_size`,
   `hop_size`, `alpha`, `beta`, `noise_frame_ratio`, optional `noise_print`).
 - **`NoisePrint`** + `learn_noise_print` + `wiener_denoise`.
 - Free functions: `dehum`, `declick`, `declip`, `dereverb`, `voice_isolate`,
-  `deesser`, `breath_remove`, `bandwidth_extend`, `normalize_peak`,
+  `deesser`, `breath_remove`, `bandwidth_extend`, `resample`, `normalize_peak`,
   `integrated_loudness`, `true_peak_dbtp`, `generate_wave`.
 
 ## Formats & I/O
@@ -242,16 +249,15 @@ container files, so it can sit immediately after ingest and before encoding.
 Cathar is `0.1.x`, restoration-first, and growing — before `1.0` — into a
 general-purpose, pure-Rust audio swiss-army knife (a SoX-class tool with no
 ffmpeg and no C/C++ FFI). See [`ROADMAP.md`](ROADMAP.md) for the full plan and
-SoX-parity checklist. Remaining near-term (`0.2`):
+SoX-parity checklist. Remaining near-term:
 
-- **Main-path resampling** — extend the `enhance` resampler to every stage so
-  mixed-rate inputs are handled uniformly.
 - **Encode beyond WAV** — FLAC/AIFF on the pure-Rust default path; real format
   conversion, the first step toward swiss-army breadth.
 
-Done in `0.2`: **true EBU R128 loudness** — `normalize` now measures integrated
-LUFS with K-weighting and gating (ITU-R BS.1770-4) and respects a `--true-peak`
-dBTP ceiling, replacing the old RMS approximation.
+Done in the `0.2`/`0.3` foundations: **true EBU R128 loudness** (`normalize` —
+K-weighted gated LUFS with a `--true-peak` dBTP ceiling) and **main-path
+resampling** (the `resample` command + `AudioData::resample`, a shared
+anti-aliased Kaiser-windowed sinc that any stage can call).
 
 The optional `ml` feature wires in [`candle`](https://crates.io/crates/candle-core)
 for a learned denoiser (`0.4`); the neural model itself is not implemented yet.

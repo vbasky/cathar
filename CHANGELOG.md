@@ -9,6 +9,22 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-20
+
+### Added
+
+- **Main-path resampling.** A shared Kaiser-windowed sinc resampler (16 lobes,
+  β = 9, arbitrary ratio) with cutoff tracking the lower Nyquist, so
+  downsampling is anti-aliased and upsampling adds no imaging. Exposed as the
+  `resample` free function, `AudioData::resample(target_rate)`, and a new
+  `resample` CLI command. Any stage can now bring mixed-rate inputs to a common
+  rate.
+
+### Changed
+
+- `bandwidth_extend` (`enhance`) now uses the shared resampler instead of its
+  own inline windowed-sinc loop.
+
 ## [0.2.0] - 2026-06-20
 
 ### Added

@@ -150,6 +150,24 @@ impl AudioData {
             channels: self.channels.iter().map(|c| c.iter().map(|s| s * gain).collect()).collect(),
         }
     }
+
+    /// Resample every channel to `target_rate` with the shared Kaiser-windowed
+    /// sinc resampler. This is the main-path resampler — any stage can call it
+    /// to bring mixed-rate inputs to a common rate. Returns a clone when the
+    /// rate already matches.
+    pub fn resample(&self, target_rate: u32) -> Self {
+        if target_rate == self.sample_rate {
+            return self.clone();
+        }
+        Self {
+            sample_rate: target_rate,
+            channels: self
+                .channels
+                .iter()
+                .map(|c| resample(c, self.sample_rate, target_rate))
+                .collect(),
+        }
+    }
 }
 
 // ── Denoiser trait ───────────────────────────────────────────────────────────
@@ -1033,6 +1051,78 @@ pub fn breath_remove(signal: &[f32], sample_rate: u32) -> Vec<f32> {
 
 // ── Bandwidth extension ─────────────────────────────────────────────────────
 
+// ── Resample ─────────────────────────────────────────────────────────────────
+
+/// Modified Bessel function of the first kind, order 0 — for the Kaiser window.
+fn bessel_i0(x: f64) -> f64 {
+    let mut sum = 1.0f64;
+    let mut term = 1.0f64;
+    let half_sq = (x / 2.0) * (x / 2.0);
+    for k in 1..=30 {
+        term *= half_sq / (k as f64 * k as f64);
+        sum += term;
+        if term < 1e-13 * sum {
+            break;
+        }
+    }
+    sum
+}
+
+/// Resample one channel from `from_rate` to `to_rate` with a Kaiser-windowed
+/// sinc (arbitrary ratio). The cutoff tracks the lower of the two Nyquist
+/// limits, so downsampling is anti-aliased and upsampling adds no imaging;
+/// the filter support widens at low cutoffs to keep the stopband sharp. Returns
+/// the input unchanged when the rates already match.
+pub fn resample(signal: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
+    if from_rate == to_rate || from_rate == 0 || to_rate == 0 || signal.is_empty() {
+        return signal.to_vec();
+    }
+    let ratio = to_rate as f64 / from_rate as f64;
+    let out_len = (signal.len() as f64 * ratio).round().max(1.0) as usize;
+
+    // Cutoff as a fraction of the source rate (≤ 0.5); downsampling lowers it to
+    // the destination Nyquist.
+    let cutoff = 0.5 * ratio.min(1.0);
+    // Fixed number of sinc lobes per side; support (in source samples) grows as
+    // the cutoff falls so the filter always spans the same zero crossings.
+    const LOBES: f64 = 16.0;
+    let half_width = LOBES / (2.0 * cutoff);
+    let beta = 9.0;
+    let i0_beta = bessel_i0(beta);
+
+    let n = signal.len() as isize;
+    let mut out = vec![0.0f32; out_len];
+    for (i, o) in out.iter_mut().enumerate() {
+        let center = i as f64 / ratio; // position in source samples
+        let first = (center - half_width).ceil() as isize;
+        let last = (center + half_width).floor() as isize;
+        let mut acc = 0.0f64;
+        let mut norm = 0.0f64;
+        for idx in first..=last {
+            if idx < 0 || idx >= n {
+                continue;
+            }
+            let dx = center - idx as f64;
+            // Low-pass sinc 2·fc·sinc(2·fc·dx) = sin(π·t)/(π·dx), t = 2·fc·dx.
+            let t = 2.0 * cutoff * dx;
+            let sinc = if dx.abs() < 1e-9 {
+                2.0 * cutoff
+            } else {
+                (std::f64::consts::PI * t).sin() / (std::f64::consts::PI * dx)
+            };
+            // Kaiser window over |dx| ≤ half_width.
+            let r = dx / half_width;
+            let w =
+                if r.abs() < 1.0 { bessel_i0(beta * (1.0 - r * r).sqrt()) / i0_beta } else { 0.0 };
+            let k = sinc * w;
+            acc += signal[idx as usize] as f64 * k;
+            norm += k;
+        }
+        *o = (acc / norm.max(1e-12)) as f32;
+    }
+    out
+}
+
 /// Restore high-frequency content lost to compression or low sample rates.
 ///
 /// Uses spectral band replication: the spectral envelope from the upper octave
@@ -1043,32 +1133,8 @@ pub fn bandwidth_extend(signal: &[f32], sample_rate: u32, target_rate: u32) -> V
         return signal.to_vec();
     }
 
-    // ── 1. Resample to target rate (windowed sinc) ──
-    let ratio = target_rate as f64 / sample_rate as f64;
-    let out_len = (signal.len() as f64 * ratio).round() as usize;
-    let mut resampled = vec![0.0f32; out_len];
-    let sinc_width = 32;
-
-    for (i, r) in resampled.iter_mut().enumerate() {
-        let src_pos = i as f64 / ratio;
-        let src_idx = src_pos as isize;
-        let frac = src_pos - src_idx as f64;
-        let mut sum = 0.0f64;
-        let mut norm = 0.0f64;
-        for j in -sinc_width..=sinc_width {
-            let idx = src_idx + j;
-            if idx >= 0 && (idx as usize) < signal.len() {
-                let x = (j as f64 - frac) * std::f64::consts::PI;
-                let sinc = if x.abs() < 1e-8 { 1.0 } else { x.sin() / x };
-                let w = (j as f64 - frac) * std::f64::consts::PI / sinc_width as f64;
-                let win = if w.abs() < 1e-8 { 1.0 } else { w.sin() / w };
-                let kernel = sinc * win;
-                sum += signal[idx as usize] as f64 * kernel;
-                norm += kernel;
-            }
-        }
-        *r = (sum / norm.max(1e-10)) as f32;
-    }
+    // ── 1. Resample to target rate (shared Kaiser-windowed sinc) ──
+    let resampled = resample(signal, sample_rate, target_rate);
 
     // ── 2. SBR: replicate low-band spectrum shape into high band ──
     let fft_size = 4096;
@@ -1424,6 +1490,60 @@ mod tests {
         let normalized = audio.normalize_r128(0.0, -1.0);
         let tp = true_peak_dbtp(&normalized.channels, fs);
         assert!(tp <= -1.0 + 0.2, "true peak should be capped near -1 dBTP, got {tp}");
+    }
+
+    #[test]
+    fn resample_identity_on_same_rate() {
+        let sig: Vec<f32> = (0..1000).map(|i| (i as f32 * 0.1).sin()).collect();
+        assert_eq!(resample(&sig, 48_000, 48_000), sig);
+    }
+
+    #[test]
+    fn resample_scales_length_by_ratio() {
+        let sig = vec![0.0f32; 48_000];
+        assert_eq!(resample(&sig, 48_000, 44_100).len(), 44_100);
+        assert_eq!(resample(&sig, 48_000, 96_000).len(), 96_000);
+    }
+
+    /// Resampling preserves a tone's frequency: positive-going zero crossings
+    /// per second equal the tone frequency regardless of sample rate.
+    #[test]
+    fn resample_preserves_tone_frequency() {
+        let fs = 48_000u32;
+        let f = 1000.0f32;
+        let sig: Vec<f32> = (0..fs)
+            .map(|i| (2.0 * std::f32::consts::PI * f * i as f32 / fs as f32).sin())
+            .collect();
+        let out = resample(&sig, fs, 32_000);
+        let crossings = |s: &[f32]| s.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count();
+        let (a, b) = (crossings(&sig), crossings(&out));
+        assert!((a as i32 - b as i32).abs() <= 3, "frequency drifted: {a} vs {b}");
+    }
+
+    /// Downsampling anti-aliases: a tone above the new Nyquist is rejected, not
+    /// folded back into the band.
+    #[test]
+    fn resample_downsample_antialiases() {
+        let fs = 48_000u32;
+        let f = 15_000.0f32; // above the 8 kHz Nyquist of the 16 kHz target
+        let sig: Vec<f32> = (0..fs)
+            .map(|i| (2.0 * std::f32::consts::PI * f * i as f32 / fs as f32).sin())
+            .collect();
+        let out = resample(&sig, fs, 16_000);
+        let power = |s: &[f32]| s.iter().map(|x| x * x).sum::<f32>() / s.len() as f32;
+        assert!(power(&out) < power(&sig) * 0.1, "alias not suppressed: {}", power(&out));
+    }
+
+    #[test]
+    fn audio_resample_sets_rate_and_all_channels() {
+        let audio = generate_wave(44_100, 440.0, 0.5, 0.0);
+        let out = audio.resample(48_000);
+        assert_eq!(out.sample_rate, 48_000);
+        assert_eq!(out.channels.len(), audio.channels.len());
+        assert_eq!(
+            out.channels[0].len(),
+            (audio.channels[0].len() as f64 * 48_000.0 / 44_100.0).round() as usize
+        );
     }
 
     #[test]
