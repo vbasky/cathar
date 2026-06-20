@@ -15,6 +15,8 @@
 //! # Ok::<(), cathar::Error>(())
 //! ```
 
+#![deny(missing_docs)]
+
 use hound::{WavSpec, WavWriter};
 use realfft::RealFftPlanner;
 use symphonia::core::codecs::CodecParameters;
@@ -27,37 +29,56 @@ use thiserror::Error;
 
 // ── Error ────────────────────────────────────────────────────────────────────
 
+/// Errors returned by cathar's decode, encode, and processing routines.
 #[derive(Debug, Error)]
 pub enum Error {
+    /// An underlying I/O error (opening, reading, or writing a file).
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+    /// A WAV write error from the `hound` encoder.
     #[error("audio write error: {0}")]
     Hound(#[from] hound::Error),
+    /// Encoding to the chosen output container (FLAC/AIFF) failed.
     #[error("encode error: {0}")]
     Encode(String),
+    /// Decoding the input failed (unsupported codec, corrupt stream, …).
     #[error("decode error: {0}")]
     Decode(String),
+    /// The container has no audio track to decode.
     #[error("no audio track found")]
     NoAudioTrack,
+    /// The input format or codec parameters are not supported.
     #[error("unsupported format")]
     UnsupportedFormat,
+    /// The signal is shorter than the analysis window the stage requires.
     #[error("signal too short")]
     TooShort,
+    /// An FFT planning or processing error.
     #[error("FFT error: {0}")]
     Fft(String),
+    /// A supplied noise print's FFT size does not match the denoiser's.
     #[error("noise print FFT size mismatch")]
     NoisePrintMismatch,
 }
 
 // ── AudioData ────────────────────────────────────────────────────────────────
 
+/// Decoded audio: a sample rate plus one `f32` PCM buffer per channel
+/// (de-interleaved, sample values in `[-1.0, 1.0]`).
 #[derive(Debug, Clone)]
 pub struct AudioData {
+    /// Sample rate in Hz.
     pub sample_rate: u32,
+    /// One buffer of `f32` samples per channel (channel-major, equal length).
     pub channels: Vec<Vec<f32>>,
 }
 
 impl AudioData {
+    /// Decode any [`symphonia`]-supported file (WAV/MP3/FLAC/OGG/M4A/MP4/MKV…)
+    /// to de-interleaved `f32` PCM. The container is detected from the
+    /// extension and content.
+    ///
+    /// [`symphonia`]: https://crates.io/crates/symphonia
     pub fn from_file(path: &str) -> Result<Self, Error> {
         let file = std::fs::File::open(path)?;
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
@@ -312,7 +333,9 @@ fn ieee754_extended(value: f64) -> [u8; 10] {
 
 // ── Denoiser trait ───────────────────────────────────────────────────────────
 
+/// A denoising strategy: turn noisy [`AudioData`] into a cleaner copy.
 pub trait Denoiser {
+    /// Denoise every channel of `input`, returning a new [`AudioData`].
     fn denoise(&self, input: &AudioData) -> Result<AudioData, Error>;
 }
 
@@ -322,7 +345,9 @@ pub trait Denoiser {
 /// Feed into `SpectralDenoiser::with_noise_print` instead of auto-detection.
 #[derive(Debug, Clone)]
 pub struct NoisePrint {
+    /// FFT size the spectrum was measured at (must match the denoiser's).
     pub fft_size: usize,
+    /// Per-bin noise magnitude spectrum (`fft_size / 2 + 1` bins).
     pub spectrum: Vec<f32>,
 }
 
@@ -369,11 +394,20 @@ pub fn learn_noise_print(audio: &AudioData) -> Result<NoisePrint, Error> {
 
 // ── SpectralDenoiser ─────────────────────────────────────────────────────────
 
+/// STFT spectral-subtraction / Wiener denoiser (see [`Denoiser`]).
 pub struct SpectralDenoiser {
+    /// Analysis/synthesis FFT size in samples.
     pub fft_size: usize,
+    /// Hop between successive frames in samples (overlap = `fft_size - hop_size`).
     pub hop_size: usize,
+    /// Over-subtraction factor: how many times the noise estimate to subtract
+    /// (1.0 = gentle, 6.0 = aggressive).
     pub alpha: f32,
+    /// Spectral floor as a fraction of the input magnitude, limiting "musical
+    /// noise" artifacts (0.0–0.1).
     pub beta: f32,
+    /// Fraction of the quietest frames taken as the noise estimate when no
+    /// `noise_print` is supplied (minimum-statistics).
     pub noise_frame_ratio: f32,
     /// Optional pre-computed noise print. Takes priority over auto-detection.
     pub noise_print: Option<NoisePrint>,
@@ -393,6 +427,8 @@ impl Default for SpectralDenoiser {
 }
 
 impl SpectralDenoiser {
+    /// Build a denoiser driven by a pre-learned [`NoisePrint`] (FFT size and hop
+    /// follow the print; minimum-statistics auto-detection is disabled).
     pub fn with_noise_print(noise_print: NoisePrint, alpha: f32, beta: f32) -> Self {
         Self {
             fft_size: noise_print.fft_size,
@@ -1846,6 +1882,9 @@ fn hann_window(size: usize) -> Vec<f32> {
         .collect()
 }
 
+/// Generate a mono test tone: a `frequency`-Hz sine at 0.5 amplitude plus
+/// uniform white noise scaled by `noise_level`, `duration_secs` long. Uses a
+/// fixed seed, so the output is deterministic.
 pub fn generate_wave(
     sample_rate: u32,
     frequency: f32,
@@ -1868,6 +1907,7 @@ pub fn generate_wave(
     AudioData { sample_rate, channels: vec![samples] }
 }
 
+/// Population variance of a sample buffer (mean of squared deviations).
 pub fn variance(samples: &[f32]) -> f32 {
     let mean = samples.iter().sum::<f32>() / samples.len() as f32;
     samples.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / samples.len() as f32

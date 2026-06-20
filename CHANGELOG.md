@@ -9,6 +9,13 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+### Documentation
+
+- Documented every remaining public item (`Error` + variants, `AudioData` +
+  fields, the `Denoiser` trait, `NoisePrint`/`SpectralDenoiser` fields,
+  `with_noise_print`, `generate_wave`, `variance`) and added
+  `#![deny(missing_docs)]` to the `cathar` crate so public docs can't regress.
+
 ## [0.5.1] - 2026-06-20
 
 Completes the `0.5` DSP-depth milestone (spectral repair shipped in 0.5.0).
