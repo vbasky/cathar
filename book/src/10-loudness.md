@@ -27,8 +27,10 @@ time*, not how tall one instant is.
        one tall spike          loud the whole time
        PEAK: maxed             PEAK: identical
        LOUDNESS: low      ◄──►  LOUDNESS: high
-``` Peak-normalize a quiet, even podcast and a
-punchy one to the same peak and the punchy one will sound much louder. That's why,
+```
+
+Peak-normalize a quiet, even podcast and a punchy one to the same peak and the
+punchy one will sound much louder. That's why,
 for decades, some adverts felt like they were screaming at you between TV shows:
 everyone was peak-normalizing and then squashing their audio to be as dense as
 possible.
