@@ -1,6 +1,8 @@
 # Cathar
 
-![cathar — restore, enhance and level the audio in any recording, in pure Rust](https://raw.githubusercontent.com/vbasky/cathar/main/docs/banner.png)
+<p align="center">
+  <img src="https://raw.githubusercontent.com/vbasky/cathar/main/docs/logo.png" alt="cathar logo" width="200">
+</p>
 
 **Name:** *cathar* is from Greek **katharós** (καθαρός), *"pure, clean"* — the
 same root as **catharsis** (κάθαρσις), a cleansing. That's the whole job: take a
