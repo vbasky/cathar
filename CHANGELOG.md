@@ -9,6 +9,8 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-06-21
+
 ### Changed
 
 - **De-clip now uses A-SPADE sparse reconstruction** (Kitić, Bertin & Gribonval,
