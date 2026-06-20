@@ -6,6 +6,9 @@
 same root as **catharsis** (κάθαρσις), a cleansing. That's the whole job: take a
 noisy recording and give back clean audio.
 
+[![crates.io](https://img.shields.io/crates/v/cathar.svg?logo=rust&label=crates.io)](https://crates.io/crates/cathar)
+[![docs.rs](https://img.shields.io/docsrs/cathar?logo=docs.rs&label=docs.rs)](https://docs.rs/cathar)
+[![Downloads](https://img.shields.io/crates/d/cathar.svg?label=downloads)](https://crates.io/crates/cathar)
 [![CI](https://img.shields.io/github/actions/workflow/status/vbasky/cathar/ci.yml?branch=main&logo=github&label=CI)](https://github.com/vbasky/cathar/actions)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![MSRV](https://img.shields.io/badge/MSRV-1.87-blue)](https://www.rust-lang.org)
