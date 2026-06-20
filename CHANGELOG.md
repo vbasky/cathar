@@ -9,6 +9,20 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-06-20
+
+### Fixed
+
+- README links and images now render on crates.io. The crate README is a
+  symlink under `crates/cathar/`, so crates.io resolved relative paths against
+  that directory and 404'd the `ROADMAP.md`, license, and STFT-diagram links;
+  every repo link/image is now an absolute `github.com/.../blob/main` (or
+  `raw.githubusercontent.com`) URL, and the diagram is PNG (crates.io strips
+  SVG).
+- Refreshed stale docs: version `0.1.x` → `0.4.x`, roadmap phase numbers aligned
+  with the renumbered `ROADMAP.md`, and the primary install is now
+  `cargo install cathar-cli` (from crates.io).
+
 ## [0.4.0] - 2026-06-20
 
 ### Added

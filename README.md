@@ -41,8 +41,13 @@ straight into a Rust program or a larger media-processing pipeline.
 ## Quick start
 
 ```bash
-cargo install --path crates/cathar-cli      # installs the `cathar` binary
-# or, from a checkout:
+cargo install cathar-cli                     # from crates.io — installs the `cathar` binary
+```
+
+Or from a checkout:
+
+```bash
+cargo install --path crates/cathar-cli       # install the binary from source
 just setup        # one-time: enable the auto-format pre-commit hook
 just build        # build the workspace
 just test         # run all tests
@@ -262,11 +267,11 @@ SoX-parity checklist. The `0.2`–`0.4` foundations are complete:
 - **Encode beyond WAV** — 24-bit lossless FLAC and 24-bit AIFF on the pure-Rust
   default path, selected by the output extension.
 
-Next up is restoration depth (Phase 1 `0.3`) and the swiss-army expansion
+Next up is restoration depth (Phase 1 `0.5`) and the swiss-army expansion
 (Phase 2) — see [`ROADMAP.md`](https://github.com/vbasky/cathar/blob/main/ROADMAP.md).
 
 The optional `ml` feature wires in [`candle`](https://crates.io/crates/candle-core)
-for a learned denoiser (`0.4`); the neural model itself is not implemented yet.
+for a learned denoiser (`0.6`); the neural model itself is not implemented yet.
 
 ## Development
 
