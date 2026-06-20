@@ -124,21 +124,69 @@ mod tests {
         }
     }
 
-    // WIP: declip is mid-rewrite to A-SPADE (frame-based, 1024-sample frames), so
-    // this 200-sample case now passes through untouched, and A-SPADE doesn't yet
-    // converge. Ignored until the declip work lands. See restore.rs.
-    #[ignore = "declip A-SPADE work in progress"]
+    /// A clean signal with no clipping passes straight through (early return).
     #[test]
-    fn declip_reconstructs() {
-        let mut signal = vec![0.1f32; 200];
-        // Create a flat-topped clip
-        for s in signal.iter_mut().skip(90).take(20) {
-            *s = 0.98;
-        }
-        let cleaned = declip(&signal, 0.95);
-        // Middle sample should be interpolated, not exactly 0.98
-        let mid = cleaned[99];
-        assert!(mid < 0.97, "clipped sample should be reconstructed, got {mid}");
+    fn declip_passthrough_when_clean() {
+        let fs = 44_100.0;
+        let signal: Vec<f32> = (0..4096)
+            .map(|i| 0.5 * (2.0 * std::f32::consts::PI * 220.0 * i as f32 / fs).sin())
+            .collect();
+        let out = declip(&signal, 0.95);
+        assert_eq!(out, signal, "no clipped samples → no change");
+    }
+
+    /// A-SPADE rebuilds a hard-clipped sine back toward its true peak and tracks
+    /// the original closely (the sparse Gabor reconstruction, not a flat fill).
+    #[test]
+    fn declip_restores_clipped_sine() {
+        let fs = 44_100.0;
+        let clip = 0.7f32;
+        let n = 4096;
+        let truth: Vec<f32> =
+            (0..n).map(|i| (2.0 * std::f32::consts::PI * 220.0 * i as f32 / fs).sin()).collect();
+        let clipped: Vec<f32> = truth.iter().map(|&v| v.clamp(-clip, clip)).collect();
+        assert!(clipped.iter().filter(|&&v| v.abs() >= clip).count() > 100);
+
+        let restored = declip(&clipped, clip);
+
+        let peak = restored.iter().fold(0.0f32, |a, &v| a.max(v.abs()));
+        assert!(peak > 0.9, "peak should climb back toward 1.0, got {peak}");
+        // Track the true sine in the interior (edges have one-sided frame cover).
+        let mse: f32 = (256..n - 256).map(|i| (restored[i] - truth[i]).powi(2)).sum::<f32>()
+            / (n - 512) as f32;
+        assert!(mse.sqrt() < 0.05, "RMS error vs true sine too high: {}", mse.sqrt());
+    }
+
+    /// Negative clipping (troughs chopped flat) is reconstructed too.
+    #[test]
+    fn declip_handles_negative_clipping() {
+        let fs = 44_100.0;
+        let n = 4096;
+        let truth: Vec<f32> =
+            (0..n).map(|i| (2.0 * std::f32::consts::PI * 300.0 * i as f32 / fs).sin()).collect();
+        let clipped: Vec<f32> = truth.iter().map(|&v| v.max(-0.6)).collect();
+        let restored = declip(&clipped, 0.6);
+        let min = (256..n - 256).map(|i| restored[i]).fold(0.0f32, f32::min);
+        assert!(min < -0.85, "negative peak should be rebuilt toward -1.0, got {min}");
+    }
+
+    /// Debug harness: run a clipped sine through A-SPADE and print the result
+    /// (peak / RMS). Run manually with `--ignored --nocapture`.
+    #[ignore = "debug trace, run manually"]
+    #[test]
+    fn spade_trace() {
+        let fs = 44_100.0;
+        let clip = 0.7f32;
+        let n = 4096;
+        let freq = 220.0;
+        let truth: Vec<f32> =
+            (0..n).map(|i| (2.0 * std::f32::consts::PI * freq * i as f32 / fs).sin()).collect();
+        let clipped: Vec<f32> = truth.iter().map(|&v| v.clamp(-clip, clip)).collect();
+        let out = declip(&clipped, clip);
+        let peak = out.iter().fold(0.0f32, |a, &v| a.max(v.abs()));
+        let mse: f32 =
+            (256..n - 256).map(|i| (out[i] - truth[i]).powi(2)).sum::<f32>() / (n - 512) as f32;
+        eprintln!("RESULT peak={peak:.3} rms_err={:.4} (true peak 1.0)", mse.sqrt());
     }
 
     #[test]
