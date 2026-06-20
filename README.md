@@ -250,9 +250,9 @@ container files, so it can sit immediately after ingest and before encoding.
 
 ## Roadmap
 
-Cathar is `0.1.x`, restoration-first, and growing — before `1.0` — into a
+Cathar is `0.4.x`, restoration-first, and growing — before `1.0` — into a
 general-purpose, pure-Rust audio swiss-army knife (a SoX-class tool with no
-ffmpeg and no C/C++ FFI). See [`ROADMAP.md`](ROADMAP.md) for the full plan and
+ffmpeg and no C/C++ FFI). See [`ROADMAP.md`](https://github.com/vbasky/cathar/blob/main/ROADMAP.md) for the full plan and
 SoX-parity checklist. The `0.2`–`0.4` foundations are complete:
 
 - **True EBU R128 loudness** (`normalize`) — K-weighted gated LUFS with a
@@ -263,7 +263,7 @@ SoX-parity checklist. The `0.2`–`0.4` foundations are complete:
   default path, selected by the output extension.
 
 Next up is restoration depth (Phase 1 `0.3`) and the swiss-army expansion
-(Phase 2) — see [`ROADMAP.md`](ROADMAP.md).
+(Phase 2) — see [`ROADMAP.md`](https://github.com/vbasky/cathar/blob/main/ROADMAP.md).
 
 The optional `ml` feature wires in [`candle`](https://crates.io/crates/candle-core)
 for a learned denoiser (`0.4`); the neural model itself is not implemented yet.
@@ -285,5 +285,5 @@ same gate CI enforces on Linux and macOS.
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
-[MIT license](LICENSE-MIT) at your option.
+Licensed under either of [Apache License, Version 2.0](https://github.com/vbasky/cathar/blob/main/LICENSE-APACHE) or
+[MIT license](https://github.com/vbasky/cathar/blob/main/LICENSE-MIT) at your option.
