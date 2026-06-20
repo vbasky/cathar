@@ -9,6 +9,22 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-06-21
+
+### Changed
+
+- **De-clip now reconstructs clipped peaks with least-squares autoregressive
+  interpolation (LSAR)** — the classical audio-restoration method (Janssen,
+  Veldhuis & Vries, 1986) — instead of a cubic fill. An AR model is fit to the
+  reliable audio either side of each clipped run (two-sided autocorrelation →
+  Levinson-Durbin) and the gap samples that minimise its prediction error are
+  solved for (banded normal equations via Cholesky), so a clipped peak is rebuilt
+  toward its true amplitude rather than flattened to the shoulder level. A
+  stability guard falls back to the previous smooth fill when a solve rings or
+  overshoots, so badly-clipped material softens gracefully. On a +8 dB-clipped
+  voice the old fill could only reach the 0.977 plateau; LSAR rebuilds the true
+  peaks to ~1.53 (normalise afterwards).
+
 ### Fixed
 
 - Mono WAV output played in the left speaker only. `hound` writes 32-bit float
@@ -19,6 +35,9 @@ The release workflow extracts the notes for a version from the matching
 
 ### Documentation
 
+- Added **"Cleaning Up Sound"** (`book/`) — a from-first-principles book on the
+  concepts this toolkit uses, for readers new to DAWs/DSP, with diagrams, a cover
+  page, and a GitHub Pages build.
 - Documented every remaining public item (`Error` + variants, `AudioData` +
   fields, the `Denoiser` trait, `NoisePrint`/`SpectralDenoiser` fields,
   `with_noise_print`, `generate_wave`, `variance`) and added
