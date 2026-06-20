@@ -137,6 +137,63 @@ mod tests {
         assert!(mid < 0.97, "clipped sample should be reconstructed, got {mid}");
     }
 
+    /// A clean signal with no clipping must pass through byte-for-byte.
+    #[test]
+    fn declip_passthrough_when_clean() {
+        let fs = 44_100.0;
+        let signal: Vec<f32> = (0..2048)
+            .map(|i| 0.5 * (2.0 * std::f32::consts::PI * 220.0 * i as f32 / fs).sin())
+            .collect();
+        let out = declip(&signal, 0.95);
+        assert_eq!(out, signal, "no clipped samples → no change");
+    }
+
+    /// LSAR should rebuild a hard-clipped sine back toward its true peak and track
+    /// the original waveform closely — the whole point over a flat-line fill.
+    #[test]
+    fn declip_restores_clipped_sine() {
+        let fs = 44_100.0;
+        let freq = 220.0;
+        let clip = 0.7f32;
+        let n = 4096;
+        let truth: Vec<f32> =
+            (0..n).map(|i| (2.0 * std::f32::consts::PI * freq * i as f32 / fs).sin()).collect();
+        let clipped: Vec<f32> = truth.iter().map(|&v| v.clamp(-clip, clip)).collect();
+        // The clipping really happened (plateaus exist).
+        assert!(clipped.iter().filter(|&&v| v.abs() >= clip).count() > 100);
+
+        let restored = declip(&clipped, clip);
+
+        // Peak is rebuilt up from the 0.7 plateau toward the true 1.0…
+        let peak = restored.iter().fold(0.0f32, |a, &v| a.max(v.abs()));
+        assert!(peak > 0.9, "peak should climb back toward 1.0, got {peak}");
+        // …and far better than the clipped input ever was.
+        let clipped_peak = clipped.iter().fold(0.0f32, |a, &v| a.max(v.abs()));
+        assert!(peak > clipped_peak + 0.15, "must beat the {clipped_peak} plateau");
+
+        // The reconstruction tracks the true sine (ignore edges where context is
+        // one-sided). Compare the interior only.
+        let lo = 256;
+        let hi = n - 256;
+        let mse: f32 =
+            (lo..hi).map(|i| (restored[i] - truth[i]).powi(2)).sum::<f32>() / (hi - lo) as f32;
+        assert!(mse.sqrt() < 0.05, "RMS error vs true sine too high: {}", mse.sqrt());
+    }
+
+    /// Negative clipping (the troughs chopped flat) is reconstructed too.
+    #[test]
+    fn declip_handles_negative_clipping() {
+        let fs = 44_100.0;
+        let n = 2048;
+        let truth: Vec<f32> =
+            (0..n).map(|i| (2.0 * std::f32::consts::PI * 300.0 * i as f32 / fs).sin()).collect();
+        // Clip only the negative half so the troughs are flat at -0.6.
+        let clipped: Vec<f32> = truth.iter().map(|&v| v.max(-0.6)).collect();
+        let restored = declip(&clipped, 0.6);
+        let min = restored.iter().fold(0.0f32, |a, &v| a.min(v));
+        assert!(min < -0.85, "negative peak should be rebuilt toward -1.0, got {min}");
+    }
+
     #[test]
     fn normalize_peak_target() {
         let signal = vec![0.5f32, -0.5, 0.25, -0.25, 0.1];

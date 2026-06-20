@@ -153,12 +153,176 @@ fn cubic_interpolate(signal: &mut [f32], start: usize, end: usize) {
     }
 }
 
-// ── De-clip ──────────────────────────────────────────────────────────────────
+// ── De-clip (LSAR — least-squares AR interpolation) ──────────────────────────
 
-/// Detect and reconstruct clipped samples.
+/// Levinson-Durbin recursion: solve the autocorrelation normal equations for the
+/// order-`p` linear-prediction (AR) coefficients. Returns `a[0..=p]` with
+/// `a[0] = 1` for the prediction-error filter `A(z) = 1 + Σ a_k z^-k`.
+fn levinson(r: &[f64], p: usize) -> Vec<f64> {
+    let mut a = vec![0.0f64; p + 1];
+    a[0] = 1.0;
+    let mut e = r[0];
+    if e <= 0.0 {
+        return a;
+    }
+    for i in 1..=p {
+        let mut acc = r[i];
+        for j in 1..i {
+            acc += a[j] * r[i - j];
+        }
+        let k = -acc / e;
+        let prev = a.clone();
+        for j in 1..i {
+            a[j] = prev[j] + k * prev[i - j];
+        }
+        a[i] = k;
+        e *= 1.0 - k * k;
+        if e <= 1e-12 {
+            break;
+        }
+    }
+    a
+}
+
+/// Autocorrelation up to lag `p`, summed over the two reliable blocks either side
+/// of the gap (no lag crosses the gap, so the clipped samples never pollute it).
+fn autocorr(before: &[f32], after: &[f32], p: usize) -> Vec<f64> {
+    let mut r = vec![0.0f64; p + 1];
+    for d in 0..=p {
+        let mut acc = 0.0f64;
+        for blk in [before, after] {
+            for n in 0..blk.len().saturating_sub(d) {
+                acc += blk[n] as f64 * blk[n + d] as f64;
+            }
+        }
+        r[d] = acc;
+    }
+    r[0] *= 1.0 + 1e-6; // tiny white-noise floor for numerical stability
+    r
+}
+
+/// Solve a symmetric positive-definite system `M y = b` in place via Cholesky
+/// (`M` becomes its lower factor, `b` becomes the solution). Returns false if `M`
+/// is not positive definite.
+#[allow(clippy::needless_range_loop)] // index loops are the clearest form for Cholesky
+fn solve_spd(m: &mut [Vec<f64>], b: &mut [f64]) -> bool {
+    let n = b.len();
+    for i in 0..n {
+        for j in 0..=i {
+            let mut sum = m[i][j];
+            for k in 0..j {
+                sum -= m[i][k] * m[j][k];
+            }
+            if i == j {
+                if sum <= 1e-12 {
+                    return false;
+                }
+                m[i][j] = sum.sqrt();
+            } else {
+                m[i][j] = sum / m[j][j];
+            }
+        }
+    }
+    for i in 0..n {
+        let mut sum = b[i];
+        for k in 0..i {
+            sum -= m[i][k] * b[k];
+        }
+        b[i] = sum / m[i][i];
+    }
+    for i in (0..n).rev() {
+        let mut sum = b[i];
+        for k in (i + 1)..n {
+            sum -= m[k][i] * b[k];
+        }
+        b[i] = sum / m[i][i];
+    }
+    true
+}
+
+/// Reconstruct the clipped run `out[s..e]` by **least-squares AR interpolation**
+/// (Janssen, Veldhuis & Vries 1986): fit an AR model to the surrounding reliable
+/// audio, then solve for the gap samples that minimise that model's prediction
+/// error. Falls back to a smooth curve when the context is too short, the gap too
+/// long, or the AR solve is unstable (a resonant model can *ring* across a long
+/// clipped run and overshoot wildly — on badly-clipped audio we'd rather soften
+/// than introduce that, matching what a real de-clipper does).
+fn lsar_interpolate(out: &mut [f32], s: usize, e: usize) {
+    const MAX_P: usize = 32;
+    const CTX: usize = 1024;
+    const MAX_RUN: usize = 256;
+    let n = out.len();
+    let l = e - s;
+
+    let before: Vec<f32> = out[s.saturating_sub(CTX)..s].to_vec();
+    let after: Vec<f32> = out[e..(e + CTX).min(n)].to_vec();
+    let ctx_len = before.len() + after.len();
+    let p = MAX_P.min(ctx_len.saturating_sub(1));
+
+    if l == 0 || l > MAX_RUN || p < 2 {
+        cubic_interpolate(out, s.saturating_sub(1), e.min(n - 1));
+        return;
+    }
+
+    let a = levinson(&autocorr(&before, &after, p), p);
+    // Filter autocorrelation ra[d] = Σ_j a[j]·a[j+d] (the banded system's entries).
+    let mut ra = vec![0.0f64; p + 1];
+    for (d, rad) in ra.iter_mut().enumerate() {
+        *rad = (0..=(p - d)).map(|j| a[j] * a[j + d]).sum();
+    }
+
+    // Minimise Σ prediction-error² over the unknown samples → M·x_U = rhs, where
+    // M[i][j] = ra[|i-j|] and rhs pulls in the known neighbours within p.
+    let mut m = vec![vec![0.0f64; l]; l];
+    let mut rhs = vec![0.0f64; l];
+    for i in 0..l {
+        for (j, cell) in m[i].iter_mut().enumerate() {
+            let d = i.abs_diff(j);
+            if d <= p {
+                *cell = ra[d];
+            }
+        }
+        let ui = (s + i) as isize;
+        let lo = (ui - p as isize).max(0);
+        let hi = (ui + p as isize).min(n as isize - 1);
+        let mut acc = 0.0f64;
+        for jj in lo..=hi {
+            let j = jj as usize;
+            if (s..e).contains(&j) {
+                continue; // unknown — handled by M
+            }
+            acc -= ra[(ui - jj).unsigned_abs()] * out[j] as f64;
+        }
+        rhs[i] = acc;
+    }
+
+    let solved = solve_spd(&mut m, &mut rhs);
+    // Guard against an unstable solve. A real restored peak is a single smooth
+    // hump (its slope reverses once); a resonant AR model rings — its slope
+    // reverses many times across the gap. The magnitude cap is a blow-up backstop
+    // (a faithful de-clipped peak may legitimately pass full scale — you normalise
+    // afterwards — but never by 2×).
+    let max_abs = rhs.iter().fold(0.0f64, |a, &v| a.max(v.abs()));
+    let reversals =
+        rhs.windows(3).filter(|w| (w[1] - w[0]).signum() != (w[2] - w[1]).signum()).count();
+    if solved && max_abs <= 2.0 && reversals <= 2 {
+        for (i, &v) in rhs.iter().enumerate() {
+            out[s + i] = v as f32;
+        }
+    } else {
+        cubic_interpolate(out, s.saturating_sub(1), e.min(n - 1));
+    }
+}
+
+/// Reconstruct clipped samples with least-squares AR interpolation (LSAR).
 ///
-/// Clipping is detected as consecutive samples at or above `threshold` (e.g. 0.95).
-/// Clipped segments are reconstructed by cubic interpolation.
+/// Clipping is detected as consecutive samples at or beyond `threshold` (e.g.
+/// 0.95). Each clipped run is filled with the samples that best fit an
+/// autoregressive model of the surrounding reliable audio (Janssen·Veldhuis·Vries
+/// 1986) — the classical audio-restoration method — so a tonal peak is rebuilt
+/// toward its true amplitude rather than flattened. Works for positive and
+/// negative clipping; very long runs or too-short context fall back to a smooth
+/// interpolation.
 pub fn declip(signal: &[f32], threshold: f32) -> Vec<f32> {
     let n = signal.len();
     let mut output = signal.to_vec();
@@ -169,15 +333,10 @@ pub fn declip(signal: &[f32], threshold: f32) -> Vec<f32> {
             while i < n && signal[i].abs() >= threshold {
                 i += 1;
             }
-            let end = (i).min(n - 1);
-            // Extend detection a few samples to catch the rounded shoulders
-            let clip_start = start.saturating_sub(4);
-            let clip_end = (end + 4).min(n - 1);
-            if clip_end > clip_start + 4 {
-                cubic_interpolate(&mut output, clip_start, clip_end);
-            }
+            lsar_interpolate(&mut output, start, i);
+        } else {
+            i += 1;
         }
-        i += 1;
     }
     output
 }
