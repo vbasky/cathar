@@ -89,13 +89,13 @@ grouped here by what they fix; run them in any order, or chain them.
 | Command | What it does | Key flags |
 | --- | --- | --- |
 | `enhance` | Bandwidth extension — resample up and synthesise the missing highs | `--rate` 48000 |
-| `normalize` | Loudness (LUFS) or peak (dBFS) normalisation | `--target` -16, `--peak` |
+| `normalize` | Loudness (LUFS, true EBU R128) or peak (dBFS) normalisation | `--target` -16, `--peak`, `--true-peak` -1 |
 
 ### Utility
 
 | Command | What it does | Key flags |
 | --- | --- | --- |
-| `wave` | Generate a synthetic sine + noise test tone | `--freq` 440, `--duration` 3, `--noise` 0.1, `--sample_rate` 44100 |
+| `wave` | Generate a synthetic sine + noise test tone | `--freq` 440, `--duration` 3, `--noise` 0.1, `--sample-rate` 44100 |
 | `batch` | Denoise (and optionally de-hum / normalise) a whole directory | `--indir`, `--outdir`, `--dehum <hz>`, `--normalize <lufs>`, `--exts` |
 
 `--target` for `normalize` is roughly: `-23` broadcast (EBU R128), `-16`
@@ -139,24 +139,25 @@ Every stage is classic, inspectable DSP — no black boxes.
 | `deesser` | STFT 2048/256; where the high-frequency power ratio above the crossover exceeds the threshold, apply frequency-dependent compression |
 | `breath` | VAD-flag the frames just before a speech onset (≤ 150 ms) and high-pass them at 200 Hz, mixed 40 / 60 dry/wet |
 | `enhance` | Windowed-sinc resample to the target rate, then spectral band replication (4096 FFT) folds the existing top band into the empty highs with a tiled rolloff |
-| `normalize` | Peak: scale so the loudest sample hits the dBFS target. Loudness: scale by RMS to approximate a LUFS target |
+| `normalize` | Peak: scale so the loudest sample hits the dBFS target. Loudness: ITU-R BS.1770-4 / EBU R128 integrated LUFS (K-weighting, gated) measured jointly across channels, applied as one broadband gain and held back to the `--true-peak` dBTP ceiling (4× oversampled) so it never clips |
 
 ## Library usage
 
 The `cathar` crate is the same engine the CLI drives.
 
 ```rust
-use cathar::{AudioData, Denoiser, SpectralDenoiser, dehum, normalize_loudness};
+use cathar::{AudioData, Denoiser, SpectralDenoiser, dehum};
 
 let audio = AudioData::from_file("interview.mp4")?;   // symphonia decode → f32
 let sr = audio.sample_rate;
 
-// Denoise, then de-hum and normalise. Each effect is a plain fn over &[f32],
-// applied to every channel via `map_channels`.
+// Denoise and de-hum per channel via `map_channels`, then normalise to
+// -16 LUFS (EBU R128) with a -1 dBTP true-peak ceiling. Loudness is measured
+// across all channels jointly, so normalisation is a whole-signal method.
 let clean = SpectralDenoiser::default()
     .denoise(&audio)?
     .map_channels(|ch| dehum(ch, sr, 60.0, 5))
-    .map_channels(|ch| normalize_loudness(ch, -16.0));
+    .normalize_r128(-16.0, -1.0);
 
 clean.to_file("clean.wav")?;   // 32-bit float WAV via hound
 ```
@@ -177,13 +178,14 @@ clean.to_file("clean.wav")?;
 The public surface is small and direct:
 
 - **`AudioData { sample_rate, channels: Vec<Vec<f32>> }`** — `from_file`,
-  `to_file`, and `map_channels(|&[f32]| -> Vec<f32>)` for per-channel effects.
+  `to_file`, `map_channels(|&[f32]| -> Vec<f32>)` for per-channel effects, and
+  `normalize_r128(target_lufs, true_peak_ceiling_db)` for whole-signal loudness.
 - **`Denoiser`** trait + **`SpectralDenoiser`** (configurable `fft_size`,
   `hop_size`, `alpha`, `beta`, `noise_frame_ratio`, optional `noise_print`).
 - **`NoisePrint`** + `learn_noise_print` + `wiener_denoise`.
 - Free functions: `dehum`, `declick`, `declip`, `dereverb`, `voice_isolate`,
   `deesser`, `breath_remove`, `bandwidth_extend`, `normalize_peak`,
-  `normalize_loudness`, `generate_wave`.
+  `integrated_loudness`, `true_peak_dbtp`, `generate_wave`.
 
 ## Formats & I/O
 
@@ -240,14 +242,16 @@ container files, so it can sit immediately after ingest and before encoding.
 Cathar is `0.1.x`, restoration-first, and growing — before `1.0` — into a
 general-purpose, pure-Rust audio swiss-army knife (a SoX-class tool with no
 ffmpeg and no C/C++ FFI). See [`ROADMAP.md`](ROADMAP.md) for the full plan and
-SoX-parity checklist. Near-term (`0.2`):
+SoX-parity checklist. Remaining near-term (`0.2`):
 
-- **True EBU R128 loudness** — `normalize --target` is currently an RMS-based
-  LUFS approximation, not K-weighted gated loudness.
 - **Main-path resampling** — extend the `enhance` resampler to every stage so
   mixed-rate inputs are handled uniformly.
 - **Encode beyond WAV** — FLAC/AIFF on the pure-Rust default path; real format
   conversion, the first step toward swiss-army breadth.
+
+Done in `0.2`: **true EBU R128 loudness** — `normalize` now measures integrated
+LUFS with K-weighting and gating (ITU-R BS.1770-4) and respects a `--true-peak`
+dBTP ceiling, replacing the old RMS approximation.
 
 The optional `ml` feature wires in [`candle`](https://crates.io/crates/candle-core)
 for a learned denoiser (`0.4`); the neural model itself is not implemented yet.

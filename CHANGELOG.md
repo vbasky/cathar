@@ -9,6 +9,23 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+### Added
+
+- `integrated_loudness` and `true_peak_dbtp` measurement functions, and
+  `AudioData::normalize_r128(target_lufs, true_peak_ceiling_db)`.
+
+### Changed
+
+- **True EBU R128 loudness.** `normalize` now measures integrated LUFS with
+  K-weighting and gating (ITU-R BS.1770-4) jointly across channels and applies a
+  single broadband gain, held back to a `--true-peak` dBTP ceiling (4×
+  oversampled), replacing the previous RMS-based LUFS approximation. `batch`
+  `--normalize` uses the same path.
+
+### Removed
+
+- `normalize_loudness` (per-channel RMS) — superseded by `normalize_r128`.
+
 ## [0.1.1] - 2026-06-20
 
 ### Changed

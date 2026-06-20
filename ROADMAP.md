@@ -36,8 +36,9 @@ stands next to iZotope RX's core.
 
 ### `0.2` — Foundations
 
-- **True EBU R128 loudness** — K-weighting, gated LUFS, true-peak limiting.
-  Replaces the current RMS-based approximation in `normalize --target`.
+- ✅ **True EBU R128 loudness** — K-weighting + gated integrated LUFS
+  (ITU-R BS.1770-4), measured jointly across channels, with a 4×-oversampled
+  true-peak (dBTP) ceiling. Replaces the RMS approximation in `normalize`.
 - **Main-path resampling** — high-quality resampler (e.g. `rubato`) available to
   every stage, not just `enhance`, so mixed-rate inputs are handled uniformly.
 - **Encode beyond WAV** — FLAC and AIFF on the pure-Rust default path; a
@@ -121,7 +122,7 @@ Tracks how close the swiss-army surface is. ✅ done · 🔶 partial · ⬜ plan
 | Encode common formats | ✅ | 🔶 WAV only → FLAC/AIFF (`0.2`), more behind `codecs` |
 | Resample (`rate`) | ✅ | 🔶 `enhance` only → all stages (`0.2`) |
 | Noise profile + reduction | ✅ | ✅ `noiseprint` + `denoise` |
-| Normalize / loudness | ✅ | 🔶 RMS approx → true R128 (`0.2`) |
+| Normalize / loudness | ✅ | ✅ true EBU R128 (BS.1770-4) + true-peak ceiling |
 | Tone/synth generation | ✅ | ✅ `wave` |
 | Trim / pad / fade / silence | ✅ | ⬜ `0.5` |
 | Gain / remix / channels / reverse | ✅ | ⬜ `0.5` |

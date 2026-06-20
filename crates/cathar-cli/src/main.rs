@@ -147,6 +147,9 @@ enum Command {
         /// Use peak normalization instead of loudness
         #[arg(long)]
         peak: bool,
+        /// True-peak ceiling in dBTP for loudness mode (gain is held back to respect it)
+        #[arg(long, default_value_t = -1.0, allow_hyphen_values = true)]
+        true_peak: f32,
     },
     /// Generate a synthetic waveform for testing.
     Wave {
@@ -315,16 +318,22 @@ fn main() -> Result<()> {
             eprintln!("enhanced  {} Hz → {rate} Hz  →  {out}", audio.sample_rate);
         }
 
-        Command::Normalize { input, out, target, peak } => {
+        Command::Normalize { input, out, target, peak, true_peak } => {
             let audio = cathar::AudioData::from_file(&input)?;
-            let cleaned = if peak {
-                audio.map_channels(|c| cathar::normalize_peak(c, target))
+            if peak {
+                let cleaned = audio.map_channels(|c| cathar::normalize_peak(c, target));
+                cleaned.to_file(&out)?;
+                eprintln!("normalized  {target} dBFS peak  →  {out}");
             } else {
-                audio.map_channels(|c| cathar::normalize_loudness(c, target))
-            };
-            cleaned.to_file(&out)?;
-            let label = if peak { "peak" } else { "LUFS" };
-            eprintln!("normalized  {target} {label}  →  {out}");
+                let before = cathar::integrated_loudness(&audio.channels, audio.sample_rate);
+                let cleaned = audio.normalize_r128(target, true_peak);
+                let after = cathar::integrated_loudness(&cleaned.channels, cleaned.sample_rate);
+                let tp = cathar::true_peak_dbtp(&cleaned.channels, cleaned.sample_rate);
+                cleaned.to_file(&out)?;
+                eprintln!(
+                    "normalized  {before:.1} → {after:.1} LUFS  (target {target}, true peak {tp:.1} dBTP ≤ {true_peak})  →  {out}"
+                );
+            }
         }
 
         Command::Wave { out, sample_rate, freq, duration, noise } => {
@@ -370,7 +379,7 @@ fn main() -> Result<()> {
                             clean.map_channels(|c| cathar::dehum(c, clean.sample_rate, freq, 5));
                     }
                     if let Some(lu) = normalize {
-                        clean = clean.map_channels(|c| cathar::normalize_loudness(c, lu));
+                        clean = clean.normalize_r128(lu, -1.0);
                     }
 
                     let out_path = std::path::Path::new(&outdir).join(format!("{name}.wav"));
