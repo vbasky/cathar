@@ -16,6 +16,12 @@ The release workflow extracts the notes for a version from the matching
   `with_noise_print`, `generate_wave`, `variance`) and added
   `#![deny(missing_docs)]` to the `cathar` crate so public docs can't regress.
 
+### Internal
+
+- Split the ~2,400-line `cathar/src/lib.rs` into focused modules (`audio`,
+  `denoise`, `restore`, `enhance`, `loudness`, `resample`, `error`, `util`),
+  re-exported flat so the public API is unchanged. No behaviour change.
+
 ## [0.5.1] - 2026-06-20
 
 Completes the `0.5` DSP-depth milestone (spectral repair shipped in 0.5.0).
