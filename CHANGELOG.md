@@ -9,6 +9,18 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-20
+
+### Added
+
+- **Spectral repair** — the `repair` command and `spectral_repair` function.
+  Paints out isolated transient spectral artifacts (whistles, bursts, glitches):
+  each STFT bin is compared to its temporal median across neighbouring frames and
+  transient outliers are pulled back to the median with phase preserved, so
+  sustained tones/formants/texture pass through transparently (overlap-add is
+  window-normalised to unity gain). `--strength` (1–10) tunes aggressiveness.
+  First item of the `0.5` DSP-depth milestone.
+
 ## [0.4.1] - 2026-06-20
 
 ### Fixed

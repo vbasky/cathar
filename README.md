@@ -22,7 +22,7 @@ boxes, so a result you don't like is a knob you can turn rather than a model you
 have to re-roll. Cathar does three things and writes WAV, FLAC, or AIFF (chosen
 by the output extension):
 
-- **Restore** — denoise, de-hum, de-click, de-clip, de-reverb.
+- **Restore** — denoise, de-hum, de-click, de-clip, de-reverb, spectral repair.
 - **Enhance** — de-ess, breath removal, voice isolation, bandwidth extension.
 - **Level** — loudness (LUFS) and peak normalisation for delivery.
 
@@ -96,6 +96,7 @@ grouped here by what they fix; run them in any order, or chain them.
 | --- | --- | --- |
 | `declick` | Detect impulse clicks against the local RMS and interpolate across them | `--threshold` 10.0 |
 | `declip` | Find flat-topped clipped runs and rebuild the missing peaks | `--threshold` 0.95 |
+| `repair` | Paint out isolated transient spectral artifacts (whistles, bursts, glitches) | `--strength` 4.0 |
 
 ### Enhance & level
 
@@ -148,6 +149,7 @@ Every stage is classic, inspectable DSP — no black boxes.
 | `dehum` | Cascade of 2nd-order IIR notch biquads (Q = 30) at the base frequency and each harmonic up to Nyquist |
 | `declick` | Sliding-window local RMS; samples exceeding `threshold × RMS` are clicks, replaced by cubic-Hermite interpolation |
 | `declip` | Detect runs at/above `threshold` (shoulders extended ±4 samples), rebuild with cubic-Hermite interpolation |
+| `repair` | STFT 2048/512; per bin, compare magnitude to its temporal median (±4 frames) and pull transient outliers back to the median, phase preserved — sustained content is untouched, overlap-add is window-normalised to unity |
 | `dereverb` | Two-pass spectral-decay gating: track each bin's envelope (8 ms attack / 50 ms release), gate bins sitting near their reverb floor |
 | `voiceisolate` | Energy VAD on 20 ms frames (gap-fill < 120 ms, drop segments < 50 ms) + spectral gating of non-speech (tighter with a noiseprint) |
 | `deesser` | STFT 2048/256; where the high-frequency power ratio above the crossover exceeds the threshold, apply frequency-dependent compression |
@@ -199,9 +201,9 @@ The public surface is small and direct:
 - **`Denoiser`** trait + **`SpectralDenoiser`** (configurable `fft_size`,
   `hop_size`, `alpha`, `beta`, `noise_frame_ratio`, optional `noise_print`).
 - **`NoisePrint`** + `learn_noise_print` + `wiener_denoise`.
-- Free functions: `dehum`, `declick`, `declip`, `dereverb`, `voice_isolate`,
-  `deesser`, `breath_remove`, `bandwidth_extend`, `resample`, `normalize_peak`,
-  `integrated_loudness`, `true_peak_dbtp`, `generate_wave`.
+- Free functions: `dehum`, `declick`, `declip`, `spectral_repair`, `dereverb`,
+  `voice_isolate`, `deesser`, `breath_remove`, `bandwidth_extend`, `resample`,
+  `normalize_peak`, `integrated_loudness`, `true_peak_dbtp`, `generate_wave`.
 
 ## Formats & I/O
 

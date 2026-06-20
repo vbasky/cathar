@@ -933,6 +933,103 @@ pub fn dereverb(signal: &[f32], sample_rate: u32, strength: f32) -> Vec<f32> {
     output
 }
 
+// ── Spectral repair ─────────────────────────────────────────────────────────
+
+/// Paint out isolated transient spectral artifacts — brief whistles, bursts,
+/// and glitches that appear in only a few STFT frames.
+///
+/// Each time-frequency bin is compared against the median of the *same bin* in
+/// neighbouring frames. A bin whose magnitude spikes far above that temporal
+/// median is a transient anomaly: it is pulled back to the median while its
+/// phase is preserved. Sustained content (tones, formants, broadband texture)
+/// matches its own temporal median and is left untouched, so unrepaired audio
+/// passes through transparently (the overlap-add is window-normalised to unity).
+///
+/// `strength` (1–10) lowers the outlier threshold — higher removes more.
+pub fn spectral_repair(signal: &[f32], strength: f32) -> Vec<f32> {
+    let fft_size = 2048;
+    let hop_size = 512;
+    let n = signal.len();
+    if n < fft_size {
+        return signal.to_vec();
+    }
+
+    let mut planner = RealFftPlanner::<f32>::new();
+    let r2c = planner.plan_fft_forward(fft_size);
+    let c2r = planner.plan_fft_inverse(fft_size);
+    let hann = hann_window(fft_size);
+    let scale = 1.0f32 / fft_size as f32;
+    let n_bins = fft_size / 2 + 1;
+
+    // ── 1. Forward STFT — keep every frame's spectrum. ──
+    let mut spectra = Vec::new();
+    let mut in_buf = r2c.make_input_vec();
+    let mut out_buf = r2c.make_output_vec();
+    let mut offset = 0;
+    while offset + fft_size <= n {
+        for i in 0..fft_size {
+            in_buf[i] = signal[offset + i] * hann[i];
+        }
+        r2c.process(&mut in_buf, &mut out_buf).unwrap();
+        spectra.push(out_buf.clone());
+        offset += hop_size;
+    }
+    let frames = spectra.len();
+    if frames == 0 {
+        return signal.to_vec();
+    }
+
+    // Original magnitudes (detection uses these, so replacements don't cascade).
+    let mags: Vec<Vec<f32>> = spectra
+        .iter()
+        .map(|fr| fr.iter().map(|c| (c.re * c.re + c.im * c.im).sqrt()).collect())
+        .collect();
+
+    // ── 2. Replace transient outliers with the temporal median per bin. ──
+    let ratio = 1.0 + 8.0 / strength.max(0.1);
+    const T: usize = 4; // temporal half-window, in frames
+    for k in 0..n_bins {
+        for t in 0..frames {
+            let mag = mags[t][k];
+            let lo = t.saturating_sub(T);
+            let hi = (t + T).min(frames - 1);
+            let mut nb: Vec<f32> = (lo..=hi).filter(|&s| s != t).map(|s| mags[s][k]).collect();
+            if nb.is_empty() {
+                continue;
+            }
+            nb.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let med = nb[nb.len() / 2];
+            if mag > ratio * med.max(1e-9) {
+                let g = med / mag;
+                spectra[t][k].re *= g;
+                spectra[t][k].im *= g;
+            }
+        }
+    }
+
+    // ── 3. Inverse STFT with unity-gain overlap-add (window-normalised). ──
+    let mut output = vec![0.0f32; n + fft_size];
+    let mut wsum = vec![0.0f32; n + fft_size];
+    let mut spec_buf = c2r.make_input_vec();
+    let mut time_buf = c2r.make_output_vec();
+    for (t, frame) in spectra.iter().enumerate() {
+        spec_buf.copy_from_slice(frame);
+        c2r.process(&mut spec_buf, &mut time_buf).unwrap();
+        let off = t * hop_size;
+        for i in 0..fft_size {
+            output[off + i] += time_buf[i] * hann[i] * scale;
+            wsum[off + i] += hann[i] * hann[i];
+        }
+    }
+    for i in 0..n {
+        if wsum[i] > 1e-6 {
+            output[i] /= wsum[i];
+        }
+    }
+    output.truncate(n);
+    output
+}
+
 // ── Voice isolation ─────────────────────────────────────────────────────────
 
 /// Isolate speech from background using energy-based VAD + spectral gating.
@@ -1733,6 +1830,52 @@ mod tests {
             .map(|(a, b)| (a - b).abs())
             .fold(0.0f32, f32::max);
         assert!(err < 1e-4, "AIFF 24-bit round-trip error {err}");
+    }
+
+    /// Spectral repair removes a brief transient artifact while leaving a
+    /// sustained tone intact.
+    #[test]
+    fn spectral_repair_removes_transient_keeps_tone() {
+        let fs = 48_000usize;
+        let n = fs; // 1 s
+        let two_pi = 2.0 * std::f32::consts::PI;
+        // sustained 2 kHz tone (legitimate content)
+        let mut sig: Vec<f32> =
+            (0..n).map(|i| 0.3 * (two_pi * 2000.0 * i as f32 / fs as f32).sin()).collect();
+        // 30 ms 7 kHz burst at 0.5 s (the transient artifact)
+        let (start, len) = (fs / 2, fs * 30 / 1000);
+        for (i, s) in sig.iter_mut().enumerate().skip(start).take(len) {
+            *s += 0.5 * (two_pi * 7000.0 * i as f32 / fs as f32).sin();
+        }
+
+        let repaired = spectral_repair(&sig, 6.0);
+        assert_eq!(repaired.len(), sig.len());
+
+        // single-frequency magnitude over a sample range
+        let mag_at = |x: &[f32], f: f32, lo: usize, hi: usize| -> f64 {
+            let (mut re, mut im) = (0.0f64, 0.0f64);
+            for (i, &v) in x.iter().enumerate().take(hi).skip(lo) {
+                let p = two_pi as f64 * f as f64 * i as f64 / fs as f64;
+                re += v as f64 * p.cos();
+                im -= v as f64 * p.sin();
+            }
+            (re * re + im * im).sqrt() / (hi - lo) as f64
+        };
+
+        // 7 kHz transient strongly attenuated in its window
+        let burst_before = mag_at(&sig, 7000.0, start, start + len);
+        let burst_after = mag_at(&repaired, 7000.0, start, start + len);
+        assert!(
+            burst_after < burst_before * 0.5,
+            "transient not removed: {burst_before} -> {burst_after}"
+        );
+        // 2 kHz sustained tone preserved (steady region away from the burst)
+        let tone_before = mag_at(&sig, 2000.0, 2000, fs / 4);
+        let tone_after = mag_at(&repaired, 2000.0, 2000, fs / 4);
+        assert!(
+            tone_after > tone_before * 0.8,
+            "sustained tone not preserved: {tone_before} -> {tone_after}"
+        );
     }
 
     #[test]

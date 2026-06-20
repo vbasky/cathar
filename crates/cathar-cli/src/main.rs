@@ -134,6 +134,17 @@ enum Command {
         #[arg(short, long, default_value_t = 48000)]
         rate: u32,
     },
+    /// Repair isolated transient spectral artifacts (whistles, bursts, glitches).
+    Repair {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "repaired.wav")]
+        out: String,
+        /// Aggressiveness 1–10 (higher removes more)
+        #[arg(short, long, default_value_t = 4.0)]
+        strength: f32,
+    },
     /// Resample to a different sample rate (anti-aliased, any ratio).
     Resample {
         /// Input file
@@ -327,6 +338,13 @@ fn main() -> Result<()> {
             let result = cathar::AudioData { sample_rate: rate, channels };
             result.to_file(&out)?;
             eprintln!("enhanced  {} Hz → {rate} Hz  →  {out}", audio.sample_rate);
+        }
+
+        Command::Repair { input, out, strength } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let cleaned = audio.map_channels(|c| cathar::spectral_repair(c, strength));
+            cleaned.to_file(&out)?;
+            eprintln!("repaired  strength={strength}  →  {out}");
         }
 
         Command::Resample { input, out, rate } => {

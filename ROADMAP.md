@@ -56,8 +56,10 @@ stands next to iZotope RX's core.
 
 ### `0.5` — DSP depth
 
-- **Spectral repair** — interpolate/paint out transient artifacts (RX's
-  signature capability).
+- ✅ **Spectral repair** (`v0.5.0`) — the `repair` command / `spectral_repair`:
+  per time-frequency bin, transient outliers (vs the temporal median) are pulled
+  back to the median with phase preserved, so brief whistles/bursts/glitches are
+  painted out while sustained content passes through untouched.
 - **De-rustle, de-wind, de-plosive** — round out the `de-*` family.
 - **Multiband / adaptive** denoise and de-ess.
 - **Phase-coherent stereo** processing (today each channel is independent;
