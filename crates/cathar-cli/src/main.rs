@@ -8,6 +8,8 @@ use rayon::prelude::*;
 #[cfg(feature = "tui")]
 mod player;
 #[cfg(feature = "tui")]
+mod termcolor;
+#[cfg(feature = "tui")]
 mod tui;
 
 /// Audio restoration toolbox — denoise, de-hum, de-click, de-clip, normalise.

@@ -20,6 +20,9 @@ The release workflow extracts the notes for a version from the matching
 - **`spectrogram` (library)** — `cathar::spectrogram(signal, sample_rate, fft_size,
   hop)` computes a Hann-windowed STFT magnitude spectrogram (dB), returned as a
   `Spectrogram` with `frames()`/`get()`/`bin_hz()`/`frame_time()` helpers.
+- Both TUI tools use 24-bit truecolor when the terminal advertises it
+  (`COLORTERM`) and otherwise downsample to the nearest xterm-256 palette colors,
+  so gradients render correctly on 256-color terminals (e.g. macOS Terminal.app).
 - **Terminal spectrogram viewer (`cathar view`, opt-in `tui` feature)** — an
   interactive truecolor heatmap of time × frequency × level built on `ratatui`, a
   lightweight nod to RX's spectral display. Unicode half-blocks pack two frequency

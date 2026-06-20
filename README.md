@@ -142,6 +142,10 @@ its dependency set stay lean. Install with `cargo install cathar-cli --features 
   *seeing* hiss/hum/clicks before you remove them (crosshair reads time/freq/dB,
   `+/-` zoom, `f` log frequency). The analytical one.
 
+Both use **24-bit truecolor** where the terminal advertises it (`COLORTERM`), and
+automatically fall back to the nearest **xterm-256** palette colors otherwise
+(e.g. macOS Terminal.app), so the gradients render correctly everywhere.
+
 The underlying `cathar::spectrogram` function is always available in the library.
 
 ## How denoising works

@@ -55,6 +55,7 @@ struct App {
     log_freq: bool,
     cx: u16, // crosshair column within the heatmap
     cy: u16, // crosshair row within the heatmap
+    truecolor: bool,
     quit: bool,
 }
 
@@ -75,6 +76,7 @@ impl App {
             log_freq: false,
             cx: 0,
             cy: 0,
+            truecolor: crate::termcolor::supports_truecolor(),
             quit: false,
         }
     }
@@ -172,8 +174,8 @@ impl App {
                 let bot = self.cell_db(f_lo, f_hi, trow as usize * 2 + 1, subrows, bins);
                 if let Some(cell) = buf.cell_mut((hx + col, hy + trow)) {
                     cell.set_symbol("▀");
-                    cell.set_fg(magma(self.norm(top)));
-                    cell.set_bg(magma(self.norm(bot)));
+                    cell.set_fg(magma(self.norm(top), self.truecolor));
+                    cell.set_bg(magma(self.norm(bot), self.truecolor));
                 }
             }
         }
@@ -269,8 +271,8 @@ impl App {
     }
 }
 
-/// Magma-ish colormap: `t` in `[0,1]` → RGB.
-fn magma(t: f32) -> Color {
+/// Magma-ish colormap: `t` in `[0,1]` → a terminal color (truecolor or xterm-256).
+fn magma(t: f32, truecolor: bool) -> Color {
     const STOPS: [(f32, (u8, u8, u8)); 5] = [
         (0.00, (0, 0, 4)),
         (0.25, (43, 17, 86)),
@@ -285,10 +287,15 @@ fn magma(t: f32) -> Color {
         if t <= t1 {
             let f = ((t - t0) / (t1 - t0)).clamp(0.0, 1.0);
             let lerp = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * f).round() as u8;
-            return Color::Rgb(lerp(c0.0, c1.0), lerp(c0.1, c1.1), lerp(c0.2, c1.2));
+            return crate::termcolor::rgb(
+                lerp(c0.0, c1.0),
+                lerp(c0.1, c1.1),
+                lerp(c0.2, c1.2),
+                truecolor,
+            );
         }
     }
-    Color::Rgb(252, 253, 191)
+    crate::termcolor::rgb(252, 253, 191, truecolor)
 }
 
 fn put_str(buf: &mut Buffer, x: u16, y: u16, s: &str, fg: Color, bg: Color) {

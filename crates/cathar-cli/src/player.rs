@@ -66,6 +66,7 @@ struct Ui {
     levels: Vec<f32>, // smoothed bar heights, 0..1
     peaks: Vec<f32>,  // peak-hold caps, 0..1
     mode: Mode,
+    truecolor: bool,
     quit: bool,
 }
 
@@ -86,6 +87,7 @@ impl Ui {
             levels: Vec::new(),
             peaks: Vec::new(),
             mode: Mode::Spectrum,
+            truecolor: crate::termcolor::supports_truecolor(),
             quit: false,
         }
     }
@@ -158,7 +160,7 @@ impl Ui {
         let buf = frame.buffer_mut();
         match self.mode {
             Mode::Spectrum => self.draw_spectrum(buf, viz, &window, paused),
-            Mode::Scope => draw_scope(buf, viz, &window),
+            Mode::Scope => draw_scope(buf, viz, &window, self.truecolor),
         }
 
         // ── title ──
@@ -242,7 +244,7 @@ impl Ui {
             for r in 0..h {
                 let from_bottom = h - 1 - r;
                 let filled = eighths.saturating_sub(from_bottom as usize * 8).min(8);
-                let fg = bar_color(from_bottom as f32 / (h as f32 - 1.0).max(1.0));
+                let fg = bar_color(from_bottom as f32 / (h as f32 - 1.0).max(1.0), self.truecolor);
                 if let Some(cell) = buf.cell_mut((x0 + b as u16, y0 + r)) {
                     cell.set_symbol(BLOCKS[filled]);
                     cell.set_fg(fg);
@@ -258,20 +260,22 @@ impl Ui {
 }
 
 /// Bottom-up bar color: green → yellow → red with height fraction `t`.
-fn bar_color(t: f32) -> Color {
+fn bar_color(t: f32, truecolor: bool) -> Color {
     let t = t.clamp(0.0, 1.0);
-    if t < 0.5 {
+    let (r, g, b) = if t < 0.5 {
         let f = t / 0.5;
-        Color::Rgb((80.0 + 175.0 * f) as u8, 255, 40)
+        ((80.0 + 175.0 * f) as u8, 255u8, 40u8)
     } else {
         let f = (t - 0.5) / 0.5;
-        Color::Rgb(255, (255.0 - 215.0 * f) as u8, 40)
-    }
+        (255u8, (255.0 - 215.0 * f) as u8, 40u8)
+    };
+    crate::termcolor::rgb(r, g, b, truecolor)
 }
 
 /// Oscilloscope: the current window drawn as a centered waveform.
-fn draw_scope(buf: &mut Buffer, area: Rect, window: &[f32]) {
+fn draw_scope(buf: &mut Buffer, area: Rect, window: &[f32], truecolor: bool) {
     let (x0, y0, w, h) = (area.x, area.y, area.width, area.height);
+    let scope = crate::termcolor::rgb(80, 220, 120, truecolor);
     let mid = h / 2;
     for col in 0..w {
         let i = (col as usize * window.len() / w.max(1) as usize).min(window.len() - 1);
@@ -280,7 +284,7 @@ fn draw_scope(buf: &mut Buffer, area: Rect, window: &[f32]) {
         let y = (mid as i32 - off).clamp(0, h as i32 - 1) as u16;
         if let Some(cell) = buf.cell_mut((x0 + col, y0 + y)) {
             cell.set_symbol("•");
-            cell.set_fg(Color::Rgb(80, 220, 120));
+            cell.set_fg(scope);
         }
     }
 }
@@ -347,7 +351,7 @@ mod tests {
 
     #[test]
     fn bar_color_spans_green_to_red() {
-        assert!(matches!(bar_color(0.0), Color::Rgb(_, 255, _)));
-        assert!(matches!(bar_color(1.0), Color::Rgb(255, _, _)));
+        assert!(matches!(bar_color(0.0, true), Color::Rgb(_, 255, _)));
+        assert!(matches!(bar_color(1.0, true), Color::Rgb(255, _, _)));
     }
 }
