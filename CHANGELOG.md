@@ -9,6 +9,8 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-20
+
 ### Added
 
 - `integrated_loudness` and `true_peak_dbtp` measurement functions, and
