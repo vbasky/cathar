@@ -117,7 +117,7 @@ Cathar decodes to interleaved `f32` PCM, then most reduction stages run as an
 loop. The denoiser uses a 2048-point FFT with a 512-sample hop (75 % overlap)
 and a Hann window on both analysis and synthesis, reconstructed by overlap-add:
 
-![cathar STFT denoise pipeline: input.mp4 → symphonia decode → f32 PCM → STFT (Hann, 2048-pt FFT, 512 hop) → magnitude + phase → spectral subtraction (phase preserved) → recombine → inverse FFT / overlap-add → clean.wav](docs/stft-pipeline.svg)
+![cathar STFT denoise pipeline: input.mp4 → symphonia decode → f32 PCM → STFT (Hann, 2048-pt FFT, 512 hop) → magnitude + phase → spectral subtraction (phase preserved) → recombine → inverse FFT / overlap-add → clean.wav](https://raw.githubusercontent.com/vbasky/cathar/main/docs/stft-pipeline.png)
 
 Two denoiser flavours share that frame loop:
 
