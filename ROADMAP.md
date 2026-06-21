@@ -69,6 +69,15 @@ stands next to iZotope RX's core.
 - ✅ **Phase-coherent stereo** (`v0.5.1`) — `denoise_coherent` (`denoise
   --coherent`) derives one gain mask from the mid signal and applies it to every
   channel, so the stereo image no longer wanders.
+- ✅ **Terminal player, visualizer & spectral viewer** (`v0.5.4`, opt-in `tui`
+  feature) — `cathar play` streams to the system device (`rodio`) with a live
+  colored spectrum analyzer and oscilloscope; `cathar view` renders an
+  interactive truecolor time × frequency × level heatmap with a readout crosshair;
+  both fall back to xterm-256 on non-truecolor terminals. Also exposes
+  `cathar::spectrogram(...)` (Hann-windowed STFT magnitude, dB) in the library.
+  This lands the **TUI spectral viewer (`ratatui`)** that Phase 3 had parked
+  under `1.0` — ahead of schedule, and entirely behind `--features tui` so the
+  default build and dependency set are unchanged.
 
 ### `0.6` — Learned denoise (make the `ml` feature real)
 
@@ -124,7 +133,8 @@ replace SoX for routine work. Target: **SoX effect/format parity** by `0.11`.
 - Comprehensive format coverage (pure-Rust default; C-backed codecs opt-in).
 - Plugin formats — CLAP (via `nih-plug`) and/or VST3/LV2 — so Cathar runs inside
   a DAW.
-- Optional TUI spectral viewer (`ratatui`) as a lightweight nod to RX.
+- ✅ Optional TUI spectral viewer (`ratatui`) as a lightweight nod to RX —
+  shipped early in `v0.5.4` (`cathar view`, behind `--features tui`).
 
 ---
 

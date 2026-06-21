@@ -1,6 +1,6 @@
 [package]
 name = "cathar"
-version = "0.5.3"
+version = "0.5.4"
 description = "Audio toolkit in pure Rust — denoise, de-hum, de-click, de-clip, de-reverb, normalise, and more."
 edition.workspace = true
 rust-version.workspace = true

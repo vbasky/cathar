@@ -9,6 +9,8 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-06-21
+
 ### Added
 
 - **Player + visualizer (`cathar play`, opt-in `tui` feature)** — a Winamp/cava-
@@ -29,6 +31,16 @@ The release workflow extracts the notes for a version from the matching
   bins per row; a movable crosshair reads out time/frequency/dB, `+`/`-` zoom time,
   `f` toggles log frequency. Behind `--features tui` so the default build and its
   dependency set are unchanged: `cargo install cathar-cli --features tui`.
+
+### Fixed
+
+- **Security (RUSTSEC-2026-0009)** — bumped the transitive `time` dependency
+  (pulled in by the `tui` feature via `ratatui`) from 0.3.45 to 0.3.47, clearing
+  a denial-of-service-via-stack-exhaustion advisory. `time` only enters the graph
+  under the optional `tui` feature, so the default build's MSRV (1.87) is unchanged.
+- `cathar play` no longer prints rodio's "Dropping DeviceSink…" warning over the
+  restored terminal on exit — playback is stopped deliberately, so the sink's
+  drop logging is disabled.
 
 ## [0.5.3] - 2026-06-21
 
