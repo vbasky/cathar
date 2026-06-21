@@ -36,8 +36,11 @@ pub(crate) fn run(input: &str, fft_size: usize) -> Result<()> {
     }
 
     // Audio output (system device via rodio).
-    let stream = rodio::DeviceSinkBuilder::open_default_sink()
+    let mut stream = rodio::DeviceSinkBuilder::open_default_sink()
         .map_err(|e| anyhow!("no audio output device: {e}"))?;
+    // We stop playback deliberately on exit; silence rodio's drop warning so it
+    // doesn't print to stderr over the restored terminal.
+    stream.log_on_drop(false);
     let player = rodio::Player::connect_new(stream.mixer());
     let ch = NonZero::new(nch as u16).ok_or_else(|| anyhow!("zero channels"))?;
     let rate = NonZero::new(sr).ok_or_else(|| anyhow!("zero sample rate"))?;
