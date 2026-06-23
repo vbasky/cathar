@@ -276,7 +276,7 @@ dependencies = [
 
 [[package]]
 name = "cathar"
-version = "0.5.4"
+version = "0.6.0"
 dependencies = [
  "candle-core",
  "candle-nn",
@@ -290,7 +290,7 @@ dependencies = [
 
 [[package]]
 name = "cathar-cli"
-version = "0.5.4"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "cathar",

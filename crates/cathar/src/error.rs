@@ -32,6 +32,18 @@ pub enum Error {
     /// A supplied noise print's FFT size does not match the denoiser's.
     #[error("noise print FFT size mismatch")]
     NoisePrintMismatch,
+    /// A neural-inference error from the `ml` feature (candle tensor op,
+    /// shape mismatch, or checkpoint load failure).
+    #[cfg(feature = "ml")]
+    #[error("ML error: {0}")]
+    Ml(String),
+}
+
+#[cfg(feature = "ml")]
+impl From<candle_core::Error> for Error {
+    fn from(e: candle_core::Error) -> Self {
+        Error::Ml(e.to_string())
+    }
 }
 
 impl From<realfft::FftError> for Error {

@@ -268,6 +268,19 @@ enum Command {
         #[arg(long, default_value_t = 512)]
         hop: usize,
     },
+    /// Neural spectral-gain denoise (candle GRU). Requires `--features ml`.
+    #[cfg(feature = "ml")]
+    MlDenoise {
+        /// Input file (any format: WAV, MP3, MP4, M4A, MKV, FLAC, OGG)
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "clean.wav")]
+        out: String,
+        /// Path to a trained `.safetensors` checkpoint. Omit to use the
+        /// deterministic passthrough-initialised model (a near no-op).
+        #[arg(long)]
+        weights: Option<String>,
+    },
     /// Play a file with a live spectrum-analyzer visualizer (Winamp-style).
     #[cfg(feature = "tui")]
     Play {
@@ -537,6 +550,31 @@ fn main() -> Result<()> {
         #[cfg(feature = "tui")]
         Command::View { input, fft, hop } => {
             tui::run(&input, fft, hop)?;
+        }
+        #[cfg(feature = "ml")]
+        Command::MlDenoise { input, out, weights } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let orig_power = power(&audio.channels[0]);
+            let denoiser = match weights.as_deref() {
+                Some(path) => {
+                    eprintln!("ml denoise  weights={path}");
+                    cathar::NeuralDenoiser::from_safetensors(path, cathar::NeuralConfig::default())?
+                }
+                None => {
+                    eprintln!(
+                        "ml denoise  (passthrough model — pass --weights for real denoising)"
+                    );
+                    cathar::NeuralDenoiser::new()?
+                }
+            };
+            let clean = denoiser.denoise(&audio)?;
+            clean.to_file(&out)?;
+            if let (Some(o), Some(c)) = (orig_power, power(&clean.channels[0])) {
+                if o > 0.0 {
+                    eprintln!("reduction  {:.1}%", (1.0 - c / o) * 100.0);
+                }
+            }
+            eprintln!("wrote  {out}");
         }
         #[cfg(feature = "tui")]
         Command::Play { input, fft } => {

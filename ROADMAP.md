@@ -18,7 +18,7 @@ What stays constant as the scope widens:
 - **Restoration-first.** Breadth never comes at the cost of the restoration
   chain that is Cathar's reason to exist.
 
-## Where we are — `0.4.x`
+## Where we are — `0.6.x`
 
 The restoration chain is implemented and unit-tested: `denoise` (spectral
 subtraction / Wiener, noiseprint- or minimum-statistics-driven), `dehum`,
@@ -81,10 +81,19 @@ stands next to iZotope RX's core.
 
 ### `0.6` — Learned denoise (make the `ml` feature real)
 
-- Wire an actual `candle` model behind `cfg(feature = "ml")` — today the feature
-  pulls in `candle` but **no code references it**.
-- Port or run a DeepFilterNet / DNS-Challenge model; ship or fetch weights.
-- Optional ML-based VAD and dialogue isolation.
+- ✅ **Real `candle` model behind `cfg(feature = "ml")`** (`v0.6.0`) — the
+  `ml-denoise` command / `NeuralDenoiser`: a GRU spectral-gain network
+  (log-magnitude → encoder → GRU → decoder → sigmoid) predicts a per-bin
+  suppression mask, applied with phase preserved and window-normalised
+  overlap-add — the DNS-Challenge / DeepFilterNet recipe, pure Rust and
+  deterministic. Weights load from open `.safetensors` (PyTorch-compatible
+  parameter names); `NeuralDenoiser::new()` is a passthrough-initialised default.
+  This closes the long-standing gap where the `ml` feature pulled in `candle` but
+  no code referenced it.
+- ⬜ Ship or fetch a trained DeepFilterNet / DNS-Challenge checkpoint so
+  `ml-denoise` denoises out of the box (the inference path and loader are in
+  place; only the weights are pending).
+- ⬜ Optional ML-based VAD and dialogue isolation.
 
 ---
 
@@ -158,7 +167,7 @@ Tracks how close the swiss-army surface is. ✅ done · 🔶 partial · ⬜ plan
 | Reverb / echo / chorus / modulation | ✅ | ⬜ `0.9` |
 | Stats / spectrogram | ✅ | ⬜ `0.10` |
 | De-click / de-clip / de-hum / de-reverb | partial | ✅ (Cathar leads here) |
-| Learned denoise | ⬜ | ⬜ `0.6` |
+| Learned denoise | ⬜ | 🔶 `ml-denoise` candle GRU (`v0.6.0`); trained weights pending |
 
 > Restoration depth (`declick`, `declip`, `dehum`, `dereverb`, `deesser`,
 > learned denoise) is where Cathar already exceeds SoX — that lead is the point,

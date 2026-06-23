@@ -23,8 +23,9 @@ boxes, so a result you don't like is a knob you can turn rather than a model you
 have to re-roll. Cathar does three things and writes WAV, FLAC, or AIFF (chosen
 by the output extension):
 
-- **Restore** — denoise (phase-coherent stereo), de-hum, de-wind, de-click,
-  de-clip, de-reverb, spectral repair, de-plosive, de-rustle.
+- **Restore** — denoise (phase-coherent stereo, or a learned GRU model via the
+  opt-in `ml` feature), de-hum, de-wind, de-click, de-clip, de-reverb, spectral
+  repair, de-plosive, de-rustle.
 - **Enhance** — de-ess, breath removal, voice isolation, bandwidth extension.
 - **Level** — loudness (LUFS) and peak normalisation for delivery.
 
@@ -93,6 +94,7 @@ grouped here by what they fix; run them in any order, or chain them.
 | Command | What it does | Key flags |
 | --- | --- | --- |
 | `denoise` | Broadband denoiser — spectral subtraction (default) or Wiener filter; `--coherent` keeps the stereo image stable | `--alpha` 3.0, `--beta` 0.01, `--noiseprint <f>`, `--wiener`, `--coherent` |
+| `ml-denoise` *(opt-in)* | **Learned** spectral-gain denoiser — a candle GRU predicts a per-bin suppression mask; load a trained `.safetensors` checkpoint | `--weights <f>` |
 | `noiseprint` | Learn a noise profile from a silence/room-tone clip → JSON | `--out noise.np.json` |
 | `dehum` | Notch out mains hum (50/60 Hz) and its harmonics | `--freq` 60, `--harmonics` 5 |
 | `dewind` | Cut low-frequency wind rumble with a 4th-order high-pass | `--cutoff` 80 |
@@ -170,6 +172,35 @@ The noise spectrum comes either from **minimum-statistics** (the quietest ~15 %
 of frames are taken as noise) or, for a cleaner result, from a **`noiseprint`**
 learned off a dedicated silent segment.
 
+### Learned denoising (`ml` feature)
+
+The optional `ml` feature adds a third flavour that shares the same STFT frame
+loop but **learns** the per-bin gain instead of deriving it from a noise
+estimate. A small recurrent network — log-magnitude → linear encoder → GRU →
+linear decoder → sigmoid — predicts a suppression mask in `(0, 1)` for every
+time-frequency bin; the mask scales the complex spectrum (phase preserved) and
+the signal is rebuilt by window-normalised overlap-add. This is the
+DNS-Challenge / DeepFilterNet recipe, and unlike a noise print it can suppress
+*non-stationary* noise (keystrokes, traffic, babble) that a stationary estimate
+can't model.
+
+True to Cathar's no-black-boxes rule, the architecture is open Rust
+([`candle`](https://crates.io/crates/candle-core), pure Rust — no C++/ffmpeg),
+weights load from an open `.safetensors` checkpoint, and inference is fully
+deterministic. Build it with `--features ml`:
+
+```bash
+cargo install cathar-cli --features ml
+cathar ml-denoise noisy.wav --weights denoiser.safetensors --out clean.wav
+```
+
+Without `--weights` it runs a deterministic passthrough-initialised model (every
+gain ≈ 1) — a safe no-op that exercises the inference path and gives training a
+known starting point. The checkpoint must match the model geometry
+(`NeuralConfig`: 512-pt STFT, 256-wide GRU by default); parameter names follow
+PyTorch's (`enc.weight`, `gru.weight_ih_l0`, `dec.bias`, …) so a standard
+training export loads without renaming.
+
 ## Inside each tool
 
 Every stage is classic, inspectable DSP — no black boxes.
@@ -177,6 +208,7 @@ Every stage is classic, inspectable DSP — no black boxes.
 | Tool | Technique |
 | --- | --- |
 | `denoise` | STFT 2048/512, Hann; spectral subtraction `max(mag−α·N, β·mag)` or Wiener `S/(S+N)`. `--coherent` derives one gain mask from the mid (L+R) signal and applies it to every channel, so the stereo image stays put |
+| `ml-denoise` *(opt-in)* | STFT 512/128, Hann; a candle GRU (log-mag → encoder → GRU → decoder → sigmoid) predicts a per-bin gain mask, applied with phase preserved and window-normalised overlap-add. Weights load from `.safetensors`; pure Rust, deterministic |
 | `dewind` | 4th-order Butterworth high-pass (two cascaded biquads, ~24 dB/oct) at `--cutoff` |
 | `noiseprint` | Per-bin magnitude spectrum of a noise clip, serialised to JSON |
 | `dehum` | Cascade of 2nd-order IIR notch biquads (Q = 30) at the base frequency and each harmonic up to Nyquist |
@@ -236,6 +268,9 @@ The public surface is small and direct:
   `hop_size`, `alpha`, `beta`, `noise_frame_ratio`, optional `noise_print`);
   `denoise` and `denoise_coherent` (phase-coherent stereo).
 - **`NoisePrint`** + `learn_noise_print` + `wiener_denoise`.
+- **`NeuralDenoiser`** + **`NeuralConfig`** *(opt-in `ml` feature)* — the learned
+  spectral-gain denoiser; `new()` for the passthrough default, `from_safetensors`
+  to load trained weights. Implements the same `Denoiser` trait.
 - Free functions: `dehum`, `dewind`, `declick`, `declip`, `spectral_repair`,
   `deplosive`, `derustle`, `dereverb`, `voice_isolate`, `deesser`,
   `deess_multiband`, `breath_remove`, `bandwidth_extend`, `resample`,
@@ -271,7 +306,7 @@ cathar/
 | `clap` (derive) | CLI parsing |
 | `serde` / `serde_json` | `NoisePrint` serialisation (`*.np.json`) |
 | `thiserror` / `anyhow` | Library error type / CLI error reporting |
-| `candle-core`, `candle-nn` | *(optional `ml` feature)* scaffolding for a future learned denoiser |
+| `candle-core`, `candle-nn` | *(optional `ml` feature)* pure-Rust tensors + GRU for the learned `ml-denoise` model |
 
 ## Design
 
@@ -293,7 +328,7 @@ container files, so it can sit immediately after ingest and before encoding.
 
 ## Roadmap
 
-Cathar is `0.4.x`, restoration-first, and growing — before `1.0` — into a
+Cathar is `0.6.x`, restoration-first, and growing — before `1.0` — into a
 general-purpose, pure-Rust audio swiss-army knife (a SoX-class tool with no
 ffmpeg and no C/C++ FFI). See [`ROADMAP.md`](https://github.com/vbasky/cathar/blob/main/ROADMAP.md) for the full plan and
 SoX-parity checklist. The `0.2`–`0.4` foundations are complete:
@@ -305,11 +340,10 @@ SoX-parity checklist. The `0.2`–`0.4` foundations are complete:
 - **Encode beyond WAV** — 24-bit lossless FLAC and 24-bit AIFF on the pure-Rust
   default path, selected by the output extension.
 
-Next up is restoration depth (Phase 1 `0.5`) and the swiss-army expansion
-(Phase 2) — see [`ROADMAP.md`](https://github.com/vbasky/cathar/blob/main/ROADMAP.md).
-
-The optional `ml` feature wires in [`candle`](https://crates.io/crates/candle-core)
-for a learned denoiser (`0.6`); the neural model itself is not implemented yet.
+Phase 1 `0.5` (DSP depth) is complete, and `0.6` makes the `ml` feature real:
+the optional `ml-denoise` command runs a candle GRU spectral-gain model (load
+trained `.safetensors` weights). Next is the swiss-army expansion (Phase 2) —
+see [`ROADMAP.md`](https://github.com/vbasky/cathar/blob/main/ROADMAP.md).
 
 ## Development
 
