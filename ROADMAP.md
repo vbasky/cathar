@@ -92,8 +92,8 @@ stands next to iZotope RX's core.
   no code referenced it.
 - ✅ **Bundled pretrained checkpoint** (`v0.6.0`) — a trained GRU checkpoint
   compiled into the binary (2 MB). `NeuralDenoiser::pretrained()` loads it;
-  `ml-denoise` uses it by default. Training script (`scripts/train_denoiser.py`)
-  provided for retraining on DNS-Challenge speech data.
+  `ml-denoise` uses it by default. Retrain on DNS-Challenge speech data
+  for production use.
 - ⬜ Optional ML-based VAD and dialogue isolation.
 
 ---
