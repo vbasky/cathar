@@ -40,17 +40,15 @@ pub fn fade(signal: &[f32], sample_rate: u32, in_sec: f32, out_sec: f32) -> Vec<
     let mut out = signal.to_vec();
     let fi = ((in_sec * sample_rate as f32) as usize).min(n);
     if fi > 0 {
-        for i in 0..fi {
-            let gain = i as f32 / fi as f32;
-            out[i] *= gain;
+        for (i, s) in out.iter_mut().enumerate().take(fi) {
+            *s *= i as f32 / fi as f32;
         }
     }
     let fo = ((out_sec * sample_rate as f32) as usize).min(n);
     if fo > 0 {
         let start = n - fo;
-        for i in start..n {
-            let gain = (n - 1 - i) as f32 / fo as f32;
-            out[i] *= gain;
+        for (i, s) in out.iter_mut().enumerate().skip(start) {
+            *s *= (n - 1 - i) as f32 / fo as f32;
         }
     }
     out
