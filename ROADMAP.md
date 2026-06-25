@@ -109,10 +109,11 @@ replace SoX for routine work. Target: **SoX effect/format parity** by `0.11`.
 - ✅ `gain`/`vol`, `remix` (channel mixing), `channels`, `reverse`, `dither`.
 - ⬜ `speed`/`tempo`/`pitch` (built on the shipped `resample` + time-stretch).
 
-### `0.8` — Filters & dynamics
+### `0.8` — Filters & dynamics (ahead of schedule — shipped in `v0.6.0`)
 
-- Biquad EQ: `highpass`, `lowpass`, `bandpass`, `equalizer`, `bass`, `treble`.
-- Dynamics: `compand`/compressor, limiter, gate, `contrast`.
+- ✅ Biquad EQ: `highpass`, `lowpass`, `bandpass`, `equalizer`, `bass`, `treble`.
+- ✅ Dynamics: compressor, limiter, gate.
+- ⬜ `compand` (multi-band), `contrast`.
 
 ### `0.9` — Creative effects
 
@@ -121,8 +122,9 @@ replace SoX for routine work. Target: **SoX effect/format parity** by `0.11`.
 
 ### `0.10` — Analysis & batch power
 
-- `stat`/`stats`, `spectrogram`, loudness/true-peak reporting.
-- Chain DSL + preset files — declarative multi-stage pipelines, reusable across
+- ✅ `stat`/`stats` (peak, RMS, LUFS, true-peak, crest factor, DC offset).
+- ✅ `spectrogram` lib + TUI viewer (shipped in `v0.5.4`).
+- ⬜ Chain DSL + preset files — declarative multi-stage pipelines, reusable across
   `batch`.
 
 ---
@@ -163,10 +165,10 @@ Tracks how close the swiss-army surface is. ✅ done · 🔶 partial · ⬜ plan
 | Trim / pad / fade / silence | ✅ | ✅ `v0.6.0` |
 | Gain / remix / channels / reverse | ✅ | ✅ `v0.6.0` |
 | Speed / tempo / pitch | ✅ | ⬜ `0.7` |
-| EQ / filters | ✅ | ⬜ `0.8` |
-| Compander / dynamics | ✅ | ⬜ `0.8` |
+| EQ / filters | ✅ | ✅ biquad: `lowpass`, `highpass`, `bandpass`, `equalizer`, `bass`, `treble` (`v0.6.0`) |
+| Compander / dynamics | ✅ | ✅ compressor, limiter, gate (`v0.6.0`) |
 | Reverb / echo / chorus / modulation | ✅ | ⬜ `0.9` |
-| Stats / spectrogram | ✅ | 🔶 `spectrogram` lib + TUI viewer (`v0.5.4`); `stat`/`stats` report pending |
+| Stats / spectrogram | ✅ | ✅ `stat`/`stats` + `spectrogram` lib + TUI viewer (`v0.6.0`) |
 | De-click / de-clip / de-hum / de-reverb | partial | ✅ (Cathar leads here) |
 | Learned denoise | ⬜ | ✅ `ml-denoise` + bundled pretrained checkpoint (`v0.6.0`) |
 | Dither | ✅ | ✅ `v0.6.0` |

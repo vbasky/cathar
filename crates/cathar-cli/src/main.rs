@@ -376,6 +376,117 @@ enum Command {
         #[arg(short, long, default_value = "reversed.wav")]
         out: String,
     },
+    /// Apply a low-pass filter (remove high frequencies).
+    Lowpass {
+        input: String,
+        #[arg(short, long, default_value = "lowpassed.wav")]
+        out: String,
+        /// Cutoff frequency in Hz
+        #[arg(short, long)]
+        freq: f32,
+    },
+    /// Apply a high-pass filter (remove low frequencies).
+    Highpass {
+        input: String,
+        #[arg(short, long, default_value = "highpassed.wav")]
+        out: String,
+        /// Cutoff frequency in Hz
+        #[arg(short, long)]
+        freq: f32,
+    },
+    /// Apply a band-pass filter.
+    Bandpass {
+        input: String,
+        #[arg(short, long, default_value = "bandpassed.wav")]
+        out: String,
+        /// Center frequency in Hz
+        #[arg(short, long)]
+        freq: f32,
+        /// Q factor (bandwidth = freq / Q)
+        #[arg(long, default_value_t = 1.0)]
+        q: f32,
+    },
+    /// Apply a peaking (bell) EQ filter.
+    Equalizer {
+        input: String,
+        #[arg(short, long, default_value = "eqd.wav")]
+        out: String,
+        /// Center frequency in Hz
+        #[arg(short, long)]
+        freq: f32,
+        /// Q factor
+        #[arg(long, default_value_t = 1.0)]
+        q: f32,
+        /// Gain in dB (positive = boost, negative = cut)
+        #[arg(short, long, allow_hyphen_values = true)]
+        gain: f32,
+    },
+    /// Apply a low-shelf filter (boost/cut bass).
+    Bass {
+        input: String,
+        #[arg(short, long, default_value = "bassed.wav")]
+        out: String,
+        /// Cutoff frequency in Hz
+        #[arg(short, long)]
+        freq: f32,
+        /// Gain in dB
+        #[arg(short, long, allow_hyphen_values = true, default_value_t = 3.0)]
+        gain: f32,
+    },
+    /// Apply a high-shelf filter (boost/cut treble).
+    Treble {
+        input: String,
+        #[arg(short, long, default_value = "trebled.wav")]
+        out: String,
+        /// Cutoff frequency in Hz
+        #[arg(short, long)]
+        freq: f32,
+        /// Gain in dB
+        #[arg(short, long, allow_hyphen_values = true, default_value_t = 3.0)]
+        gain: f32,
+    },
+    /// Apply a dynamic range compressor.
+    Compress {
+        input: String,
+        #[arg(short, long, default_value = "compressed.wav")]
+        out: String,
+        /// Threshold in dBFS (e.g. -20)
+        #[arg(short, long, default_value_t = -20.0, allow_hyphen_values = true)]
+        threshold: f32,
+        /// Compression ratio (e.g. 2 for 2:1)
+        #[arg(long, default_value_t = 2.0)]
+        ratio: f32,
+        /// Attack time in seconds
+        #[arg(long, default_value_t = 0.01)]
+        attack: f32,
+        /// Release time in seconds
+        #[arg(long, default_value_t = 0.1)]
+        release: f32,
+    },
+    /// Apply a brickwall limiter.
+    Limit {
+        input: String,
+        #[arg(short, long, default_value = "limited.wav")]
+        out: String,
+        /// Ceiling in dBFS
+        #[arg(short, long, default_value_t = -1.0, allow_hyphen_values = true)]
+        ceiling: f32,
+    },
+    /// Apply a noise gate.
+    Gate {
+        input: String,
+        #[arg(short, long, default_value = "gated.wav")]
+        out: String,
+        /// Threshold in dBFS (e.g. -40)
+        #[arg(short, long, default_value_t = -40.0, allow_hyphen_values = true)]
+        threshold: f32,
+        /// Attack time in seconds
+        #[arg(long, default_value_t = 0.001)]
+        attack: f32,
+        /// Release time in seconds
+        #[arg(long, default_value_t = 0.1)]
+        release: f32,
+    },
     /// Apply TPDF dither (for bit-depth reduction).
     Dither {
         /// Input file
@@ -386,6 +497,11 @@ enum Command {
         /// Target bit depth (e.g. 16)
         #[arg(long, default_value_t = 16)]
         bits: u32,
+    },
+    /// Print audio statistics (peak, RMS, LUFS, true-peak, crest factor, …).
+    Stats {
+        /// Input file
+        input: String,
     },
     /// Convert between audio formats (WAV, FLAC, AIFF, MP3, …) without processing.
     Convert {
@@ -750,10 +866,93 @@ fn main() -> Result<()> {
             audio.reverse().to_file(&out)?;
             eprintln!("reversed  →  {out}");
         }
+        Command::Lowpass { input, out, freq } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio.map_channels(|c| cathar::lowpass(c, audio.sample_rate, freq)).to_file(&out)?;
+            eprintln!("lowpass  {freq} Hz  →  {out}");
+        }
+        Command::Highpass { input, out, freq } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio.map_channels(|c| cathar::highpass(c, audio.sample_rate, freq)).to_file(&out)?;
+            eprintln!("highpass  {freq} Hz  →  {out}");
+        }
+        Command::Bandpass { input, out, freq, q } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio
+                .map_channels(|c| cathar::bandpass(c, audio.sample_rate, freq, q))
+                .to_file(&out)?;
+            eprintln!("bandpass  {freq} Hz  Q={q}  →  {out}");
+        }
+        Command::Equalizer { input, out, freq, q, gain } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio
+                .map_channels(|c| cathar::equalizer(c, audio.sample_rate, freq, q, gain))
+                .to_file(&out)?;
+            eprintln!("eq  {freq} Hz  Q={q}  {gain} dB  →  {out}");
+        }
+        Command::Bass { input, out, freq, gain } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio.map_channels(|c| cathar::bass(c, audio.sample_rate, freq, gain)).to_file(&out)?;
+            eprintln!("bass  {freq} Hz  {gain} dB  →  {out}");
+        }
+        Command::Treble { input, out, freq, gain } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio
+                .map_channels(|c| cathar::treble(c, audio.sample_rate, freq, gain))
+                .to_file(&out)?;
+            eprintln!("treble  {freq} Hz  {gain} dB  →  {out}");
+        }
+        Command::Compress { input, out, threshold, ratio, attack, release } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio
+                .map_channels(|c| {
+                    cathar::compressor(c, audio.sample_rate, threshold, ratio, attack, release)
+                })
+                .to_file(&out)?;
+            eprintln!("compressed  {threshold} dB  {ratio}:1  →  {out}");
+        }
+        Command::Limit { input, out, ceiling } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio.map_channels(|c| cathar::limiter(c, audio.sample_rate, ceiling)).to_file(&out)?;
+            eprintln!("limited  ceiling={ceiling} dBFS  →  {out}");
+        }
+        Command::Gate { input, out, threshold, attack, release } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio
+                .map_channels(|c| cathar::gate(c, audio.sample_rate, threshold, attack, release))
+                .to_file(&out)?;
+            eprintln!("gated  {threshold} dBFS  →  {out}");
+        }
         Command::Dither { input, out, bits } => {
             let audio = cathar::AudioData::from_file(&input)?;
             audio.dither(bits).to_file(&out)?;
             eprintln!("dithered  {bits}-bit TPDF  →  {out}");
+        }
+        Command::Stats { input } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            if let Some(stats) = cathar::compute_stats(&audio.channels, audio.sample_rate) {
+                println!("{input}");
+                println!("  Sample rate  {:>8} Hz", stats.sample_rate);
+                println!("  Channels     {:>8}", stats.channels);
+                println!("  Duration     {:>8.2} s", stats.duration_sec);
+                println!("  Samples      {:>8}", stats.samples);
+                println!("  ────────────────────────");
+                println!("  Peak         {:>8.1} dBFS", stats.peak_dbfs);
+                println!("  RMS          {:>8.1} dBFS", stats.rms_dbfs);
+                println!("  Crest factor {:>8.1} dB", stats.crest_factor_db);
+                println!("  Integrated   {:>8.1} LUFS", stats.integrated_lufs);
+                println!("  True peak    {:>8.1} dBTP", stats.true_peak_dbtp);
+                println!("  DC offset    {:>8.4}", stats.dc_offset);
+                if stats.channels > 1 {
+                    print!("  Ch peaks     ");
+                    for (i, &p) in stats.channel_peaks.iter().enumerate() {
+                        print!("ch{i}={p:.1}  ");
+                    }
+                    println!();
+                }
+            } else {
+                eprintln!("{input}: empty or unreadable");
+            }
         }
         Command::Convert { input, out } => {
             let audio = cathar::AudioData::from_file(&input)?;

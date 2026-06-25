@@ -17,11 +17,13 @@
 
 #![deny(missing_docs)]
 
+mod analysis;
 mod audio;
 mod denoise;
 mod edit;
 mod enhance;
 mod error;
+mod filter;
 mod loudness;
 #[cfg(feature = "ml")]
 mod ml;
@@ -30,6 +32,7 @@ mod restore;
 mod spectrum;
 mod util;
 
+pub use analysis::{Stats, compute_stats};
 pub use audio::AudioData;
 pub use denoise::{Denoiser, NoisePrint, SpectralDenoiser, learn_noise_print, wiener_denoise};
 pub use edit::{
@@ -37,6 +40,7 @@ pub use edit::{
 };
 pub use enhance::{bandwidth_extend, breath_remove, deess_multiband, deesser, voice_isolate};
 pub use error::Error;
+pub use filter::{bandpass, bass, compressor, equalizer, gate, highpass, limiter, lowpass, treble};
 pub use loudness::{integrated_loudness, normalize_peak, true_peak_dbtp};
 #[cfg(feature = "ml")]
 pub use ml::{NeuralConfig, NeuralDenoiser};
