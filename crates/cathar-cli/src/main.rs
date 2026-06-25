@@ -1,5 +1,7 @@
 //! CLI for cathar — audio restoration toolbox.
 
+mod banner;
+
 use anyhow::Result;
 use cathar::Denoiser;
 use clap::{Parser, Subcommand};
@@ -14,8 +16,17 @@ mod tui;
 
 /// Audio restoration toolbox — denoise, de-hum, de-click, de-clip, normalise.
 #[derive(Debug, Parser)]
-#[command(name = "cathar", version, about)]
+#[command(
+    name = "cathar",
+    version,
+    about = "Restore, enhance & level any recording — in pure Rust",
+    long_about = None
+)]
 struct Cli {
+    /// Suppress the startup banner.
+    #[arg(long, global = true)]
+    no_banner: bool,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -268,6 +279,122 @@ enum Command {
         #[arg(long, default_value_t = 512)]
         hop: usize,
     },
+    /// Trim audio to a time range.
+    Trim {
+        /// Input file
+        input: String,
+        /// Output file
+        #[arg(short, long, default_value = "trimmed.wav")]
+        out: String,
+        /// Start time in seconds
+        #[arg(short, long, default_value_t = 0.0)]
+        start: f32,
+        /// Duration in seconds
+        #[arg(short, long)]
+        duration: f32,
+    },
+    /// Pad audio with silence at start and/or end.
+    Pad {
+        /// Input file
+        input: String,
+        /// Output file
+        #[arg(short, long, default_value = "padded.wav")]
+        out: String,
+        /// Seconds of silence to prepend
+        #[arg(long, default_value_t = 0.0)]
+        pre: f32,
+        /// Seconds of silence to append
+        #[arg(long, default_value_t = 0.0)]
+        post: f32,
+    },
+    /// Apply a linear fade-in and/or fade-out.
+    Fade {
+        /// Input file
+        input: String,
+        /// Output file
+        #[arg(short, long, default_value = "faded.wav")]
+        out: String,
+        /// Fade-in duration in seconds
+        #[arg(long, default_value_t = 0.05)]
+        fade_in: f32,
+        /// Fade-out duration in seconds
+        #[arg(long, default_value_t = 0.1)]
+        fade_out: f32,
+    },
+    /// Strip silence from the start and end of audio.
+    Silence {
+        /// Input file
+        input: String,
+        /// Output file
+        #[arg(short, long, default_value = "silenced.wav")]
+        out: String,
+        /// Amplitude threshold below which is considered silence (0.0-1.0)
+        #[arg(long, default_value_t = 0.01)]
+        threshold: f32,
+        /// Minimum silent duration in seconds before trimming
+        #[arg(long, default_value_t = 0.1)]
+        min_duration: f32,
+    },
+    /// Apply gain in dB.
+    Gain {
+        /// Input file
+        input: String,
+        /// Output file
+        #[arg(short, long, default_value = "gained.wav")]
+        out: String,
+        /// Gain in dB (positive = boost, negative = cut)
+        #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
+        db: f32,
+    },
+    /// Remix channels (stereo → mono, swap L/R, custom mapping).
+    Remix {
+        /// Input file
+        input: String,
+        /// Output file
+        #[arg(short, long, default_value = "remixed.wav")]
+        out: String,
+        /// How to remix: 'mono', 'swap', or comma-separated channel indices
+        #[arg(long, default_value = "mono")]
+        layout: String,
+    },
+    /// Select a subset of channels.
+    Channels {
+        /// Input file
+        input: String,
+        /// Output file
+        #[arg(short, long, default_value = "channeled.wav")]
+        out: String,
+        /// Comma-separated 0-based channel indices (e.g. "0" for left, "1" for right)
+        #[arg(long, default_value = "0")]
+        indices: String,
+    },
+    /// Reverse audio in time.
+    Reverse {
+        /// Input file
+        input: String,
+        /// Output file
+        #[arg(short, long, default_value = "reversed.wav")]
+        out: String,
+    },
+    /// Apply TPDF dither (for bit-depth reduction).
+    Dither {
+        /// Input file
+        input: String,
+        /// Output file
+        #[arg(short, long, default_value = "dithered.wav")]
+        out: String,
+        /// Target bit depth (e.g. 16)
+        #[arg(long, default_value_t = 16)]
+        bits: u32,
+    },
+    /// Convert between audio formats (WAV, FLAC, AIFF, MP3, …) without processing.
+    Convert {
+        /// Input file (any format: WAV, MP3, MP4, M4A, MKV, FLAC, OGG, AIFF)
+        input: String,
+        /// Output file (format chosen by extension: .wav, .flac, .aiff)
+        #[arg(short, long)]
+        out: String,
+    },
     /// Neural spectral-gain denoise (candle GRU). Requires `--features ml`.
     #[cfg(feature = "ml")]
     MlDenoise {
@@ -276,10 +403,13 @@ enum Command {
         /// Output WAV file
         #[arg(short, long, default_value = "clean.wav")]
         out: String,
-        /// Path to a trained `.safetensors` checkpoint. Omit to use the
-        /// deterministic passthrough-initialised model (a near no-op).
+        /// Path to a custom `.safetensors` checkpoint. Omit to use the bundled
+        /// pretrained model (synthetic tones; retrain on DNS-Challenge for speech).
         #[arg(long)]
         weights: Option<String>,
+        /// Use the deterministic passthrough model instead of the pretrained one.
+        #[arg(long, conflicts_with = "weights")]
+        passthrough: bool,
     },
     /// Play a file with a live spectrum-analyzer visualizer (Winamp-style).
     #[cfg(feature = "tui")]
@@ -293,6 +423,10 @@ enum Command {
 }
 
 fn main() -> Result<()> {
+    if !std::env::args().any(|a| a == "--no-banner") {
+        banner::print();
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
@@ -551,20 +685,107 @@ fn main() -> Result<()> {
         Command::View { input, fft, hop } => {
             tui::run(&input, fft, hop)?;
         }
+        Command::Trim { input, out, start, duration } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let trimmed = audio.trim(start, duration);
+            trimmed.to_file(&out)?;
+            eprintln!("trimmed  {start}s +{duration}s  →  {out}");
+        }
+        Command::Pad { input, out, pre, post } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio.pad_extend(pre, post).to_file(&out)?;
+            eprintln!("padded  +{pre}s / +{post}s  →  {out}");
+        }
+        Command::Fade { input, out, fade_in, fade_out } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio.fade(fade_in, fade_out).to_file(&out)?;
+            eprintln!("faded  in={fade_in}s out={fade_out}s  →  {out}");
+        }
+        Command::Silence { input, out, threshold, min_duration } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio.silence_strip(threshold, min_duration).to_file(&out)?;
+            eprintln!("silence-stripped  threshold={threshold} min={min_duration}s  →  {out}");
+        }
+        Command::Gain { input, out, db } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio.gain_db(db).to_file(&out)?;
+            eprintln!("gain  {db} dB  →  {out}");
+        }
+        Command::Remix { input, out, layout } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let spec: Vec<Vec<(usize, f32)>> = match layout.as_str() {
+                "mono" => {
+                    let n = audio.channels.len();
+                    vec![(0..n).map(|i| (i, 1.0 / n as f32)).collect()]
+                }
+                "swap" if audio.channels.len() >= 2 => {
+                    vec![vec![(1, 1.0)], vec![(0, 1.0)]]
+                }
+                "swap" => {
+                    anyhow::bail!("swap needs at least 2 channels");
+                }
+                other => {
+                    anyhow::bail!("unknown layout: {other}. Use 'mono' or 'swap'")
+                }
+            };
+            audio.remix(&spec).to_file(&out)?;
+            eprintln!("remixed  {layout}  →  {out}");
+        }
+        Command::Channels { input, out, indices } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let ids: Vec<usize> =
+                indices.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+            if ids.is_empty() {
+                anyhow::bail!("no valid channel indices in: {indices}");
+            }
+            let out_audio = cathar::AudioData {
+                sample_rate: audio.sample_rate,
+                channels: cathar::select_channels(&audio.channels, &ids),
+            };
+            out_audio.to_file(&out)?;
+            eprintln!("channels  {:?}  →  {out}", ids);
+        }
+        Command::Reverse { input, out } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio.reverse().to_file(&out)?;
+            eprintln!("reversed  →  {out}");
+        }
+        Command::Dither { input, out, bits } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio.dither(bits).to_file(&out)?;
+            eprintln!("dithered  {bits}-bit TPDF  →  {out}");
+        }
+        Command::Convert { input, out } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            eprintln!(
+                "{}  {} Hz  {} ch  {:.1}s  →  {}",
+                input,
+                audio.sample_rate,
+                audio.channels.len(),
+                audio.channels[0].len() as f32 / audio.sample_rate as f32,
+                out
+            );
+            audio.to_file(&out)?;
+            eprintln!("wrote  {out}");
+        }
         #[cfg(feature = "ml")]
-        Command::MlDenoise { input, out, weights } => {
+        Command::MlDenoise { input, out, weights, passthrough } => {
             let audio = cathar::AudioData::from_file(&input)?;
             let orig_power = power(&audio.channels[0]);
-            let denoiser = match weights.as_deref() {
-                Some(path) => {
+            let denoiser = match (weights.as_deref(), passthrough) {
+                (Some(path), _) => {
                     eprintln!("ml denoise  weights={path}");
                     cathar::NeuralDenoiser::from_safetensors(path, cathar::NeuralConfig::default())?
                 }
-                None => {
-                    eprintln!(
-                        "ml denoise  (passthrough model — pass --weights for real denoising)"
-                    );
+                (_, true) => {
+                    eprintln!("ml denoise  passthrough model (near no-op)");
                     cathar::NeuralDenoiser::new()?
+                }
+                (None, false) => {
+                    eprintln!(
+                        "ml denoise  pretrained model (synthetic tones — retrain on DNS-Challenge for speech)"
+                    );
+                    cathar::NeuralDenoiser::pretrained()?
                 }
             };
             let clean = denoiser.denoise(&audio)?;

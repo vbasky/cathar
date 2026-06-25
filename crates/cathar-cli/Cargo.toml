@@ -21,6 +21,9 @@ name = "cathar"
 path = "src/main.rs"
 doc = false
 
+[build-dependencies]
+image.workspace = true
+
 [features]
 default = []
 ml = ["cathar/ml"]
@@ -34,6 +37,7 @@ workspace = true
 [dependencies]
 cathar = { workspace = true }
 anyhow.workspace = true
+base64.workspace = true
 clap.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }

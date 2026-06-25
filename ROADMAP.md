@@ -90,9 +90,10 @@ stands next to iZotope RX's core.
   parameter names); `NeuralDenoiser::new()` is a passthrough-initialised default.
   This closes the long-standing gap where the `ml` feature pulled in `candle` but
   no code referenced it.
-- ⬜ Ship or fetch a trained DeepFilterNet / DNS-Challenge checkpoint so
-  `ml-denoise` denoises out of the box (the inference path and loader are in
-  place; only the weights are pending).
+- ✅ **Bundled pretrained checkpoint** (`v0.6.0`) — a trained GRU checkpoint
+  compiled into the binary (2 MB). `NeuralDenoiser::pretrained()` loads it;
+  `ml-denoise` uses it by default. Training script (`scripts/train_denoiser.py`)
+  provided for retraining on DNS-Challenge speech data.
 - ⬜ Optional ML-based VAD and dialogue isolation.
 
 ---
@@ -102,11 +103,11 @@ stands next to iZotope RX's core.
 Restoration is the spine; now add the everyday audio toolkit so Cathar can
 replace SoX for routine work. Target: **SoX effect/format parity** by `0.11`.
 
-### `0.7` — Core utilities & editing
+### `0.7` — Core utilities & editing (ahead of schedule — shipped in `v0.6.0` as swiss-army foundation)
 
-- `convert` (any decode → any encode), `trim`, `pad`, `fade`, `silence`/`vad`.
-- `gain`/`vol`, `remix` (channel mixing), `channels`, `reverse`, `dither`.
-- `speed`/`tempo`/`pitch` (built on the shipped `resample` + time-stretch).
+- ✅ `convert` (any decode → any encode), `trim`, `pad`, `fade`, `silence`/`vad`.
+- ✅ `gain`/`vol`, `remix` (channel mixing), `channels`, `reverse`, `dither`.
+- ⬜ `speed`/`tempo`/`pitch` (built on the shipped `resample` + time-stretch).
 
 ### `0.8` — Filters & dynamics
 
@@ -159,15 +160,16 @@ Tracks how close the swiss-army surface is. ✅ done · 🔶 partial · ⬜ plan
 | Noise profile + reduction | ✅ | ✅ `noiseprint` + `denoise` |
 | Normalize / loudness | ✅ | ✅ true EBU R128 (BS.1770-4) + true-peak ceiling |
 | Tone/synth generation | ✅ | ✅ `wave` |
-| Trim / pad / fade / silence | ✅ | ⬜ `0.7` |
-| Gain / remix / channels / reverse | ✅ | ⬜ `0.7` |
+| Trim / pad / fade / silence | ✅ | ✅ `v0.6.0` |
+| Gain / remix / channels / reverse | ✅ | ✅ `v0.6.0` |
 | Speed / tempo / pitch | ✅ | ⬜ `0.7` |
 | EQ / filters | ✅ | ⬜ `0.8` |
 | Compander / dynamics | ✅ | ⬜ `0.8` |
 | Reverb / echo / chorus / modulation | ✅ | ⬜ `0.9` |
-| Stats / spectrogram | ✅ | ⬜ `0.10` |
+| Stats / spectrogram | ✅ | 🔶 `spectrogram` lib + TUI viewer (`v0.5.4`); `stat`/`stats` report pending |
 | De-click / de-clip / de-hum / de-reverb | partial | ✅ (Cathar leads here) |
-| Learned denoise | ⬜ | 🔶 `ml-denoise` candle GRU (`v0.6.0`); trained weights pending |
+| Learned denoise | ⬜ | ✅ `ml-denoise` + bundled pretrained checkpoint (`v0.6.0`) |
+| Dither | ✅ | ✅ `v0.6.0` |
 
 > Restoration depth (`declick`, `declip`, `dehum`, `dereverb`, `deesser`,
 > learned denoise) is where Cathar already exceeds SoX — that lead is the point,

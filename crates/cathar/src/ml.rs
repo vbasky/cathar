@@ -79,6 +79,10 @@ impl Model {
 
 // ── NeuralDenoiser ───────────────────────────────────────────────────────────
 
+/// Bundled pretrained checkpoint (synthetic noisy-tone pairs; retrain on
+/// DNS-Challenge for speech). 2 MB.
+const PRETRAINED_CHECKPOINT: &[u8] = include_bytes!("denoiser.safetensors");
+
 /// Learned spectral-gain denoiser — a candle GRU predicts a per-bin suppression
 /// mask (see the module-level documentation for the architecture). Implements
 /// the [`Denoiser`] trait, so it is a drop-in alternative to `SpectralDenoiser`.
@@ -106,6 +110,31 @@ impl NeuralDenoiser {
         let device = Device::Cpu;
         let n_bins = cfg.fft_size / 2 + 1;
         let vb = VarBuilder::from_tensors(passthrough_tensors(&cfg, &device)?, DType::F32, &device);
+        let model = Model::build(vb, n_bins, cfg.hidden)?;
+        Ok(Self { model, fft_size: cfg.fft_size, hop_size: cfg.hop_size, n_bins, device })
+    }
+
+    /// Load the **bundled pretrained checkpoint**. A small model trained on
+    /// synthetic noisy tones — it suppresses broadband noise but is not tuned for
+    /// speech. For production use on speech, load a checkpoint trained on the
+    /// [DNS-Challenge](https://github.com/microsoft/DNS-Challenge) dataset with
+    /// [`from_safetensors`](Self::from_safetensors).
+    ///
+    /// The bundled weights are compiled into the binary, so this works offline
+    /// with no download.
+    pub fn pretrained() -> Result<Self, Error> {
+        Self::pretrained_with_config(NeuralConfig::default())
+    }
+
+    /// Like [`pretrained`](Self::pretrained) but with an explicit [`NeuralConfig`].
+    pub fn pretrained_with_config(cfg: NeuralConfig) -> Result<Self, Error> {
+        let device = Device::Cpu;
+        let n_bins = cfg.fft_size / 2 + 1;
+        let vb = candle_nn::VarBuilder::from_buffered_safetensors(
+            PRETRAINED_CHECKPOINT.to_vec(),
+            DType::F32,
+            &device,
+        )?;
         let model = Model::build(vb, n_bins, cfg.hidden)?;
         Ok(Self { model, fft_size: cfg.fft_size, hop_size: cfg.hop_size, n_bins, device })
     }
@@ -313,6 +342,23 @@ mod tests {
         std::fs::remove_file(&path).ok();
         let in_memory = NeuralDenoiser::new().unwrap().denoise(&audio).unwrap();
         assert_eq!(loaded.channels[0], in_memory.channels[0]);
+    }
+
+    /// The pretrained model produces output that differs from the passthrough —
+    /// it is not a no-op. (The bundled checkpoint was trained on synthetic
+    /// harmonic-tone mixes, not pure sine waves; retrain on DNS-Challenge for
+    /// speech-quality denoising.)
+    #[test]
+    fn pretrained_denoiser_is_not_passthrough() {
+        let audio = generate_wave(48_000, 440.0, 1.0, 0.3);
+        let pthru = NeuralDenoiser::new().unwrap().denoise(&audio).unwrap();
+        let pretrained = NeuralDenoiser::pretrained().unwrap().denoise(&audio).unwrap();
+        let max_diff = pthru.channels[0]
+            .iter()
+            .zip(&pretrained.channels[0])
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        assert!(max_diff > 1e-4, "pretrained should differ from passthrough, max_diff={max_diff}");
     }
 
     /// A signal shorter than one FFT window is rejected, not panicked on.

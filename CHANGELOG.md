@@ -7,7 +7,46 @@ All notable changes to this project are documented here. The format is based on
 The release workflow extracts the notes for a version from the matching
 `## [x.y.z]` section below, so keep these headings intact.
 
-## [Unreleased]
+## [0.6.0] - 2026-06-25
+
+### Added
+
+- **Neural spectral-gain denoiser (`ml-denoise`)** — the `ml` feature is real.
+  A GRU network (log-magnitude → encoder → GRU → decoder → sigmoid) predicts a
+  per-bin suppression mask, applied with phase preserved and window-normalised
+  overlap-add. The DNS-Challenge / DeepFilterNet recipe, pure Rust via `candle`,
+  deterministic. Weights load from open `.safetensors` checkpoints (PyTorch-
+  compatible parameter names). A **bundled pretrained checkpoint** (2 MB,
+  compiled into the binary) ships out of the box — `ml-denoise` denoises
+  immediately with no download. The passthrough-initialised default remains
+  available via `--passthrough`. `NeuralDenoiser::new()` and
+  `NeuralDenoiser::pretrained()` are both public.
+- **Training script (`scripts/train_denoiser.py`)** — PyTorch training loop
+  matching the exact cathar architecture. Generates synthetic clean/noisy tone
+  pairs, trains the GRU, and exports a `.safetensors` checkpoint. Retrain on
+  [DNS-Challenge](https://github.com/microsoft/DNS-Challenge) speech data for
+  production-quality speech denoising.
+- **`convert` command** — zero-processing format conversion. Decode from any
+  symphonia-supported container and encode to WAV (32-bit float), FLAC (24-bit
+  lossless), or AIFF (24-bit) based on output extension.
+- **Swiss-army editing utilities (`0.7` phase)** — `trim`, `pad`, `fade`,
+  `silence` (strip), `gain`, `remix` (mono/swap), `channels` (select),
+  `reverse`, and `dither` (TPDF). All available as library functions and CLI
+  subcommands.
+- **Golden-file integration tests (`crates/cathar/tests/golden.rs`)** — byte-
+  exact regression tests for every restoration transform. Run `cargo test
+  --test golden` to verify output matches the precomputed references; regenerate
+  with `--ignored`. Also: deterministic WAV round-trip test.
+- **SoX comparison script (`scripts/compare_sox.sh`)** — sanity-checks cathar
+  resample, dehum, declip, and normalize against SoX equivalents.
+- **CLI startup banner** — inline-image logo on supported terminals (iTerm2,
+  WezTerm, ghostty, Warp, Rio, Konsole). Suppress with `--no-banner`.
+
+### Changed
+
+- `ml-denoise` now uses the bundled pretrained model by default (no more
+  passthrough-no-op surprise). Pass `--passthrough` for the old behaviour or
+  `--weights <checkpoint.safetensors>` for a custom model.
 
 ## [0.5.4] - 2026-06-21
 

@@ -19,6 +19,7 @@
 
 mod audio;
 mod denoise;
+mod edit;
 mod enhance;
 mod error;
 mod loudness;
@@ -31,6 +32,9 @@ mod util;
 
 pub use audio::AudioData;
 pub use denoise::{Denoiser, NoisePrint, SpectralDenoiser, learn_noise_print, wiener_denoise};
+pub use edit::{
+    dither, fade, gain_db, pad, remix, reverse, select_channels, silence_strip, trim, vad,
+};
 pub use enhance::{bandwidth_extend, breath_remove, deess_multiband, deesser, voice_isolate};
 pub use error::Error;
 pub use loudness::{integrated_loudness, normalize_peak, true_peak_dbtp};
