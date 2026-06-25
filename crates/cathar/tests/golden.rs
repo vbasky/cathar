@@ -3,6 +3,10 @@
 //! guarantees "same input, same flags, same bytes out" — the determinism
 //! promise in the ROADMAP.
 //!
+//! Golden files are platform-specific (float rounding differs across arches),
+//! so these only run on macOS where they were generated. To add Linux/Win
+//! golden files, generate them on each platform and gate with per-OS cfg.
+//!
 //! ## Regenerating golden files
 //!
 //! Run with `--ignored` to regenerate all golden files after an intentional
@@ -11,6 +15,8 @@
 //!     cargo test --test golden -- --ignored
 //!
 //! Golden files live in `tests/golden/` relative to this crate root.
+
+#![cfg(target_os = "macos")]
 
 use std::path::PathBuf;
 
