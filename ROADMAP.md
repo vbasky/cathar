@@ -156,9 +156,11 @@ the swiss-army `0.7` utilities milestone in Phase 2:
 **Transform & analysis toolkit (`0.7`–`0.8`)** — foundations that broaden the
 swiss-army surface and feed later effects:
 
-- ⬜ **Phase-vocoder + WSOLA time-stretch** — the actual engine under the
-  planned `speed`/`tempo`/`pitch`: WSOLA for percussive material, phase vocoder
-  with phase-locking for tonal, decoupling duration from rate atop `resample`.
+- ✅ **Phase-vocoder + WSOLA time-stretch** (`v0.7.0`) — `time_stretch` /
+  `pitch_shift` (`StretchMode::{Wsola, PhaseVocoder}`): WSOLA overlap-add
+  (default, no FFT) and a phase-vocoder engine with instantaneous-frequency
+  phase propagation, decoupling duration from rate atop `resample`. Drives the
+  `tempo`/`pitch`/`speed` commands below.
 - ⬜ **Pitch detection (YIN / pYIN)** — monophonic f0 estimation exposed in
   `stats` and as the basis for later pitch correction.
 - ⬜ **Constant-Q transform (CQT)** — log-frequency analysis for the TUI viewer
@@ -190,7 +192,9 @@ replace SoX for routine work. Target: **SoX effect/format parity** by `0.11`.
 
 - ✅ `convert` (any decode → any encode), `trim`, `pad`, `fade`, `silence`/`vad`.
 - ✅ `gain`/`vol`, `remix` (channel mixing), `channels`, `reverse`, `dither`.
-- ⬜ `speed`/`tempo`/`pitch` (built on the shipped `resample` + time-stretch).
+- ✅ `speed`/`tempo`/`pitch` (`v0.7.0`) — `tempo` (duration, pitch preserved),
+  `pitch` (semitones, duration preserved), `speed` (resample: both), on the
+  shipped `resample` + WSOLA/phase-vocoder time-stretch.
 
 ### `0.8` — Filters & dynamics (ahead of schedule — shipped in `v0.6.0`)
 
@@ -260,7 +264,7 @@ Tracks how close the swiss-army surface is. ✅ done · 🔶 partial · ⬜ plan
 | Tone/synth generation | ✅ | ✅ `wave` |
 | Trim / pad / fade / silence | ✅ | ✅ `v0.6.0` |
 | Gain / remix / channels / reverse | ✅ | ✅ `v0.6.0` |
-| Speed / tempo / pitch | ✅ | ⬜ `0.7` |
+| Speed / tempo / pitch | ✅ | ✅ `tempo`/`pitch`/`speed` (WSOLA + phase vocoder, `v0.7.0`) |
 | EQ / filters | ✅ | ✅ biquad: `lowpass`, `highpass`, `bandpass`, `equalizer`, `bass`, `treble` (`v0.6.0`) |
 | Compander / dynamics | ✅ | ✅ compressor, limiter, gate (`v0.6.0`) |
 | Reverb / echo / chorus / modulation | ✅ | ⬜ `0.9` |

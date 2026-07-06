@@ -32,6 +32,7 @@ mod ml;
 mod resample;
 mod restore;
 mod spectrum;
+mod timestretch;
 mod util;
 
 pub use analysis::{Stats, compute_stats};
@@ -54,6 +55,7 @@ pub use ml::{NeuralConfig, NeuralDenoiser};
 pub use resample::resample;
 pub use restore::{declick, declip, dehum, deplosive, dereverb, derustle, dewind, spectral_repair};
 pub use spectrum::{Spectrogram, spectrogram};
+pub use timestretch::{StretchMode, pitch_shift, time_stretch};
 pub use util::{generate_wave, variance};
 
 #[cfg(test)]

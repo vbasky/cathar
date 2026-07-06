@@ -7,6 +7,18 @@ All notable changes to this project are documented here. The format is based on
 The release workflow extracts the notes for a version from the matching
 `## [x.y.z]` section below, so keep these headings intact.
 
+## [Unreleased]
+
+### Added
+
+- **`tempo` / `pitch` / `speed` commands** — time-scale and pitch-scale audio.
+  `tempo --factor` changes duration with pitch preserved; `pitch --semitones`
+  shifts pitch with duration preserved; `speed --factor` resamples (both change,
+  like tape). Two engines via `--mode wsola|pv`. Library: `time_stretch`,
+  `pitch_shift`, `StretchMode` — WSOLA overlap-add (default, no FFT) and a
+  phase-vocoder with instantaneous-frequency phase propagation. Closes the `0.7`
+  SoX-parity gap for speed/tempo/pitch.
+
 ## [0.6.1] - 2026-07-06
 
 ### Added

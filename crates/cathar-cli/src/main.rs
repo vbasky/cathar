@@ -29,6 +29,23 @@ impl From<EnhanceMethodArg> for cathar::EnhanceMethod {
     }
 }
 
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum StretchModeArg {
+    /// Waveform-similarity overlap-add (robust default, no FFT).
+    Wsola,
+    /// Phase vocoder (smoother on tonal material).
+    Pv,
+}
+
+impl From<StretchModeArg> for cathar::StretchMode {
+    fn from(m: StretchModeArg) -> Self {
+        match m {
+            StretchModeArg::Wsola => cathar::StretchMode::Wsola,
+            StretchModeArg::Pv => cathar::StretchMode::PhaseVocoder,
+        }
+    }
+}
+
 /// Audio restoration toolbox — denoise, de-hum, de-click, de-clip, normalise.
 #[derive(Debug, Parser)]
 #[command(
@@ -255,6 +272,45 @@ enum Command {
         /// Target sample rate (Hz)
         #[arg(short, long, default_value_t = 48000)]
         rate: u32,
+    },
+    /// Change tempo (duration) without changing pitch.
+    Tempo {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "tempo.wav")]
+        out: String,
+        /// Speed factor: >1 faster/shorter, <1 slower/longer
+        #[arg(short, long, default_value_t = 1.5)]
+        factor: f32,
+        /// Stretch engine
+        #[arg(long, default_value = "wsola")]
+        mode: StretchModeArg,
+    },
+    /// Shift pitch (semitones) without changing duration.
+    Pitch {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "pitched.wav")]
+        out: String,
+        /// Semitones to shift (negative = down)
+        #[arg(short, long, default_value_t = 2.0, allow_hyphen_values = true)]
+        semitones: f32,
+        /// Stretch engine
+        #[arg(long, default_value = "wsola")]
+        mode: StretchModeArg,
+    },
+    /// Change speed (resample): alters both pitch and duration, like tape.
+    Speed {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "speed.wav")]
+        out: String,
+        /// Speed factor: >1 faster/higher, <1 slower/lower
+        #[arg(short, long, default_value_t = 1.5)]
+        factor: f32,
     },
     /// Normalize loudness or peak level.
     Normalize {
@@ -792,6 +848,36 @@ fn main() -> Result<()> {
             let resampled = audio.resample(rate);
             resampled.to_file(&out)?;
             eprintln!("resampled  {from} Hz → {rate} Hz  →  {out}");
+        }
+
+        Command::Tempo { input, out, factor, mode } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let sr = audio.sample_rate;
+            let mode: cathar::StretchMode = mode.into();
+            let ratio = 1.0 / factor; // factor>1 = faster ⇒ shorter output
+            let stretched = audio.map_channels(|c| cathar::time_stretch(c, sr, ratio, mode));
+            stretched.to_file(&out)?;
+            eprintln!("tempo ×{factor}  →  {out}");
+        }
+
+        Command::Pitch { input, out, semitones, mode } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let sr = audio.sample_rate;
+            let mode: cathar::StretchMode = mode.into();
+            let shifted = audio.map_channels(|c| cathar::pitch_shift(c, sr, semitones, mode));
+            shifted.to_file(&out)?;
+            eprintln!("pitch {semitones:+} st  →  {out}");
+        }
+
+        Command::Speed { input, out, factor } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let sr = audio.sample_rate;
+            // Resample by 1/factor and keep the original rate: faster ⇒ higher.
+            let from = (sr as f32 * factor).round().max(1.0) as u32;
+            let channels: Vec<Vec<f32>> =
+                audio.channels.iter().map(|c| cathar::resample(c, from, sr)).collect();
+            cathar::AudioData { sample_rate: sr, channels }.to_file(&out)?;
+            eprintln!("speed ×{factor}  →  {out}");
         }
 
         Command::Normalize { input, out, target, peak, true_peak } => {
