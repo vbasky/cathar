@@ -1103,6 +1103,19 @@ fn main() -> Result<()> {
                 println!("  Integrated   {:>8.1} LUFS", stats.integrated_lufs);
                 println!("  True peak    {:>8.1} dBTP", stats.true_peak_dbtp);
                 println!("  DC offset    {:>8.4}", stats.dc_offset);
+                // Monophonic pitch estimate over a mono mixdown.
+                let n = audio.channels.iter().map(Vec::len).max().unwrap_or(0);
+                let nch = audio.channels.len().max(1);
+                let mut mono = vec![0.0f32; n];
+                for ch in &audio.channels {
+                    for (i, &s) in ch.iter().enumerate() {
+                        mono[i] += s / nch as f32;
+                    }
+                }
+                match cathar::fundamental_hz(&mono, audio.sample_rate) {
+                    Some(f0) => println!("  Pitch (f0)   {f0:>8.1} Hz"),
+                    None => println!("  Pitch (f0)        —    (unvoiced)"),
+                }
                 if stats.channels > 1 {
                     print!("  Ch peaks     ");
                     for (i, &p) in stats.channel_peaks.iter().enumerate() {

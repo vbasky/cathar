@@ -29,6 +29,7 @@ mod filter;
 mod loudness;
 #[cfg(feature = "ml")]
 mod ml;
+mod pitch;
 mod resample;
 mod restore;
 mod spectrum;
@@ -52,6 +53,7 @@ pub use filter::{bandpass, bass, compressor, equalizer, gate, highpass, limiter,
 pub use loudness::{integrated_loudness, normalize_peak, true_peak_dbtp};
 #[cfg(feature = "ml")]
 pub use ml::{NeuralConfig, NeuralDenoiser};
+pub use pitch::{detect_pitch, fundamental_hz};
 pub use resample::resample;
 pub use restore::{declick, declip, dehum, deplosive, dereverb, derustle, dewind, spectral_repair};
 pub use spectrum::{Spectrogram, spectrogram};
