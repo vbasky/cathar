@@ -31,6 +31,7 @@ CRATES=(
 git rev-parse "$TAG" >/dev/null 2>&1              && { echo "✗ tag $TAG already exists"; exit 1; }
 
 echo "==> releasing cathar ${VERSION}"
+cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 
 # ── bump versions: each crate's package version + internal path-dep pins ─────

@@ -6,3 +6,6 @@ cargo fmt --all --check 2>/dev/null || {
   echo "→ cargo fmt: applied formatting changes (staging them)"
   git add -u
 }
+
+echo "→ cargo clippy"
+cargo clippy --workspace --all-targets -- -D warnings

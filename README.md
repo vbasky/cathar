@@ -51,7 +51,7 @@ Or from a checkout:
 
 ```bash
 cargo install --path crates/cathar-cli       # install the binary from source
-just setup        # one-time: enable the auto-format pre-commit hook
+just setup        # one-time: enable pre-commit hook (fmt + clippy)
 just build        # build the workspace
 just test         # run all tests
 ```

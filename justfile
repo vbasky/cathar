@@ -3,10 +3,10 @@
 _default:
     @just --list
 
-# One-time after cloning: point git at the committed hooks (pre-commit auto-fmt)
+# One-time after cloning: point git at the committed hooks (pre-commit: fmt + clippy)
 setup:
     git config core.hooksPath .githooks
-    @echo "→ core.hooksPath set to .githooks"
+    @echo "→ core.hooksPath set to .githooks (pre-commit runs fmt + clippy)"
 
 # Build the whole workspace
 build:

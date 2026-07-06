@@ -8,7 +8,7 @@ branch always green.
 ```bash
 git clone https://github.com/vbasky/cathar.git
 cd cathar
-just setup   # points git at .githooks (pre-commit auto-formats staged code)
+just setup   # points git at .githooks (pre-commit: fmt + clippy)
 ```
 
 The toolchain is pinned in `rust-toolchain.toml`; rustup installs it
@@ -29,6 +29,8 @@ builds the docs with `RUSTDOCFLAGS="-D warnings"`.
 
 - **Formatting** is enforced by `rustfmt` (see `rustfmt.toml`) and applied
   automatically by the pre-commit hook — never hand-format.
+- **Clippy** (`-D warnings`) runs on every commit via the same pre-commit hook
+  and in CI. `just check-all` is the full local gate (fmt + clippy + test + doc).
 - **Lints** live in `[workspace.lints]` in the root `Cargo.toml` and are
   inherited by every crate via `[lints] workspace = true`. Add a new crate? Add
   that stanza. Relaxing a clippy lint? Do it in the workspace table with an
