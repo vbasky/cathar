@@ -226,6 +226,26 @@ enum Command {
         #[arg(short, long, default_value_t = 17)]
         kernel: usize,
     },
+    /// Reconstruct dropouts/mutes by AR interpolation (audio inpainting).
+    Inpaint {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "inpainted.wav")]
+        out: String,
+        /// Gap start (ms). With `--len-ms`, inpaints this explicit span.
+        #[arg(long)]
+        start_ms: Option<f32>,
+        /// Gap length (ms). Requires `--start-ms`.
+        #[arg(long)]
+        len_ms: Option<f32>,
+        /// Janssen refinement passes
+        #[arg(long, default_value_t = 3)]
+        iterations: u32,
+        /// Auto mode: only fill detected mutes up to this length (ms)
+        #[arg(long, default_value_t = 50.0)]
+        max_gap_ms: f32,
+    },
     /// Apply RIAA playback de-emphasis to a digitized vinyl recording.
     Riaa {
         /// Input file
@@ -818,6 +838,26 @@ fn main() -> Result<()> {
             cathar::AudioData { sample_rate: sr, channels: hs }.to_file(&harmonic)?;
             cathar::AudioData { sample_rate: sr, channels: ps }.to_file(&percussive)?;
             eprintln!("HPSS (kernel {kernel})  →  {harmonic}  +  {percussive}");
+        }
+        Command::Inpaint { input, out, start_ms, len_ms, iterations, max_gap_ms } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let sr = audio.sample_rate;
+            let channels: Vec<Vec<f32>> = match (start_ms, len_ms) {
+                (Some(s), Some(l)) => {
+                    let start = ((s / 1000.0) * sr as f32) as usize;
+                    let len = ((l / 1000.0) * sr as f32) as usize;
+                    audio
+                        .channels
+                        .iter()
+                        .map(|c| cathar::inpaint_gap(c, start, len, iterations))
+                        .collect()
+                }
+                _ => {
+                    audio.channels.iter().map(|c| cathar::inpaint_auto(c, sr, max_gap_ms)).collect()
+                }
+            };
+            cathar::AudioData { sample_rate: sr, channels }.to_file(&out)?;
+            eprintln!("inpainted  →  {out}");
         }
         Command::Riaa { input, out, elliptical } => {
             let audio = cathar::AudioData::from_file(&input)?;

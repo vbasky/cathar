@@ -27,6 +27,7 @@ mod enhance;
 mod error;
 mod filter;
 mod hpss;
+mod inpaint;
 mod loudness;
 #[cfg(feature = "ml")]
 mod ml;
@@ -52,6 +53,7 @@ pub use enhance::{
 pub use error::Error;
 pub use filter::{bandpass, bass, compressor, equalizer, gate, highpass, limiter, lowpass, treble};
 pub use hpss::hpss;
+pub use inpaint::{inpaint_auto, inpaint_gap};
 pub use loudness::{integrated_loudness, normalize_peak, true_peak_dbtp};
 #[cfg(feature = "ml")]
 pub use ml::{NeuralConfig, NeuralDenoiser};
