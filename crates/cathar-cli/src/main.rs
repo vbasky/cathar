@@ -212,6 +212,20 @@ enum Command {
         #[arg(short, long, default_value = "breathless.wav")]
         out: String,
     },
+    /// Split into harmonic (tonal) and percussive (transient) layers (HPSS).
+    Hpss {
+        /// Input file
+        input: String,
+        /// Harmonic output WAV file
+        #[arg(long, default_value = "harmonic.wav")]
+        harmonic: String,
+        /// Percussive output WAV file
+        #[arg(long, default_value = "percussive.wav")]
+        percussive: String,
+        /// Median-filter length (odd, ≥ 3)
+        #[arg(short, long, default_value_t = 17)]
+        kernel: usize,
+    },
     /// Apply RIAA playback de-emphasis to a digitized vinyl recording.
     Riaa {
         /// Input file
@@ -791,6 +805,19 @@ fn main() -> Result<()> {
             let cleaned = audio.map_channels(|c| cathar::breath_remove(c, audio.sample_rate));
             cleaned.to_file(&out)?;
             eprintln!("breath-removed  →  {out}");
+        }
+        Command::Hpss { input, harmonic, percussive, kernel } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let sr = audio.sample_rate;
+            let (mut hs, mut ps) = (Vec::new(), Vec::new());
+            for c in &audio.channels {
+                let (h, p) = cathar::hpss(c, sr, kernel);
+                hs.push(h);
+                ps.push(p);
+            }
+            cathar::AudioData { sample_rate: sr, channels: hs }.to_file(&harmonic)?;
+            cathar::AudioData { sample_rate: sr, channels: ps }.to_file(&percussive)?;
+            eprintln!("HPSS (kernel {kernel})  →  {harmonic}  +  {percussive}");
         }
         Command::Riaa { input, out, elliptical } => {
             let audio = cathar::AudioData::from_file(&input)?;
