@@ -7,6 +7,27 @@ All notable changes to this project are documented here. The format is based on
 The release workflow extracts the notes for a version from the matching
 `## [x.y.z]` section below, so keep these headings intact.
 
+## [0.6.1] - 2026-07-06
+
+### Added
+
+- **`riaa` command** — RIAA playback (de-emphasis) for digitized vinyl, with
+  optional `--elliptical <Hz>` to sum lows to mono on stereo captures. Library:
+  `riaa_deemphasis`, `elliptical_mono`, `vinyl_restore`.
+- **`dequantize` command** — reduce quantization grain from low-bit-depth
+  sources via inspectable neighbour-prediction on the quantisation lattice.
+  Library: `dequantize`. Foundation for deeper co-sparse methods (see ROADMAP).
+- **`enhance --method replicate|interpolate`** — bandwidth extension now selects
+  SBR band replication (default) or log-magnitude spectral extrapolation.
+  Library: `EnhanceMethod`, `bandwidth_extend_with_method`.
+- **Contributor algorithm specs** — `docs/algorithm-specs.md` documents
+  conventions and planned restoration-depth implementations.
+- **ROADMAP** — marks `0.6.x` digitization items shipped; adds research &
+  project inspiration index and `0.7.x` restoration track.
+- **Book** — new chapters on [vinyl digitization (RIAA)](book/src/15-vinyl-digitization.md)
+  and [dequantization](book/src/16-dequantization.md); toolbox table and glossary
+  updated.
+
 ## [0.6.0] - 2026-06-25
 
 ### Added

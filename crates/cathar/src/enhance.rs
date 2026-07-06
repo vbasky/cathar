@@ -4,6 +4,16 @@ use crate::util::hann_window;
 use crate::{NoisePrint, resample};
 use realfft::RealFftPlanner;
 
+/// Bandwidth-extension strategy for [`bandwidth_extend`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EnhanceMethod {
+    /// Spectral band replication (default, shipped in `v0.5`).
+    #[default]
+    Replicate,
+    /// Log-spaced magnitude interpolation into the empty high band.
+    Interpolate,
+}
+
 /// Isolate speech from background using energy-based VAD + spectral gating.
 pub fn voice_isolate(
     signal: &[f32],
@@ -354,10 +364,21 @@ pub fn breath_remove(signal: &[f32], sample_rate: u32) -> Vec<f32> {
 
 /// Restore high-frequency content lost to compression or low sample rates.
 ///
-/// Uses spectral band replication: the spectral envelope from the upper octave
-/// of the source signal is transposed into the missing high band, shaped, and
-/// mixed back. No ML — pure DSP, zero weights.
+/// With [`EnhanceMethod::Replicate`], the spectral envelope from the upper octave
+/// of the source signal is transposed into the missing high band. With
+/// [`EnhanceMethod::Interpolate`], the log-magnitude envelope is smoothly
+/// extrapolated instead of tiled. No ML — pure DSP, zero weights.
 pub fn bandwidth_extend(signal: &[f32], sample_rate: u32, target_rate: u32) -> Vec<f32> {
+    bandwidth_extend_with_method(signal, sample_rate, target_rate, EnhanceMethod::Replicate)
+}
+
+/// Like [`bandwidth_extend`] but selects the upsampling strategy.
+pub fn bandwidth_extend_with_method(
+    signal: &[f32],
+    sample_rate: u32,
+    target_rate: u32,
+    method: EnhanceMethod,
+) -> Vec<f32> {
     if target_rate <= sample_rate {
         return signal.to_vec();
     }
@@ -365,12 +386,19 @@ pub fn bandwidth_extend(signal: &[f32], sample_rate: u32, target_rate: u32) -> V
     // ── 1. Resample to target rate (shared Kaiser-windowed sinc) ──
     let resampled = resample(signal, sample_rate, target_rate);
 
+    match method {
+        EnhanceMethod::Replicate => replicate_high_band(&resampled, sample_rate, target_rate),
+        EnhanceMethod::Interpolate => interpolate_high_band(&resampled, sample_rate, target_rate),
+    }
+}
+
+fn replicate_high_band(resampled: &[f32], sample_rate: u32, target_rate: u32) -> Vec<f32> {
     // ── 2. SBR: replicate low-band spectrum shape into high band ──
     let fft_size = 4096;
     let hop_size = fft_size / 4;
     let n = resampled.len();
     if n < fft_size {
-        return resampled;
+        return resampled.to_vec();
     }
 
     let old_nyquist = sample_rate as f32 / 2.0;
@@ -434,6 +462,79 @@ pub fn bandwidth_extend(signal: &[f32], sample_rate: u32, target_rate: u32) -> V
                     let freq_rolloff =
                         (-(tgt as f32 - old_nyquist_bin as f32) / 300.0).exp().max(0.02);
                     let amp = sbr_amp * freq_rolloff;
+                    out_buf[tgt].re += amp * phase.cos();
+                    out_buf[tgt].im += amp * phase.sin();
+                }
+            }
+        }
+
+        c2r.process(&mut out_buf, &mut in_buf).unwrap();
+        for i in 0..fft_size {
+            output[offset + i] += in_buf[i] * hann[i] * scale;
+        }
+    }
+
+    output.truncate(n);
+    output
+}
+
+fn interpolate_high_band(resampled: &[f32], sample_rate: u32, target_rate: u32) -> Vec<f32> {
+    let fft_size = 4096;
+    let hop_size = fft_size / 4;
+    let n = resampled.len();
+    if n < fft_size {
+        return resampled.to_vec();
+    }
+
+    let old_nyquist = sample_rate as f32 / 2.0;
+    let new_nyquist = target_rate as f32 / 2.0;
+    let n_bins = fft_size / 2 + 1;
+    let old_nyquist_bin = ((old_nyquist / new_nyquist) * (n_bins - 1) as f32).round() as usize;
+
+    let mut planner = RealFftPlanner::<f32>::new();
+    let r2c = planner.plan_fft_forward(fft_size);
+    let c2r = planner.plan_fft_inverse(fft_size);
+    let hann = hann_window(fft_size);
+    let scale = 1.0f32 / (fft_size as f32);
+    let frames = n / hop_size;
+
+    let mut output = vec![0.0f32; n + fft_size];
+    let mut in_buf = r2c.make_input_vec();
+    let mut out_buf = r2c.make_output_vec();
+
+    for fi in 0..frames {
+        let offset = fi * hop_size;
+        if offset + fft_size > n {
+            break;
+        }
+        for i in 0..fft_size {
+            in_buf[i] = resampled[offset + i] * hann[i];
+        }
+        r2c.process(&mut in_buf, &mut out_buf).unwrap();
+
+        let mut log_env = vec![-80.0f32; old_nyquist_bin.max(2)];
+        for k in 1..old_nyquist_bin {
+            let mag =
+                (out_buf[k].re * out_buf[k].re + out_buf[k].im * out_buf[k].im).sqrt().max(1e-10);
+            log_env[k] = mag.log10() * 20.0;
+        }
+
+        // Extrapolate log-magnitude with a linear slope from the top two octaves.
+        let fit_start = (old_nyquist_bin as f32 * 0.25).round() as usize;
+        let fit_end = old_nyquist_bin.saturating_sub(1);
+        if fit_end > fit_start {
+            let slope = (log_env[fit_end] - log_env[fit_start])
+                / (fit_end.saturating_sub(fit_start).max(1) as f32);
+            for tgt in old_nyquist_bin..n_bins - 1 {
+                let delta = (tgt - fit_end) as f32;
+                let target_db = log_env[fit_end] + slope * delta * 0.5;
+                let rolloff = (-delta / 400.0).exp().max(0.02);
+                let amp = 10.0f32.powf(target_db / 20.0) * rolloff * 0.5;
+                let existing =
+                    (out_buf[tgt].re * out_buf[tgt].re + out_buf[tgt].im * out_buf[tgt].im).sqrt();
+                if existing < amp * 0.5 {
+                    let src = tgt.saturating_sub(old_nyquist_bin / 2).max(1);
+                    let phase = out_buf[src].im.atan2(out_buf[src].re);
                     out_buf[tgt].re += amp * phase.cos();
                     out_buf[tgt].im += amp * phase.sin();
                 }

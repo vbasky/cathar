@@ -78,6 +78,18 @@ fn regen_all() {
             a.channels.iter().map(|c| bandwidth_extend(c, a.sample_rate, 48_000)).collect();
         AudioData { sample_rate: 48_000, channels: ch }
     });
+    regen("enhance_interpolate.wav", |a| {
+        let ch: Vec<Vec<f32>> = a
+            .channels
+            .iter()
+            .map(|c| {
+                bandwidth_extend_with_method(c, a.sample_rate, 48_000, EnhanceMethod::Interpolate)
+            })
+            .collect();
+        AudioData { sample_rate: 48_000, channels: ch }
+    });
+    regen("riaa.wav", |a| a.map_channels(|c| riaa_deemphasis(c, a.sample_rate)));
+    regen("dequantize.wav", |a| a.map_channels(|c| dequantize(c, a.sample_rate, 16, 0.7)));
     // declip needs a clipping signal
     let fs = 44_100u32;
     let n = fs as usize;
@@ -132,6 +144,27 @@ fn golden_enhance() {
             a.channels.iter().map(|c| bandwidth_extend(c, a.sample_rate, 48_000)).collect();
         AudioData { sample_rate: 48_000, channels: ch }
     });
+}
+#[test]
+fn golden_enhance_interpolate() {
+    check("enhance_interpolate.wav", |a| {
+        let ch: Vec<Vec<f32>> = a
+            .channels
+            .iter()
+            .map(|c| {
+                bandwidth_extend_with_method(c, a.sample_rate, 48_000, EnhanceMethod::Interpolate)
+            })
+            .collect();
+        AudioData { sample_rate: 48_000, channels: ch }
+    });
+}
+#[test]
+fn golden_riaa() {
+    check("riaa.wav", |a| a.map_channels(|c| riaa_deemphasis(c, a.sample_rate)));
+}
+#[test]
+fn golden_dequantize() {
+    check("dequantize.wav", |a| a.map_channels(|c| dequantize(c, a.sample_rate, 16, 0.7)));
 }
 #[test]
 fn golden_declib() {

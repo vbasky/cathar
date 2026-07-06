@@ -18,6 +18,8 @@ means "take away."
 | Scratchy noise when someone moves | **Rustle** — clothing against a clip-on mic | de-rustle |
 | Too quiet / too loud / inconsistent | **Level** — wrong loudness for delivery | normalize |
 | Muffled, "telephone-y" | **Lost highs** — squashed by heavy compression | enhance |
+| Boomy, dull digitized vinyl | **RIAA curve** — playback de-emphasis not applied | riaa |
+| Gritty "stair-step" quiet passages | **Quantization grain** — too few stored levels | dequantize |
 
 ## Two big families
 

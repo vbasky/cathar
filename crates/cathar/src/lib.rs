@@ -20,6 +20,8 @@
 mod analysis;
 mod audio;
 mod denoise;
+mod dequant;
+mod digitize;
 mod edit;
 mod enhance;
 mod error;
@@ -35,10 +37,15 @@ mod util;
 pub use analysis::{Stats, compute_stats};
 pub use audio::AudioData;
 pub use denoise::{Denoiser, NoisePrint, SpectralDenoiser, learn_noise_print, wiener_denoise};
+pub use dequant::dequantize;
+pub use digitize::{elliptical_mono, riaa_deemphasis, vinyl_restore};
 pub use edit::{
     dither, fade, gain_db, pad, remix, reverse, select_channels, silence_strip, trim, vad,
 };
-pub use enhance::{bandwidth_extend, breath_remove, deess_multiband, deesser, voice_isolate};
+pub use enhance::{
+    EnhanceMethod, bandwidth_extend, bandwidth_extend_with_method, breath_remove, deess_multiband,
+    deesser, voice_isolate,
+};
 pub use error::Error;
 pub use filter::{bandpass, bass, compressor, equalizer, gate, highpass, limiter, lowpass, treble};
 pub use loudness::{integrated_loudness, normalize_peak, true_peak_dbtp};

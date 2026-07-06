@@ -14,6 +14,21 @@ mod termcolor;
 #[cfg(feature = "tui")]
 mod tui;
 
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum EnhanceMethodArg {
+    Replicate,
+    Interpolate,
+}
+
+impl From<EnhanceMethodArg> for cathar::EnhanceMethod {
+    fn from(m: EnhanceMethodArg) -> Self {
+        match m {
+            EnhanceMethodArg::Replicate => cathar::EnhanceMethod::Replicate,
+            EnhanceMethodArg::Interpolate => cathar::EnhanceMethod::Interpolate,
+        }
+    }
+}
+
 /// Audio restoration toolbox — denoise, de-hum, de-click, de-clip, normalise.
 #[derive(Debug, Parser)]
 #[command(
@@ -180,6 +195,31 @@ enum Command {
         #[arg(short, long, default_value = "breathless.wav")]
         out: String,
     },
+    /// Apply RIAA playback de-emphasis to a digitized vinyl recording.
+    Riaa {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "riaa.wav")]
+        out: String,
+        /// Elliptical mono crossover (Hz); sums lows to mono below this frequency
+        #[arg(long)]
+        elliptical: Option<f32>,
+    },
+    /// Reduce quantization grain from low-bit-depth sources.
+    Dequantize {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "dequantized.wav")]
+        out: String,
+        /// Assumed source bit depth (4–24)
+        #[arg(short, long, default_value_t = 16)]
+        bits: u32,
+        /// Correction strength 0–1
+        #[arg(short, long, default_value_t = 0.7)]
+        strength: f32,
+    },
     /// Restore high frequencies lost to compression or low sample rates.
     Enhance {
         /// Input file
@@ -190,6 +230,9 @@ enum Command {
         /// Target sample rate (Hz)
         #[arg(short, long, default_value_t = 48000)]
         rate: u32,
+        /// Upsampling strategy: replicate (SBR) or interpolate (log-magnitude extrapolation)
+        #[arg(long, default_value = "replicate")]
+        method: EnhanceMethodArg,
     },
     /// Repair isolated transient spectral artifacts (whistles, bursts, glitches).
     Repair {
@@ -693,16 +736,47 @@ fn main() -> Result<()> {
             cleaned.to_file(&out)?;
             eprintln!("breath-removed  →  {out}");
         }
-        Command::Enhance { input, out, rate } => {
+        Command::Riaa { input, out, elliptical } => {
             let audio = cathar::AudioData::from_file(&input)?;
+            let channels = if audio.channels.len() >= 2 {
+                let (l, r) = cathar::vinyl_restore(
+                    &audio.channels[0],
+                    &audio.channels[1],
+                    audio.sample_rate,
+                    elliptical,
+                );
+                vec![l, r]
+            } else {
+                vec![cathar::riaa_deemphasis(&audio.channels[0], audio.sample_rate)]
+            };
+            cathar::AudioData { sample_rate: audio.sample_rate, channels }.to_file(&out)?;
+            let ellip = elliptical.map(|f| format!("  elliptical {f} Hz")).unwrap_or_default();
+            eprintln!("RIAA de-emphasis{ellip}  →  {out}");
+        }
+
+        Command::Dequantize { input, out, bits, strength } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let cleaned =
+                audio.map_channels(|c| cathar::dequantize(c, audio.sample_rate, bits, strength));
+            cleaned.to_file(&out)?;
+            eprintln!("dequantized  {bits}-bit  strength={strength}  →  {out}");
+        }
+
+        Command::Enhance { input, out, rate, method } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let method: cathar::EnhanceMethod = method.into();
             let channels: Vec<Vec<f32>> = audio
                 .channels
                 .iter()
-                .map(|c| cathar::bandwidth_extend(c, audio.sample_rate, rate))
+                .map(|c| cathar::bandwidth_extend_with_method(c, audio.sample_rate, rate, method))
                 .collect();
             let result = cathar::AudioData { sample_rate: rate, channels };
             result.to_file(&out)?;
-            eprintln!("enhanced  {} Hz → {rate} Hz  →  {out}", audio.sample_rate);
+            let mode = match method {
+                cathar::EnhanceMethod::Replicate => "replicate",
+                cathar::EnhanceMethod::Interpolate => "interpolate",
+            };
+            eprintln!("enhanced  {} Hz → {rate} Hz  ({mode})  →  {out}", audio.sample_rate);
         }
 
         Command::Repair { input, out, strength } => {

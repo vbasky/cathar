@@ -18,11 +18,19 @@ Tools, Logic, Ableton, Reaper, or Audition. The "Photoshop of sound."
 
 **de- (prefix)** — Just means "remove": *de*-noise, *de*-hum, *de*-click.
 
+**Dequantization** — Reducing the audible grain left when audio was stored with
+too few discrete levels (low bit depth). Cathar's `dequantize` uses neighbour
+prediction on the quantisation lattice.
+
 **DSP (Digital Signal Processing)** — The umbrella term for doing maths on
 digital audio (or any signal) to change it: filtering, denoising, all of it.
 
 **EBU R128** — The European broadcast loudness standard built on BS.1770; the
 reason broadcast audio targets −23 LUFS.
+
+**Elliptical mono** — On stereo vinyl captures, summing only the low frequencies
+to mono while keeping highs in stereo — tames out-of-phase rumble without
+collapsing the mix. Cathar: `riaa --elliptical <Hz>`.
 
 **FFT (Fast Fourier Transform)** — The fast machine that takes a chunk of sound
 and reads off its "recipe" of pitches. The workhorse behind the frequency view.
@@ -69,11 +77,18 @@ process them, so the stereo image stays stable instead of wandering.
 **Plosive** — The low thump on "p" and "b" sounds when a puff of breath hits the
 mic.
 
+**Quantization** — Rounding each sample to the nearest allowed level on a fixed
+grid (determined by bit depth). Too coarse a grid leaves audible grain.
+
 **Resampling** — Converting audio from one sample rate to another (e.g. 48,000 →
 44,100). Done well, it's a smart filter, not a copy.
 
 **Reverb** — The trail of fading echoes a room adds as sound bounces off its
 surfaces. Makes recordings sound "roomy" or "boxy."
+
+**RIAA curve** — The standard EQ applied when cutting and playing back vinyl: bass
+cut and treble boost on playback (**de-emphasis**) so the groove stays narrow but
+the listener hears flat audio. Cathar: `riaa`.
 
 **Rustle** — Scratchy mid-range noise from clothing brushing a clip-on (lavalier)
 microphone.

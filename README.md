@@ -104,6 +104,8 @@ grouped here by what they fix; run them in any order, or chain them.
 | `deplosive` | Tame plosive "p"/"b" pops (low-frequency transient bursts) | `--strength` 4 |
 | `derustle` | Suppress lavalier / clothing rustle (mid-band transient bursts) | `--strength` 4 |
 | `breath` | Detect and high-pass the breaths before speech onsets | — |
+| `riaa` | RIAA playback curve for digitized vinyl; optional elliptical mono on stereo lows | `--elliptical` 200 |
+| `dequantize` | Relax quantization grain from 8/16-bit sources | `--bits` 16, `--strength` 0.7 |
 
 ### Repair — reconstruct damaged samples
 
@@ -117,7 +119,7 @@ grouped here by what they fix; run them in any order, or chain them.
 
 | Command | What it does | Key flags |
 | --- | --- | --- |
-| `enhance` | Bandwidth extension — resample up and synthesise the missing highs | `--rate` 48000 |
+| `enhance` | Bandwidth extension — resample up and synthesise the missing highs | `--rate` 48000, `--method replicate\|interpolate` |
 | `normalize` | Loudness (LUFS, true EBU R128) or peak (dBFS) normalisation | `--target` -16, `--peak`, `--true-peak` -1 |
 
 ### Utility
