@@ -18,7 +18,7 @@ What stays constant as the scope widens:
 - **Restoration-first.** Breadth never comes at the cost of the restoration
   chain that is Cathar's reason to exist.
 
-## Where we are — `0.7.x`
+## Where we are — `0.7.x` (shipped)
 
 The restoration chain is broad and unit-tested: `denoise` (spectral subtraction /
 Wiener, phase-coherent stereo), `dehum` (fixed-notch or `--adaptive` tracking),
@@ -31,12 +31,28 @@ Wiener, phase-coherent stereo), `dehum` (fixed-notch or `--adaptive` tracking),
 (MP4/M4A/MKV/MP3/FLAC/WAV/OGG); **encode is WAV (32-bit float), FLAC (24-bit
 lossless), or AIFF (24-bit), chosen by the output extension.**
 
-**`v0.7.0`** shipped the `0.7` core-utilities milestone (time-stretch / pitch)
-together with the full `0.7.x` restoration & transform track (below). The
-**Foundations** milestone shipped earlier as `v0.2.0` (loudness), `v0.3.0`
-(resampling), `v0.4.0` (encode). Each roadmap item tends to land as its own minor
-release, so the version pins below are indicative ordering, not exact promises
-(see the closing note).
+**`v0.7.0`** closed Phase 1 restoration depth and the `0.7` SoX utilities gap
+(`tempo` / `pitch` / `speed`). Earlier milestones: `v0.2.0` (loudness), `v0.3.0`
+(resampling), `v0.4.0` (encode), `v0.6.0` (swiss-army editing, EQ, dynamics,
+`stat`/`stats`, ML denoise), `v0.6.1` (digitization foundations).
+
+**Version rule:** a roadmap milestone (`0.8`, `0.9`, …) names the release that
+will **first ship** that capability. Anything already released is recorded under
+its actual semver in Phase 1 (or the checklist ✅ column) — never under a future
+milestone.
+
+## What's next — `0.8` → `0.11`
+
+Milestone numbers are **ordering**, not promises. **Phase 2** and **Phase 3**
+sections list **only unreleased work** — each bullet is something still ⬜.
+
+| Milestone | Theme | Status |
+| --- | --- | --- |
+| **`0.8`** | Restoration fidelity depth + remaining SoX dynamics gaps | ⬜ planned |
+| **`0.9`** | Creative effects + spatial / stereo toolkit | ⬜ planned |
+| **`0.10`** | Pipelines, reference tools, HR upsampling | ⬜ planned |
+| **`0.11`** | Performance, premium SRC, SoX parity audit | ⬜ planned |
+| **`1.0`** | Stable API, broad codecs, DAW plugins | ⬜ planned |
 
 ---
 
@@ -84,7 +100,18 @@ stands next to iZotope RX's core.
   under `1.0` — ahead of schedule, and entirely behind `--features tui` so the
   default build and dependency set are unchanged.
 
-### `0.6` — Learned denoise (make the `ml` feature real)
+### `0.6` — Swiss-army foundation & learned denoise (`v0.6.0`–`v0.6.1`)
+
+**Swiss-army editing, filters, dynamics & analysis (`v0.6.0`):**
+
+- ✅ **Editing utilities** — `convert`, `trim`, `pad`, `fade`, `silence`/`vad`,
+  `gain`/`vol`, `remix`, `channels`, `reverse`, `dither`.
+- ✅ **Biquad EQ** — `highpass`, `lowpass`, `bandpass`, `equalizer`, `bass`,
+  `treble`.
+- ✅ **Dynamics** — compressor, limiter, gate.
+- ✅ **`stat`/`stats`** — peak, RMS, LUFS, true-peak, crest factor, DC offset.
+
+**Learned denoise (`v0.6.0`):**
 
 - ✅ **Real `candle` model behind `cfg(feature = "ml")`** (`v0.6.0`) — the
   `ml-denoise` command / `NeuralDenoiser`: a GRU spectral-gain network
@@ -99,7 +126,6 @@ stands next to iZotope RX's core.
   compiled into the binary (2 MB). `NeuralDenoiser::pretrained()` loads it;
   `ml-denoise` uses it by default. Retrain on DNS-Challenge speech data
   for production use.
-- ⬜ Optional ML-based VAD and dialogue isolation.
 
 ### `0.6.x`–`0.7` — Digitization, fidelity & restoration depth (community [#12](https://github.com/vbasky/cathar/issues/12))
 
@@ -113,21 +139,10 @@ transients — especially for vinyl captures and low-bit-depth sources.
   ([DrCuts](https://github.com/opcode66/DrCuts)).
 - ✅ **Dequantization — lattice foundation** (`v0.6.1`) — `dequantize` command:
   inspectable neighbour-prediction on the quantisation lattice; golden-tested and
-  deterministic. This closes the **foundation** slice of [#12](https://github.com/vbasky/cathar/issues/12)
-  dequantization — not the full Záviška pipeline.
-- ⬜ **Dequantization — co-sparse depth** (`0.8.x`) — co-sparse / non-convex
-  recovery from Záviška et al.
-  ([audio_dequantization](https://github.com/zawi01/audio_dequantization),
-  [ICASSP 2021 paper](https://arxiv.org/abs/2010.16386)). New analysis operators
-  and solver work; **not** patch-release scope.
+  deterministic. Co-sparse depth → **`0.8`**.
 - ✅ **Bandwidth extension — foundation** (`v0.6.1`) — `enhance --method
   replicate|interpolate`: SBR band replication (default since `v0.5`) plus
-  log-magnitude extrapolation into the empty high band.
-- ⬜ **HR spectral upsampling** (`0.10`) — published interpolation kernels
-  ([DSRE](https://github.com/x1aoqv/DSRE---Digital-Sound-Resolution-Enhancer),
-  [HRAudioWizard](https://github.com/Super-YH/HRAudioWizard)). Distinct from
-  bandwidth extension; targets fidelity / analysis depth, not `0.6.x`/`0.7.x`
-  patches.
+  log-magnitude extrapolation into the empty high band. HR upsampling → **`0.10`**.
 
 **Restoration depth — shipped `v0.7.0`** (`0.7.x` track) — research-backed
 extensions to the restoration chain, all deterministic and pure Rust:
@@ -159,7 +174,7 @@ extensions to the restoration chain, all deterministic and pure Rust:
   `estimate_lag`: sub-sample cross-correlation lag estimate aligns a recording
   to a reference track ([synaudio-cli](https://github.com/eshaz/synaudio-cli),
   [HyMPS alignment index](https://github.com/FORARTfe/HyMPS/blob/main/Audio/Treatments.md#alignmentsynch-)).
-  **Next depth:** GCC-PHAT weighting for dissimilar/reverberant content.
+  GCC-PHAT depth for dissimilar/reverberant content → **`0.8`**.
 - ✅ **Harmonic–percussive separation (HPSS)** (`v0.7.0`) — `hpss` command:
   Fitzgerald median filtering (horizontal median → harmonic, vertical →
   percussive) with a soft Wiener mask; percussive derived by subtraction so
@@ -170,7 +185,7 @@ extensions to the restoration chain, all deterministic and pure Rust:
   from `declick`'s isolated impulses.
 - 🔶 **Analog NR / pre-emphasis decode** (`v0.7.0`) — `deemphasis` command /
   `deemphasis`, `Emphasis`: exact first-order FM 50/75 µs and CD/IEC 50/15 µs
-  playback de-curves. **Next depth:** companding decoders (Dolby B/C, dbx).
+  playback de-curves. Companding decoders (Dolby B/C, dbx) → **`0.8`**.
 
 **Transform & analysis toolkit — shipped `v0.7.0`** — foundations that broaden
 the swiss-army surface and feed later effects:
@@ -179,69 +194,72 @@ the swiss-army surface and feed later effects:
   `pitch_shift` (`StretchMode::{Wsola, PhaseVocoder}`): WSOLA overlap-add
   (default, no FFT) and a phase-vocoder engine with instantaneous-frequency
   phase propagation, decoupling duration from rate atop `resample`. Drives the
-  `tempo`/`pitch`/`speed` commands below.
+  `tempo` / `pitch` / `speed` commands (`v0.7.0`).
 - ✅ **Pitch detection (YIN)** (`v0.7.0`) — `detect_pitch` / `fundamental_hz`:
   difference function → cumulative-mean-normalised difference → absolute-
   threshold trough → parabolic interpolation, with a silence gate. A `Pitch
-  (f0)` line is exposed in `stats`. (pYIN HMM smoothing still open.)
+  (f0)` line is exposed in `stats`. pYIN HMM smoothing → **`0.10`**.
 - ✅ **Constant-Q transform (CQT)** (`v0.7.0`) — `cqt` / `CqtSpec`: direct
   time-domain log-frequency analysis (equal octaves per bin), a library
-  primitive alongside `spectrogram`. (TUI-viewer `--cqt` wiring still open.)
+  primitive alongside `spectrogram`. TUI `--cqt` wiring → **`0.10`**.
 - ✅ **Sinusoidal / spectral modeling (SMS)** (`v0.7.0`) — `sms` command /
   `analyze_sms`, `synthesize_sms`, `SinusoidalModel`: per-frame spectral-peak
   picking (parabolic), nearest-frequency partial tracking (birth/continue/death),
   and phase-continuous additive resynthesis. Keeping only the partials discards
   the stochastic residual ("tonal purify").
 
-**Spatial & measurement (`0.8`–`0.9`)**:
-
-- ⬜ **Mid-side / stereo toolkit** — M/S encode-decode, Haas widening,
-  mono-maker below a cutoff, and mono→stereo decorrelation upmix.
-- ⬜ **Measured-IR deconvolution / room correction** — inverse-filter from a
-  supplied impulse response; a targeted complement to the *blind* `dereverb`/WPE.
-- ⬜ **Masking-aware (psychoacoustic) denoise** — shape the suppression floor by
-  a simplified masking model so residual noise sits under the signal rather than
-  at a fixed gate.
-
-> Implementation details — module layout, public APIs, algorithm steps, test
-> plans and sequencing — are specced in [`docs/algorithm-specs.md`](docs/algorithm-specs.md).
+> Open restoration depth from here forward is tracked under **Phase 2**
+> (`0.8`–`0.10`), not as patch work on `0.7.x`. Module layout, public APIs,
+> algorithm steps, test plans and sequencing are specced in
+> [`docs/algorithm-specs.md`](docs/algorithm-specs.md).
 
 ---
 
-## Phase 2 — Swiss-army expansion (`0.7`–`0.10`)
+## Phase 2 — Planned swiss-army expansion (`0.8`–`0.10`)
 
-Restoration is the spine; now add the everyday audio toolkit so Cathar can
-replace SoX for routine work. Target: **SoX effect/format parity** by `0.11`.
+Unreleased breadth on top of the shipped restoration chain. Target: **SoX
+effect/format parity** by `0.11`. Shipped work lives in Phase 1 above — nothing
+here repeats it.
 
-### `0.7` — Core utilities & editing (shipped — foundation in `v0.6.0`, `speed`/`tempo`/`pitch` in `v0.7.0`)
+### `0.8` — Fidelity depth & SoX dynamics gaps
 
-- ✅ `convert` (any decode → any encode), `trim`, `pad`, `fade`, `silence`/`vad`.
-- ✅ `gain`/`vol`, `remix` (channel mixing), `channels`, `reverse`, `dither`.
-- ✅ `speed`/`tempo`/`pitch` (`v0.7.0`) — `tempo` (duration, pitch preserved),
-  `pitch` (semitones, duration preserved), `speed` (resample: both), on the
-  shipped `resample` + WSOLA/phase-vocoder time-stretch.
+- ⬜ **Dequantization — co-sparse depth** — Záviška et al. co-sparse / non-convex
+  recovery on top of the `v0.6.1` lattice foundation
+  ([audio_dequantization](https://github.com/zawi01/audio_dequantization),
+  [ICASSP 2021](https://arxiv.org/abs/2010.16386)).
+- ⬜ **Analog NR companding decode** — Dolby B/C, dbx on top of shipped
+  `deemphasis` (`v0.7.0`).
+- ⬜ **Masking-aware (psychoacoustic) denoise** — Bark-scale suppression floor so
+  residual noise sits under the signal rather than at a fixed gate.
+- ⬜ **ML dialogue isolation** — optional `ml` feature: learned mask estimation
+  with classical `voiceisolate` fallback (DNS-Challenge / Demucs-class recipe).
+- ⬜ **Alignment depth** — GCC-PHAT weighting for `align` on dissimilar or
+  reverberant reference pairs.
+- ⬜ **Measured-IR deconvolution / room correction** — inverse-filter from a
+  supplied impulse response; complements blind `dereverb` / WPE.
+- ⬜ **SoX `compand` + `contrast`** — multi-band compander and contrast effect.
 
-### `0.8` — Filters & dynamics (ahead of schedule — shipped in `v0.6.0`)
+### `0.9` — Creative effects & spatial toolkit
 
-- ✅ Biquad EQ: `highpass`, `lowpass`, `bandpass`, `equalizer`, `bass`, `treble`.
-- ✅ Dynamics: compressor, limiter, gate.
-- ⬜ `compand` (multi-band), `contrast`.
+- ⬜ **Creative effects** — `reverb`, `echo`/`delay`, `chorus`, `flanger`,
+  `phaser`, `tremolo`, `overdrive`. (Restoration removes these; a swiss-army
+  tool also adds them.)
+- ⬜ **Mid-side / stereo toolkit** — M/S encode-decode, Haas widening,
+  mono-maker below a cutoff, mono→stereo decorrelation upmix.
 
-### `0.9` — Creative effects
+### `0.10` — Pipelines, reference tools & HR fidelity
 
-- `reverb`, `echo`/`delay`, `chorus`, `flanger`, `phaser`, `tremolo`,
-  `overdrive`. (Restoration removes these; a swiss-army tool also adds them.)
-
-### `0.10` — Analysis & batch power
-
-- ✅ `stat`/`stats` (peak, RMS, LUFS, true-peak, crest factor, DC offset).
-- ✅ `spectrogram` lib + TUI viewer (shipped in `v0.5.4`).
-- ⬜ Chain DSL + preset files — declarative multi-stage pipelines, reusable across
-  `batch`.
-- ⬜ **Reference spectral rebalance** — compare a noisy recording's long-term
-  spectrum to a clean reference track and apply a corrective, inspectable gain
-  curve; useful when a gold-standard take of the same material exists
+- ⬜ **Chain DSL + preset files** — declarative multi-stage pipelines, reusable
+  across `batch`.
+- ⬜ **Reference spectral rebalance** — long-term spectrum match to a clean
+  reference track; inspectable corrective gain curve
   ([AssistedSpectralRebalancePlugin](https://github.com/joaomauricio5/AssistedSpectralRebalancePlugin)).
+- ⬜ **HR spectral upsampling** — DSRE / HRAudioWizard-class bandlimited
+  interpolation kernels; distinct from `enhance` bandwidth extension
+  ([DSRE](https://github.com/x1aoqv/DSRE---Digital-Sound-Resolution-Enhancer),
+  [HRAudioWizard](https://github.com/Super-YH/HRAudioWizard)).
+- ⬜ **Analysis UX depth** — pYIN HMM smoothing for `stats`; `cathar view --cqt`
+  wiring for the shipped CQT primitive.
 
 ---
 
@@ -270,8 +288,6 @@ replace SoX for routine work. Target: **SoX effect/format parity** by `0.11`.
   [SpectraMini](https://github.com/hamiltonbarber/SpectraMini) or
   [Vinyl Restoration Suite](https://github.com/flarkflarkflark/AudioRestorationVST)
   is encouraged — see [#12](https://github.com/vbasky/cathar/issues/12)).
-- ✅ Optional TUI spectral viewer (`ratatui`) as a lightweight nod to RX —
-  shipped early in `v0.5.4` (`cathar view`, behind `--features tui`).
 
 ---
 
@@ -279,11 +295,11 @@ replace SoX for routine work. Target: **SoX effect/format parity** by `0.11`.
 
 Tracks how close the swiss-army surface is. ✅ done · 🔶 partial · ⬜ planned.
 
-**Legend:** ✅ = shipped and credible for its tier. 🔶 = a usable slice exists,
-but published or research-grade depth remains (e.g. companding NR after
-first-order de-emphasis). ⬜ = not started. Closing a 🔶 or ⬜ **depth** row is
-a **minor-release algorithm task** — patch releases (`0.6.2`, `0.7.1`, …) fix
-regressions, golden tests, and docs only.
+**Legend:** ✅ = shipped (actual semver in the Cathar column). 🔶 = a usable slice
+exists, but published or research-grade depth remains (e.g. companding NR after
+first-order de-emphasis). ⬜ = not started; a milestone label (`0.8`, …) marks
+the **target release for that row only** — never a shipped version. Closing 🔶
+depth or ⬜ rows is a **minor-release** task; patches fix regressions and docs.
 
 | Capability | SoX | Cathar |
 | --- | --- | --- |
@@ -299,13 +315,13 @@ regressions, golden tests, and docs only.
 | EQ / filters | ✅ | ✅ biquad: `lowpass`, `highpass`, `bandpass`, `equalizer`, `bass`, `treble` (`v0.6.0`) |
 | Compander / dynamics | ✅ | ✅ compressor, limiter, gate (`v0.6.0`) |
 | Reverb / echo / chorus / modulation | ✅ | ⬜ `0.9` |
-| Stats / spectrogram | ✅ | ✅ `stat`/`stats` + `spectrogram` lib + TUI viewer (`v0.6.0`) |
+| Stats / spectrogram | ✅ | ✅ `stat`/`stats` (`v0.6.0`) + `spectrogram` / TUI (`v0.5.4`) |
 | De-click / de-clip / de-hum / de-reverb | partial | ✅ (Cathar leads here; `dereverb --wpe`, `dehum --adaptive`) |
 | Learned denoise | ⬜ | ✅ `ml-denoise` + bundled pretrained checkpoint (`v0.6.0`) |
 | Dither | ✅ | ✅ `v0.6.0` |
 | Vinyl RIAA / elliptical EQ | ⬜ | ✅ `riaa` (`v0.6.1`) |
 | Dequantization (lattice foundation) | ⬜ | ✅ `dequantize` (`v0.6.1`) |
-| Dequantization (co-sparse / Záviška depth) | ⬜ | ⬜ `0.8.x` |
+| Dequantization (co-sparse / Záviška depth) | ⬜ | ⬜ `0.8` |
 | Bandwidth extension (`enhance`) | partial | ✅ `enhance --method` (`v0.6.1`) |
 | HR spectral upsampling (DSRE-class) | ⬜ | ⬜ `0.10` |
 | Wow / flutter / azimuth (vinyl & tape) | ⬜ | ✅ `dewow` + `azimuth` (`v0.7.0`) |
@@ -315,8 +331,12 @@ regressions, golden tests, and docs only.
 | Multi-mic / reference alignment | ⬜ | ✅ `align` (`v0.7.0`) |
 | Sinusoidal modeling (tonal purify) | ⬜ | ✅ `sms` (`v0.7.0`) |
 | Analog pre-emphasis decode (FM/CD) | ⬜ | ✅ `deemphasis` (`v0.7.0`) |
+| Analog NR companding (Dolby/dbx) | ⬜ | ⬜ `0.8` |
+| Masking-aware denoise | ⬜ | ⬜ `0.8` |
+| Mid-side / stereo toolkit | partial | ⬜ `0.9` |
 | Pitch / f0 detection | 🔶 | ✅ YIN in `stats` (`v0.7.0`) |
 | Constant-Q transform | ⬜ | ✅ `cqt` library primitive (`v0.7.0`) |
+| Chain DSL / preset pipelines | ⬜ | ⬜ `0.10` |
 | Reference spectral rebalance | ⬜ | ⬜ `0.10` |
 | Premium resample (libsamplerate-class) | partial | 🔶 Kaiser sinc today · ⬜ `0.11` |
 
@@ -349,7 +369,7 @@ classical methods plateau. See also the
 | Spectral repair | Temporal-median outlier pull | iZotope RX Spectral Repair (conceptual) |
 | Voice isolate | Energy VAD + spectral gating | Classical; ML dialogue isolation TBD |
 | Vinyl | RIAA + elliptical mono | [DrCuts](https://github.com/opcode66/DrCuts), [Vinyl Restoration Suite](https://github.com/flarkflarkflark/AudioRestorationVST) |
-| Dequant | Lattice neighbour prediction (`v0.6.1` foundation) | Záviška et al. co-sparse methods → `0.8.x` |
+| Dequant | Lattice neighbour prediction (`v0.6.1` foundation) | Záviška et al. co-sparse methods → `0.8` |
 | Enhance | SBR + log-magnitude interpolate (`v0.6.1` foundation) | DSRE, HRAudioWizard → `0.10` |
 | De-crackle | Laplacian detector over a running floor + cubic-Hermite repair | ClickRepair lineage |
 | Inpainting | Autoregressive (Janssen/Godsill–Rayner) gap interpolation | Janssen; Godsill & Rayner |
@@ -358,25 +378,33 @@ classical methods plateau. See also the
 | Pre-emphasis decode | FM 50/75 µs + CD/IEC 50/15 µs de-curves | Broadcast / CD standards |
 | Time & pitch | WSOLA + phase vocoder (`tempo`/`pitch`/`speed`) | McAulay–Quatieri; Laroche–Dolson |
 | Separation | HPSS median filtering; SMS sinusoidal modeling | Fitzgerald (2010); Serra / McAulay–Quatieri |
-| Pitch detection | YIN f0 (in `stats`) | de Cheveigné & Kawahara |
-| Constant-Q | Log-frequency analysis (`cqt`) | Brown (1991) |
+| Pitch detection | YIN f0 (in `stats`, `v0.7.0`) | de Cheveigné & Kawahara |
+| Constant-Q | Log-frequency analysis (`cqt`, `v0.7.0`) | Brown (1991) |
+| Swiss-army editing | `trim`/`pad`/`fade`/`gain`/… (`v0.6.0`) | SoX utility parity |
+| EQ / dynamics | Biquad filters + compressor/limiter/gate (`v0.6.0`) | SoX `equalizer` / dynamics |
+| Stats | `stat`/`stats` (`v0.6.0`) | SoX `stat` |
+| Spectrogram / TUI | `spectrogram` lib + `cathar view` (`v0.5.4`, `tui`) | Hann STFT magnitude |
 
 ### High-value additions (restoration toolkit scope)
 
-Remaining candidates — the WPE de-reverb, wow/flutter, azimuth, adaptive hum,
-inpainting, de-crackle, alignment, HPSS, SMS, and pre-emphasis items that used to
-sit here all shipped in **`v0.7.0`** and now live in the table above.
+Pointers into **Phase 2** — unreleased work only. Shipped capabilities live in
+the table above; milestone numbers below label **target** releases, not past
+versions.
 
-| Area | Candidate approach | Sources |
-| --- | --- | --- |
-| **Dialogue isolation** | ML mask estimation + classical fallback | DeepFilterNet, Demucs stems; DNS Challenge data |
-| **Dequantization (co-sparse)** | Co-sparse analysis operators (`0.8.x`; lattice foundation shipped `v0.6.1`) | [Záviška ICASSP 2021](https://arxiv.org/abs/2010.16386) |
-| **Spectral rebalance** | Long-term envelope match to reference (`0.10`) | [AssistedSpectralRebalancePlugin](https://github.com/joaomauricio5/AssistedSpectralRebalancePlugin) |
-| **HR upsampling** | Bandlimited interpolation kernels (`0.10`; bandwidth extension shipped `v0.6.1`) | [DSRE](https://github.com/x1aoqv/DSRE---Digital-Sound-Resolution-Enhancer), [HRAudioWizard](https://github.com/Super-YH/HRAudioWizard) |
-| **Analog NR companders** | Dolby B/C, dbx decode (pre-emphasis done) | Broadcast/tape NR standards |
-| **DC offset / rumble** | Mean removal + subsonic high-pass | HyMPS DC-offsetting; `dewind` covers part |
-| **Mid-side / stereo tools** | M/S encode-decode, width, mono-maker, upmix | Spatial toolkit (`0.8`–`0.9`) |
-| **Masking-aware denoise** | Perceptual (Bark) suppression floor | Psychoacoustic model I |
+| Area | Milestone | Candidate approach | Sources |
+| --- | --- | --- | --- |
+| **Dequantization (co-sparse)** | `0.8` | Co-sparse analysis operators | [Záviška ICASSP 2021](https://arxiv.org/abs/2010.16386) |
+| **Analog NR companders** | `0.8` | Dolby B/C, dbx decode | Broadcast/tape NR standards |
+| **Masking-aware denoise** | `0.8` | Perceptual (Bark) suppression floor | Psychoacoustic model I |
+| **Dialogue isolation** | `0.8` | ML mask estimation + classical fallback | DeepFilterNet, Demucs; DNS Challenge |
+| **Measured-IR correction** | `0.8` | Supplied IR deconvolution | Complements WPE / energy gating |
+| **Alignment (GCC-PHAT)** | `0.8` | Weighted cross-correlation for `align` | synaudio / HyMPS alignment |
+| **Mid-side / stereo tools** | `0.9` | M/S encode-decode, width, mono-maker, upmix | Spatial toolkit |
+| **Creative effects** | `0.9` | Reverb, delay, modulation, drive | SoX effect parity |
+| **Spectral rebalance** | `0.10` | Long-term envelope match to reference | [AssistedSpectralRebalancePlugin](https://github.com/joaomauricio5/AssistedSpectralRebalancePlugin) |
+| **HR upsampling** | `0.10` | Bandlimited interpolation kernels | [DSRE](https://github.com/x1aoqv/DSRE---Digital-Sound-Resolution-Enhancer), [HRAudioWizard](https://github.com/Super-YH/HRAudioWizard) |
+| **Chain DSL / presets** | `0.10` | Declarative `batch` pipelines | — |
+| **DC offset / rumble** | — | Mean removal + subsonic high-pass | HyMPS; `dewind` covers part today |
 
 ### Open projects worth watching (GUI / integration, not ports)
 
@@ -397,6 +425,7 @@ vendor — Cathar stays CLI/library-first:
 
 ---
 
-*Milestone numbers signal ordering and intent, not commitments. Restoration
-correctness (Phase 1) takes priority over breadth (Phase 2) whenever they
-compete.*
+*Milestone numbers signal ordering and intent, not commitments. Shipped work
+is pinned to its actual semver in Phase 1; Phase 2 milestone headers name only
+what is still open. Restoration correctness (Phase 1) takes priority over breadth
+(Phase 2) whenever they compete.*
