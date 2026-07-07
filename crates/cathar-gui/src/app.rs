@@ -928,7 +928,7 @@ impl CatharGui {
                                 logo.id(),
                                 logo_rect,
                                 Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
-                                Color32::from_white_alpha(220),
+                                Color32::WHITE,
                             );
                             painter.text(
                                 pos2(image.center().x, logo_rect.bottom() + 20.0),
@@ -1061,10 +1061,20 @@ impl CatharGui {
 }
 
 /// Decode the bundled logo PNG into a texture for the empty-state splash.
+///
+/// `logo.png` has a solid dark background baked in; key it out to transparent
+/// (sampling the corner colour) so the logo isn't a black box on the canvas.
 fn load_logo(ctx: &egui::Context) -> Option<TextureHandle> {
     let bytes = include_bytes!("../../../docs/logo.png");
-    let img = image::load_from_memory(bytes).ok()?.to_rgba8();
+    let mut img = image::load_from_memory(bytes).ok()?.to_rgba8();
     let (w, h) = img.dimensions();
+    let bg = *img.get_pixel(0, 0);
+    let near = |a: u8, b: u8| (a as i32 - b as i32).abs() < 44;
+    for px in img.pixels_mut() {
+        if near(px[0], bg[0]) && near(px[1], bg[1]) && near(px[2], bg[2]) {
+            px[3] = 0; // transparent background
+        }
+    }
     let color = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], img.as_raw());
     Some(ctx.load_texture("logo", color, TextureOptions::LINEAR))
 }
