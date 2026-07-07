@@ -25,10 +25,19 @@ struct FxParams {
     deess_threshold_db: f32,
     deess_ratio: f32,
     dereverb_strength: f32,
+    dereverb_wpe: bool,
+    dereverb_taps: usize,
     dequant_bits: u32,
     dequant_strength: f32,
     normalize_lufs: f32,
     normalize_ceiling: f32,
+    hum_adaptive: bool,
+    decrackle_sensitivity: f32,
+    deemph_curve: cathar::Emphasis,
+    hpss_kernel: usize,
+    tempo_factor: f32,
+    pitch_semitones: f32,
+    speed_factor: f32,
 }
 
 impl Default for FxParams {
@@ -45,10 +54,19 @@ impl Default for FxParams {
             deess_threshold_db: -30.0,
             deess_ratio: 4.0,
             dereverb_strength: 0.5,
+            dereverb_wpe: false,
+            dereverb_taps: 15,
             dequant_bits: 16,
             dequant_strength: 0.7,
             normalize_lufs: -14.0,
             normalize_ceiling: -1.0,
+            hum_adaptive: false,
+            decrackle_sensitivity: 5.0,
+            deemph_curve: cathar::Emphasis::Fm50,
+            hpss_kernel: 17,
+            tempo_factor: 1.0,
+            pitch_semitones: 0.0,
+            speed_factor: 1.0,
         }
     }
 }
@@ -355,11 +373,24 @@ impl CatharGui {
                     self.fx_denoise(ui, ctx);
                     self.fx_dehum(ui, ctx);
                     self.fx_declick(ui, ctx);
+                    self.fx_decrackle(ui, ctx);
                     self.fx_declip(ui, ctx);
                     self.fx_deess(ui, ctx);
                     self.fx_dereverb(ui, ctx);
+                    self.fx_inpaint(ui, ctx);
+                    self.fx_dewow(ui, ctx);
+                    self.fx_azimuth(ui, ctx);
                     self.fx_dequantize(ui, ctx);
+                    self.fx_deemphasis(ui, ctx);
                     self.fx_riaa_normalize(ui, ctx);
+                });
+
+                ui.separator();
+                ui.heading("Transform & separate");
+                ui.add_enabled_ui(enabled, |ui| {
+                    self.fx_transform(ui, ctx);
+                    self.fx_hpss(ui, ctx);
+                    self.fx_sms(ui, ctx);
                 });
 
                 ui.separator();
@@ -432,11 +463,19 @@ impl CatharGui {
             ui.add(
                 egui::Slider::new(&mut self.fx.hum_harmonics, 1..=10).text("harmonics").integer(),
             );
+            ui.checkbox(&mut self.fx.hum_adaptive, "adaptive (track drift)");
             if ui.button("Apply de-hum").clicked() {
-                let (f, h) = (self.fx.hum_freq, self.fx.hum_harmonics);
+                let (f, h, adaptive) =
+                    (self.fx.hum_freq, self.fx.hum_harmonics, self.fx.hum_adaptive);
                 self.apply_whole(ctx, "de-hum", move |a| {
                     let sr = a.sample_rate;
-                    a.map_channels(|c| cathar::dehum(c, sr, f, h))
+                    a.map_channels(|c| {
+                        if adaptive {
+                            cathar::dehum_adaptive(c, sr, f, h)
+                        } else {
+                            cathar::dehum(c, sr, f, h)
+                        }
+                    })
                 });
             }
         });
@@ -491,13 +530,30 @@ impl CatharGui {
 
     fn fx_dereverb(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         egui::CollapsingHeader::new("De-reverb").show(ui, |ui| {
-            ui.add(egui::Slider::new(&mut self.fx.dereverb_strength, 0.0..=1.0).text("strength"));
+            ui.checkbox(&mut self.fx.dereverb_wpe, "WPE (linear prediction)");
+            if self.fx.dereverb_wpe {
+                ui.add(
+                    egui::Slider::new(&mut self.fx.dereverb_taps, 4..=30).text("taps").integer(),
+                );
+            } else {
+                ui.add(
+                    egui::Slider::new(&mut self.fx.dereverb_strength, 0.0..=1.0).text("strength"),
+                );
+            }
             if ui.button("Apply de-reverb").clicked() {
-                let s = self.fx.dereverb_strength;
-                self.apply_whole(ctx, "de-reverb", move |a| {
-                    let sr = a.sample_rate;
-                    a.map_channels(|c| cathar::dereverb(c, sr, s))
-                });
+                if self.fx.dereverb_wpe {
+                    let taps = self.fx.dereverb_taps;
+                    self.apply_whole(ctx, "de-reverb (WPE)", move |a| {
+                        let sr = a.sample_rate;
+                        a.map_channels(|c| cathar::wpe(c, sr, taps, 3, 3))
+                    });
+                } else {
+                    let s = self.fx.dereverb_strength;
+                    self.apply_whole(ctx, "de-reverb", move |a| {
+                        let sr = a.sample_rate;
+                        a.map_channels(|c| cathar::dereverb(c, sr, s))
+                    });
+                }
             }
         });
     }
@@ -536,6 +592,172 @@ impl CatharGui {
             if ui.button("Normalize").clicked() {
                 let (l, c) = (self.fx.normalize_lufs, self.fx.normalize_ceiling);
                 self.apply_whole(ctx, "normalize", move |a| a.normalize_r128(l, c));
+            }
+        });
+    }
+
+    fn fx_decrackle(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        egui::CollapsingHeader::new("De-crackle").show(ui, |ui| {
+            ui.add(
+                egui::Slider::new(&mut self.fx.decrackle_sensitivity, 1.0..=10.0)
+                    .text("sensitivity"),
+            );
+            if ui.button("Apply de-crackle").clicked() {
+                let s = self.fx.decrackle_sensitivity;
+                self.apply_whole(ctx, "de-crackle", move |a| {
+                    let sr = a.sample_rate;
+                    a.map_channels(|c| cathar::decrackle(c, sr, s))
+                });
+            }
+        });
+    }
+
+    fn fx_deemphasis(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        egui::CollapsingHeader::new("De-emphasis").show(ui, |ui| {
+            let label = match self.fx.deemph_curve {
+                cathar::Emphasis::Fm50 => "FM 50 µs",
+                cathar::Emphasis::Fm75 => "FM 75 µs",
+                cathar::Emphasis::CdIec => "CD / IEC",
+            };
+            egui::ComboBox::from_label("curve").selected_text(label).show_ui(ui, |ui| {
+                ui.selectable_value(&mut self.fx.deemph_curve, cathar::Emphasis::Fm50, "FM 50 µs");
+                ui.selectable_value(&mut self.fx.deemph_curve, cathar::Emphasis::Fm75, "FM 75 µs");
+                ui.selectable_value(&mut self.fx.deemph_curve, cathar::Emphasis::CdIec, "CD / IEC");
+            });
+            if ui.button("Apply de-emphasis").clicked() {
+                let curve = self.fx.deemph_curve;
+                self.apply_whole(ctx, "de-emphasis", move |a| {
+                    let sr = a.sample_rate;
+                    a.map_channels(|c| cathar::deemphasis(c, sr, curve))
+                });
+            }
+        });
+    }
+
+    fn fx_dewow(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        egui::CollapsingHeader::new("Wow & flutter").show(ui, |ui| {
+            ui.small("Track a dominant tone's pitch drift and time-warp it flat.");
+            if ui.button("Apply de-wow").clicked() {
+                self.apply_whole(ctx, "de-wow", |a| {
+                    let sr = a.sample_rate;
+                    a.map_channels(|c| cathar::dewow(c, sr))
+                });
+            }
+        });
+    }
+
+    fn fx_inpaint(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        egui::CollapsingHeader::new("Inpaint (gap fill)").show(ui, |ui| {
+            if ui.button("Auto-fill mutes/dropouts").clicked() {
+                self.apply_whole(ctx, "inpaint (auto)", |a| {
+                    let sr = a.sample_rate;
+                    a.map_channels(|c| cathar::inpaint_auto(c, sr, 50.0))
+                });
+            }
+            let has_sel = self.selection.is_some();
+            if ui
+                .add_enabled(has_sel, egui::Button::new("Reconstruct selection (time span)"))
+                .clicked()
+            {
+                if let Some(sel) = self.selection {
+                    let (t0, t1) = (sel.t0, sel.t1);
+                    self.apply_whole(ctx, "inpaint selection", move |a| {
+                        let sr = a.sample_rate;
+                        let start = (t0 * sr as f32) as usize;
+                        let len = ((t1 - t0) * sr as f32) as usize;
+                        a.map_channels(|c| cathar::inpaint_gap(c, start, len, 3))
+                    });
+                }
+            }
+        });
+    }
+
+    fn fx_azimuth(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let stereo =
+            self.history.get(self.hist_idx).map(|a| a.channels.len() >= 2).unwrap_or(false);
+        egui::CollapsingHeader::new("Azimuth (stereo skew)").show(ui, |ui| {
+            if ui.add_enabled(stereo, egui::Button::new("Correct L/R skew")).clicked() {
+                self.apply_whole(ctx, "azimuth", |a| {
+                    if a.channels.len() >= 2 {
+                        let (l, r) = cathar::azimuth_correct(
+                            &a.channels[0],
+                            &a.channels[1],
+                            a.sample_rate,
+                            5.0,
+                        );
+                        AudioData { sample_rate: a.sample_rate, channels: vec![l, r] }
+                    } else {
+                        a.clone()
+                    }
+                });
+            }
+        });
+    }
+
+    fn fx_hpss(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        egui::CollapsingHeader::new("Separate (HPSS)").show(ui, |ui| {
+            ui.add(egui::Slider::new(&mut self.fx.hpss_kernel, 3..=41).text("kernel").integer());
+            let k = self.fx.hpss_kernel | 1;
+            ui.horizontal(|ui| {
+                if ui.button("Keep harmonic").clicked() {
+                    self.apply_whole(ctx, "HPSS harmonic", move |a| {
+                        let sr = a.sample_rate;
+                        a.map_channels(|c| cathar::hpss(c, sr, k).0)
+                    });
+                }
+                if ui.button("Keep percussive").clicked() {
+                    self.apply_whole(ctx, "HPSS percussive", move |a| {
+                        let sr = a.sample_rate;
+                        a.map_channels(|c| cathar::hpss(c, sr, k).1)
+                    });
+                }
+            });
+        });
+    }
+
+    fn fx_sms(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        egui::CollapsingHeader::new("Tonal purify (SMS)").show(ui, |ui| {
+            ui.small("Keep tracked sinusoidal partials, drop the noisy residual.");
+            if ui.button("Apply SMS").clicked() {
+                self.apply_whole(ctx, "SMS", |a| {
+                    let sr = a.sample_rate;
+                    a.map_channels(|c| cathar::synthesize_sms(&cathar::analyze_sms(c, sr)))
+                });
+            }
+        });
+    }
+
+    fn fx_transform(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        egui::CollapsingHeader::new("Tempo / pitch / speed").show(ui, |ui| {
+            ui.add(egui::Slider::new(&mut self.fx.tempo_factor, 0.5..=2.0).text("tempo ×"));
+            if ui.button("Apply tempo (keep pitch)").clicked() {
+                let f = self.fx.tempo_factor.max(0.01);
+                self.apply_whole(ctx, "tempo", move |a| {
+                    let sr = a.sample_rate;
+                    a.map_channels(|c| {
+                        cathar::time_stretch(c, sr, 1.0 / f, cathar::StretchMode::Wsola)
+                    })
+                });
+            }
+            ui.separator();
+            ui.add(egui::Slider::new(&mut self.fx.pitch_semitones, -12.0..=12.0).text("pitch st"));
+            if ui.button("Apply pitch (keep length)").clicked() {
+                let st = self.fx.pitch_semitones;
+                self.apply_whole(ctx, "pitch", move |a| {
+                    let sr = a.sample_rate;
+                    a.map_channels(|c| cathar::pitch_shift(c, sr, st, cathar::StretchMode::Wsola))
+                });
+            }
+            ui.separator();
+            ui.add(egui::Slider::new(&mut self.fx.speed_factor, 0.5..=2.0).text("speed ×"));
+            if ui.button("Apply speed (tape)").clicked() {
+                let f = self.fx.speed_factor.max(0.01);
+                self.apply_whole(ctx, "speed", move |a| {
+                    let sr = a.sample_rate;
+                    a.map_channels(|c| {
+                        cathar::resample(c, (sr as f32 * f).round().max(1.0) as u32, sr)
+                    })
+                });
             }
         });
     }
