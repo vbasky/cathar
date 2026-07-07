@@ -11,6 +11,10 @@ The release workflow extracts the notes for a version from the matching
 
 ### Added
 
+- **`azimuth` command** — correct stereo azimuth skew (align R to L by
+  sub-sample cross-correlation). Library: `azimuth_correct`.
+- **`align` command** — time-align a recording to a reference track (multi-mic).
+  Library: `align`, `estimate_lag`.
 - **`dehum --adaptive`** — track a drifting mains fundamental + per-harmonic
   amplitude via an I/Q heterodyne canceller. Library: `dehum_adaptive`.
 - **`deemphasis` command** — analog playback de-emphasis (FM 50/75 µs, CD/IEC

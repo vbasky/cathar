@@ -260,6 +260,31 @@ enum Command {
         #[arg(short, long, default_value_t = 17)]
         kernel: usize,
     },
+    /// Correct stereo azimuth skew (align R to L by cross-correlation).
+    Azimuth {
+        /// Input stereo file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "azimuth.wav")]
+        out: String,
+        /// Max correction search (ms)
+        #[arg(long, default_value_t = 5.0)]
+        max_ms: f32,
+    },
+    /// Time-align a recording to a reference track (multi-mic).
+    Align {
+        /// Input file to align
+        input: String,
+        /// Reference file to align against
+        #[arg(long)]
+        reference: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "aligned.wav")]
+        out: String,
+        /// Max alignment search (ms)
+        #[arg(long, default_value_t = 50.0)]
+        max_ms: f32,
+    },
     /// Reconstruct dropouts/mutes by AR interpolation (audio inpainting).
     Inpaint {
         /// Input file
@@ -895,6 +920,40 @@ fn main() -> Result<()> {
             cathar::AudioData { sample_rate: sr, channels: hs }.to_file(&harmonic)?;
             cathar::AudioData { sample_rate: sr, channels: ps }.to_file(&percussive)?;
             eprintln!("HPSS (kernel {kernel})  →  {harmonic}  +  {percussive}");
+        }
+        Command::Azimuth { input, out, max_ms } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let sr = audio.sample_rate;
+            let channels = if audio.channels.len() >= 2 {
+                let (l, r) =
+                    cathar::azimuth_correct(&audio.channels[0], &audio.channels[1], sr, max_ms);
+                vec![l, r]
+            } else {
+                audio.channels.clone()
+            };
+            cathar::AudioData { sample_rate: sr, channels }.to_file(&out)?;
+            eprintln!("azimuth-corrected  →  {out}");
+        }
+        Command::Align { input, reference, out, max_ms } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let refr = cathar::AudioData::from_file(&reference)?;
+            let sr = audio.sample_rate;
+            let mono = |a: &cathar::AudioData| -> Vec<f32> {
+                let nch = a.channels.len().max(1);
+                let n = a.channels.iter().map(Vec::len).max().unwrap_or(0);
+                let mut m = vec![0.0f32; n];
+                for ch in &a.channels {
+                    for (i, &s) in ch.iter().enumerate() {
+                        m[i] += s / nch as f32;
+                    }
+                }
+                m
+            };
+            let ref_mono = mono(&refr);
+            let channels: Vec<Vec<f32>> =
+                audio.channels.iter().map(|c| cathar::align(&ref_mono, c, sr, max_ms)).collect();
+            cathar::AudioData { sample_rate: sr, channels }.to_file(&out)?;
+            eprintln!("aligned to {reference}  →  {out}");
         }
         Command::Inpaint { input, out, start_ms, len_ms, iterations, max_gap_ms } => {
             let audio = cathar::AudioData::from_file(&input)?;

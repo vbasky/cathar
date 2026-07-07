@@ -125,8 +125,9 @@ the swiss-army `0.7` utilities milestone in Phase 2:
   sinusoidal modelling or chroma-based drift tracking
   ([HENDRIX-ZT2/pyaudiorestoration](https://github.com/HENDRIX-ZT2/pyaudiorestoration),
   [Audio Restoration VST](https://github.com/flarkflarkflark/AudioRestorationVST)).
-- ⬜ **Azimuth / stereo skew correction** — align L/R channel timing and phase
-  for misaligned tape heads or off-centre vinyl grooves.
+- ✅ **Azimuth / stereo skew correction** (`v0.7.0`) — `azimuth` command /
+  `azimuth_correct`: sub-sample cross-correlation lag estimate + fractional
+  shift aligns the right channel to the left.
 - ⬜ **WPE de-reverb** — Weighted Prediction Error dereverberation in the STFT
   domain (Nakatani et al.) as a deeper alternative to today's energy-based
   `dereverb`; deterministic, no weights
@@ -140,10 +141,11 @@ the swiss-army `0.7` utilities milestone in Phase 2:
   interpolation (AR model from the samples around the gap via Levinson–Durbin,
   missing block solved by banded Cholesky, iterated). Order scales with gap
   length; explicit-span or auto zero/NaN-mute detection.
-- ⬜ **Multi-mic alignment** — time-align separate recordings via
-  cross-correlation / GCC-PHAT for reference-track workflows
-  ([synaudio-cli](https://github.com/eshaz/synaudio-cli),
+- ✅ **Multi-mic alignment** (`v0.7.0`) — `align` command / `align`,
+  `estimate_lag`: sub-sample cross-correlation lag estimate aligns a recording
+  to a reference track ([synaudio-cli](https://github.com/eshaz/synaudio-cli),
   [HyMPS alignment index](https://github.com/FORARTfe/HyMPS/blob/main/Audio/Treatments.md#alignmentsynch-)).
+  **Next depth:** GCC-PHAT weighting for dissimilar/reverberant content.
 - ✅ **Harmonic–percussive separation (HPSS)** (`v0.7.0`) — `hpss` command:
   Fitzgerald median filtering (horizontal median → harmonic, vertical →
   percussive) with a soft Wiener mask; percussive derived by subtraction so

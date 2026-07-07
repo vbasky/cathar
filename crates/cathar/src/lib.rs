@@ -18,6 +18,7 @@
 #![deny(missing_docs)]
 
 mod adehum;
+mod align;
 mod analysis;
 mod audio;
 mod cqt;
@@ -43,6 +44,7 @@ mod timestretch;
 mod util;
 
 pub use adehum::dehum_adaptive;
+pub use align::{align, azimuth_correct, estimate_lag};
 pub use analysis::{Stats, compute_stats};
 pub use audio::AudioData;
 pub use cqt::{CqtSpec, cqt};
