@@ -96,9 +96,10 @@ grouped here by what they fix; run them in any order, or chain them.
 | `denoise` | Broadband denoiser — spectral subtraction (default) or Wiener filter; `--coherent` keeps the stereo image stable | `--alpha` 3.0, `--beta` 0.01, `--noiseprint <f>`, `--wiener`, `--coherent` |
 | `ml-denoise` *(opt-in)* | **Learned** spectral-gain denoiser — a candle GRU predicts a per-bin suppression mask; load a trained `.safetensors` checkpoint | `--weights <f>` |
 | `noiseprint` | Learn a noise profile from a silence/room-tone clip → JSON | `--out noise.np.json` |
-| `dehum` | Notch out mains hum (50/60 Hz) and its harmonics | `--freq` 60, `--harmonics` 5 |
+| `dehum` | Notch out mains hum (50/60 Hz) and its harmonics; `--adaptive` tracks a drifting fundamental + per-harmonic amplitude | `--freq` 60, `--harmonics` 5, `--adaptive` |
 | `dewind` | Cut low-frequency wind rumble with a 4th-order high-pass | `--cutoff` 80 |
-| `dereverb` | Suppress room reverb by gating the spectral decay tail | `--strength` 2.0 |
+| `dereverb` | Suppress room reverb — spectral-decay gating, or `--wpe` for Weighted Prediction Error linear-prediction dereverb | `--strength` 2.0, `--wpe`, `--taps` 15, `--delay` 3 |
+| `decrackle` | Suppress dense low-level surface crackle (vinyl), distinct from de-click | `--sensitivity` 5 |
 | `voiceisolate` | Keep speech, gate everything else (energy VAD + spectral gate) | `--noiseprint <f>` |
 | `deesser` | Tame harsh sibilance ("sss"); `--bands >1` is multiband + adaptive | `--freq` 4000, `--threshold` -24, `--bands` 1 |
 | `deplosive` | Tame plosive "p"/"b" pops (low-frequency transient bursts) | `--strength` 4 |
@@ -106,6 +107,7 @@ grouped here by what they fix; run them in any order, or chain them.
 | `breath` | Detect and high-pass the breaths before speech onsets | — |
 | `riaa` | RIAA playback curve for digitized vinyl; optional elliptical mono on stereo lows | `--elliptical` 200 |
 | `dequantize` | Relax quantization grain from 8/16-bit sources | `--bits` 16, `--strength` 0.7 |
+| `deemphasis` | Analog playback de-emphasis (FM 50/75 µs, CD/IEC 50/15 µs) | `--curve fm50\|fm75\|cd` |
 
 ### Repair — reconstruct damaged samples
 
@@ -114,6 +116,25 @@ grouped here by what they fix; run them in any order, or chain them.
 | `declick` | Detect impulse clicks against the local RMS and interpolate across them | `--threshold` 10.0 |
 | `declip` | Find flat-topped clipped runs and rebuild the missing peaks | `--threshold` 0.95 |
 | `repair` | Paint out isolated transient spectral artifacts (whistles, bursts, glitches) | `--strength` 4.0 |
+| `inpaint` | Reconstruct dropouts/mutes by autoregressive (Janssen) interpolation — explicit span or auto zero/NaN detection | `--start-ms`, `--len-ms`, `--iterations` 3, `--max-gap-ms` 50 |
+
+### Restore timing & pitch drift
+
+| Command | What it does | Key flags |
+| --- | --- | --- |
+| `dewow` | Correct wow & flutter — track a dominant tone's instantaneous frequency and time-warp to flatten pitch | — |
+| `azimuth` | Correct stereo azimuth skew by aligning the right channel to the left (sub-sample cross-correlation) | `--max-ms` 5 |
+| `align` | Time-align a recording to a reference track (multi-mic / reference-track workflows) | `--reference <f>`, `--max-ms` 50 |
+
+### Transform — time, pitch & separation
+
+| Command | What it does | Key flags |
+| --- | --- | --- |
+| `tempo` | Change duration without changing pitch (WSOLA / phase vocoder) | `--factor` 1.5, `--mode wsola\|pv` |
+| `pitch` | Shift pitch in semitones without changing duration | `--semitones` 2, `--mode wsola\|pv` |
+| `speed` | Change speed by resampling (alters pitch *and* duration, like tape) | `--factor` 1.5 |
+| `hpss` | Split into harmonic (tonal) and percussive (transient) layers (Fitzgerald median filtering) | `--harmonic <f>`, `--percussive <f>`, `--kernel` 17 |
+| `sms` | Tonal purify via sinusoidal modeling — keep tracked partials, drop the stochastic residual | — |
 
 ### Enhance & level
 
@@ -224,6 +245,16 @@ Every stage is classic, inspectable DSP — no black boxes.
 | `breath` | VAD-flag the frames just before a speech onset (≤ 150 ms) and high-pass them at 200 Hz, mixed 40 / 60 dry/wet |
 | `resample` | Kaiser-windowed sinc (16 lobes, β = 9), arbitrary ratio; cutoff tracks the lower Nyquist so downsampling is anti-aliased and upsampling adds no imaging |
 | `enhance` | Shared resampler to the target rate, then spectral band replication (4096 FFT) folds the existing top band into the empty highs with a tiled rolloff |
+| `decrackle` | Second-difference (Laplacian) detector over a running EMA noise floor flags dense impulsive crackle; each micro-run is repaired by cubic-Hermite interpolation |
+| `inpaint` | Autoregressive (Janssen/Godsill–Rayner) interpolation: an AR model is fit to the samples around the gap (Levinson–Durbin), the missing block solved by banded Cholesky, iterated; order scales with gap length |
+| `dehum --adaptive` | Locate the precise fundamental from a spectral peak, then cancel each harmonic with an I/Q heterodyne canceller (demodulate → zero-phase low-pass → subtract) that tracks amplitude and small frequency drift |
+| `deemphasis` | Exact first-order bilinear de-emphasis: FM 50/75 µs single-pole roll-off, CD/IEC 50/15 µs shelf; unity gain at DC |
+| `dewow` | Track a dominant tone's instantaneous frequency by I/Q heterodyne demodulation, form a mean-normalised speed curve, then time-warp (resample at φ⁻¹, φ = ∫speed) to flatten pitch |
+| `azimuth` / `align` | Sub-sample lag from the normalised cross-correlation (parabolic-interpolated peak) + a fractional-delay shift |
+| `dereverb --wpe` | Per-frequency-bin Weighted Prediction Error: weighted (inverse-power) linear prediction of the current STFT frame from K frames past a delay, subtracted and refined over iterations (complex Hermitian solve) |
+| `hpss` | Fitzgerald median filtering on the STFT magnitude — horizontal median → harmonic, vertical → percussive — with a soft Wiener mask; percussive derived by subtraction for exact reconstruction |
+| `tempo` / `pitch` / `speed` | WSOLA waveform-similarity overlap-add (default) or a phase vocoder with instantaneous-frequency phase propagation; `pitch` = time-stretch ∘ resample; `speed` = resample only |
+| `sms` | Per-frame spectral-peak picking (parabolic), nearest-frequency partial tracking, phase-continuous additive resynthesis; keeping only partials drops the stochastic residual |
 | `normalize` | Peak: scale so the loudest sample hits the dBFS target. Loudness: ITU-R BS.1770-4 / EBU R128 integrated LUFS (K-weighting, gated) measured jointly across channels, applied as one broadband gain and held back to the `--true-peak` dBTP ceiling (4× oversampled) so it never clips |
 
 ## Library usage

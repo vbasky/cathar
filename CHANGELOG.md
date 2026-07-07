@@ -9,6 +9,13 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-07
+
+Restoration-depth & transform release: time-stretch/pitch, and a broad
+`0.7.x` sweep of research-backed DSP — pitch detection, separation, inpainting,
+adaptive de-hum, pre-emphasis decode, alignment, wow/flutter, WPE de-reverb, and
+sinusoidal modeling. All deterministic, pure Rust.
+
 ### Added
 
 - **`sms` command** — sinusoidal-modeling tonal purify (peak tracking + additive
