@@ -11,6 +11,9 @@ The release workflow extracts the notes for a version from the matching
 
 ### Added
 
+- **`dewow` command** — correct wow & flutter (pitch drift) by tracking a
+  dominant tone's instantaneous frequency and time-warping to flatten it.
+  Library: `dewow`.
 - **`azimuth` command** — correct stereo azimuth skew (align R to L by
   sub-sample cross-correlation). Library: `azimuth_correct`.
 - **`align` command** — time-align a recording to a reference track (multi-mic).

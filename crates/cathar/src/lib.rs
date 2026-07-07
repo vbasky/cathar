@@ -26,6 +26,7 @@ mod decrackle;
 mod deemphasis;
 mod denoise;
 mod dequant;
+mod dewow;
 mod digitize;
 mod edit;
 mod enhance;
@@ -52,6 +53,7 @@ pub use decrackle::decrackle;
 pub use deemphasis::{Emphasis, deemphasis};
 pub use denoise::{Denoiser, NoisePrint, SpectralDenoiser, learn_noise_print, wiener_denoise};
 pub use dequant::dequantize;
+pub use dewow::dewow;
 pub use digitize::{elliptical_mono, riaa_deemphasis, vinyl_restore};
 pub use edit::{
     dither, fade, gain_db, pad, remix, reverse, select_channels, silence_strip, trim, vad,

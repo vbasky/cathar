@@ -260,6 +260,14 @@ enum Command {
         #[arg(short, long, default_value_t = 17)]
         kernel: usize,
     },
+    /// Correct wow & flutter (pitch-drift) from tape/vinyl captures.
+    Dewow {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "dewowed.wav")]
+        out: String,
+    },
     /// Correct stereo azimuth skew (align R to L by cross-correlation).
     Azimuth {
         /// Input stereo file
@@ -920,6 +928,13 @@ fn main() -> Result<()> {
             cathar::AudioData { sample_rate: sr, channels: hs }.to_file(&harmonic)?;
             cathar::AudioData { sample_rate: sr, channels: ps }.to_file(&percussive)?;
             eprintln!("HPSS (kernel {kernel})  →  {harmonic}  +  {percussive}");
+        }
+        Command::Dewow { input, out } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let sr = audio.sample_rate;
+            let cleaned = audio.map_channels(|c| cathar::dewow(c, sr));
+            cleaned.to_file(&out)?;
+            eprintln!("wow/flutter corrected  →  {out}");
         }
         Command::Azimuth { input, out, max_ms } => {
             let audio = cathar::AudioData::from_file(&input)?;

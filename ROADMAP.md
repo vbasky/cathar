@@ -121,8 +121,10 @@ transients — especially for vinyl captures and low-bit-depth sources.
 **Planned depth (`0.7.x` restoration track)** — research-backed extensions before
 the swiss-army `0.7` utilities milestone in Phase 2:
 
-- ⬜ **Wow & flutter** — pitch-drift correction for vinyl/tape via stable
-  sinusoidal modelling or chroma-based drift tracking
+- ✅ **Wow & flutter** (`v0.7.0`) — `dewow` command / `dewow`: track a dominant
+  sustained tone's instantaneous frequency by heterodyne demodulation, build a
+  speed curve `s(t)`, and time-warp (resample at `φ⁻¹`, `φ=∫s`) to flatten pitch.
+  Best on material with a stable reference pitch
   ([HENDRIX-ZT2/pyaudiorestoration](https://github.com/HENDRIX-ZT2/pyaudiorestoration),
   [Audio Restoration VST](https://github.com/flarkflarkflark/AudioRestorationVST)).
 - ✅ **Azimuth / stereo skew correction** (`v0.7.0`) — `azimuth` command /
