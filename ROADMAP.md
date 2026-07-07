@@ -131,8 +131,10 @@ the swiss-army `0.7` utilities milestone in Phase 2:
   domain (Nakatani et al.) as a deeper alternative to today's energy-based
   `dereverb`; deterministic, no weights
   ([WPE paper](https://arxiv.org/abs/1807.03612)).
-- ⬜ **Adaptive de-hum** — track drifting mains frequency and harmonic amplitudes
-  instead of fixed-notch `dehum` (broadcast & field recordings).
+- ✅ **Adaptive de-hum** (`v0.7.0`) — `dehum --adaptive` / `dehum_adaptive`:
+  locate the precise fundamental from a spectral peak, then cancel each harmonic
+  with an I/Q heterodyne canceller (demodulate → zero-phase low-pass → subtract)
+  that tracks slow amplitude and small frequency drift.
 - ✅ **Audio inpainting / gap interpolation** (`v0.7.0`) — `inpaint` command /
   `inpaint_gap`, `inpaint_auto`: autoregressive **Janssen / Godsill–Rayner**
   interpolation (AR model from the samples around the gap via Levinson–Durbin,
@@ -150,9 +152,9 @@ the swiss-army `0.7` utilities milestone in Phase 2:
   (Laplacian) detector over a running EMA noise-floor flags dense impulsive
   crackle; each micro-run is repaired by cubic-Hermite interpolation. Distinct
   from `declick`'s isolated impulses.
-- ⬜ **Analog NR / pre-emphasis decode** — companding decoders for pre-encoded
-  analog sources (Dolby B/C, dbx) plus FM 50/75 µs and CD pre-emphasis de-curve;
-  pure playback-curve DSP that completes the digitization story alongside RIAA.
+- 🔶 **Analog NR / pre-emphasis decode** (`v0.7.0`) — `deemphasis` command /
+  `deemphasis`, `Emphasis`: exact first-order FM 50/75 µs and CD/IEC 50/15 µs
+  playback de-curves. **Next depth:** companding decoders (Dolby B/C, dbx).
 
 **Transform & analysis toolkit (`0.7`–`0.8`)** — foundations that broaden the
 swiss-army surface and feed later effects:
@@ -166,8 +168,9 @@ swiss-army surface and feed later effects:
   difference function → cumulative-mean-normalised difference → absolute-
   threshold trough → parabolic interpolation, with a silence gate. A `Pitch
   (f0)` line is exposed in `stats`. (pYIN HMM smoothing still open.)
-- ⬜ **Constant-Q transform (CQT)** — log-frequency analysis for the TUI viewer
-  and musically-aligned spectral work.
+- ✅ **Constant-Q transform (CQT)** (`v0.7.0`) — `cqt` / `CqtSpec`: direct
+  time-domain log-frequency analysis (equal octaves per bin), a library
+  primitive alongside `spectrogram`. (TUI-viewer `--cqt` wiring still open.)
 - ⬜ **Sinusoidal / spectral modeling (SMS)** — peak-tracked analysis-resynthesis
   for high-quality bandwidth extension and transformation beyond band-replication.
 

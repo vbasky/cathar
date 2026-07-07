@@ -11,6 +11,12 @@ The release workflow extracts the notes for a version from the matching
 
 ### Added
 
+- **`dehum --adaptive`** — track a drifting mains fundamental + per-harmonic
+  amplitude via an I/Q heterodyne canceller. Library: `dehum_adaptive`.
+- **`deemphasis` command** — analog playback de-emphasis (FM 50/75 µs, CD/IEC
+  50/15 µs). Library: `deemphasis`, `Emphasis`.
+- **Constant-Q transform** — log-frequency analysis primitive. Library: `cqt`,
+  `CqtSpec`.
 - **`hpss` command** — harmonic/percussive separation (Fitzgerald median
   filtering); writes both layers, exact reconstruction. Library: `hpss`.
 - **`inpaint` command** — reconstruct dropouts/mutes by autoregressive
