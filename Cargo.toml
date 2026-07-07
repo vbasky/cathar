@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/cathar",
     "crates/cathar-cli",
+    "crates/cathar-gui",
 ]
 
 [workspace.package]
