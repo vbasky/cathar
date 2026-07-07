@@ -3,6 +3,7 @@
 //! egui draws every widget itself (it is not native AppKit), so this can only
 //! *resemble* Aqua — but tuning accent, rounding, fills and spacing gets close.
 
+use egui::style::HandleShape;
 use egui::{
     Color32, Context, FontId, Margin, Rounding, Stroke, Style, TextStyle, Theme, ThemePreference,
     Visuals, vec2,
@@ -85,8 +86,11 @@ fn dark_visuals(accent: Color32, r: Rounding) -> Visuals {
     v.window_rounding = Rounding::same(8.0);
     v.menu_rounding = Rounding::same(6.0);
     v.hyperlink_color = accent;
-    v.selection.bg_fill = Color32::from_rgba_unmultiplied(10, 132, 255, 110);
+    // selection.bg_fill also colours the slider trailing fill — keep it crisp,
+    // not washed. A slim rectangular handle reads cleaner than the fat circle.
+    v.selection.bg_fill = Color32::from_rgba_unmultiplied(10, 132, 255, 190);
     v.selection.stroke = Stroke::new(1.0, accent);
+    v.handle_shape = HandleShape::Rect { aspect_ratio: 0.5 };
     paint_widgets(&mut v, accent, text, r, appearance_dark());
     v
 }
@@ -101,8 +105,9 @@ fn light_visuals(accent: Color32, r: Rounding) -> Visuals {
     v.window_rounding = Rounding::same(8.0);
     v.menu_rounding = Rounding::same(6.0);
     v.hyperlink_color = accent;
-    v.selection.bg_fill = Color32::from_rgba_unmultiplied(10, 132, 255, 80);
+    v.selection.bg_fill = Color32::from_rgba_unmultiplied(10, 132, 255, 200);
     v.selection.stroke = Stroke::new(1.0, accent);
+    v.handle_shape = HandleShape::Rect { aspect_ratio: 0.5 };
     paint_widgets(&mut v, accent, text, r, appearance_light());
     v
 }
