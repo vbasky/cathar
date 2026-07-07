@@ -109,6 +109,9 @@ enum Command {
         /// Number of harmonics to notch
         #[arg(short = 'n', long, default_value_t = 5)]
         harmonics: usize,
+        /// Track a drifting fundamental + per-harmonic amplitude (adaptive)
+        #[arg(long)]
+        adaptive: bool,
     },
     /// Detect and remove impulse clicks (vinyl rips, bad edits).
     Declick {
@@ -756,12 +759,17 @@ fn main() -> Result<()> {
             );
         }
 
-        Command::Dehum { input, out, freq, harmonics } => {
+        Command::Dehum { input, out, freq, harmonics, adaptive } => {
             let audio = cathar::AudioData::from_file(&input)?;
-            let cleaned =
-                audio.map_channels(|c| cathar::dehum(c, audio.sample_rate, freq, harmonics));
+            let sr = audio.sample_rate;
+            let cleaned = if adaptive {
+                audio.map_channels(|c| cathar::dehum_adaptive(c, sr, freq, harmonics))
+            } else {
+                audio.map_channels(|c| cathar::dehum(c, sr, freq, harmonics))
+            };
             cleaned.to_file(&out)?;
-            eprintln!("de-hummed  {freq} Hz + {harmonics} harmonics  →  {out}");
+            let mode = if adaptive { " (adaptive)" } else { "" };
+            eprintln!("de-hummed{mode}  {freq} Hz + {harmonics} harmonics  →  {out}");
         }
 
         Command::Declick { input, out, threshold } => {

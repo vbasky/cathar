@@ -17,6 +17,7 @@
 
 #![deny(missing_docs)]
 
+mod adehum;
 mod analysis;
 mod audio;
 mod decrackle;
@@ -39,6 +40,7 @@ mod spectrum;
 mod timestretch;
 mod util;
 
+pub use adehum::dehum_adaptive;
 pub use analysis::{Stats, compute_stats};
 pub use audio::AudioData;
 pub use decrackle::decrackle;
