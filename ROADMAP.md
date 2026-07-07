@@ -111,16 +111,23 @@ transients — especially for vinyl captures and low-bit-depth sources.
   (verified biquad at 44.1/48/88.2/96 kHz; bilinear fallback elsewhere) with
   optional `--elliptical` crossover for stereo rumble
   ([DrCuts](https://github.com/opcode66/DrCuts)).
-- 🔶 **Dequantization** (`v0.6.1`) — `dequantize` command: inspectable
-  neighbour-prediction on the quantisation lattice (foundation). **Next depth:**
-  co-sparse / non-convex recovery from Záviška et al.
+- ✅ **Dequantization — lattice foundation** (`v0.6.1`) — `dequantize` command:
+  inspectable neighbour-prediction on the quantisation lattice; golden-tested and
+  deterministic. This closes the **foundation** slice of [#12](https://github.com/vbasky/cathar/issues/12)
+  dequantization — not the full Záviška pipeline.
+- ⬜ **Dequantization — co-sparse depth** (`0.8.x`) — co-sparse / non-convex
+  recovery from Záviška et al.
   ([audio_dequantization](https://github.com/zawi01/audio_dequantization),
-  [ICASSP 2021 paper](https://arxiv.org/abs/2010.16386)).
-- 🔶 **Spectral upsampling / resolution enhancement** (`v0.6.1`) — `enhance
-  --method replicate|interpolate`: SBR plus log-magnitude extrapolation.
-  **Next depth:** published HR interpolation kernels
+  [ICASSP 2021 paper](https://arxiv.org/abs/2010.16386)). New analysis operators
+  and solver work; **not** patch-release scope.
+- ✅ **Bandwidth extension — foundation** (`v0.6.1`) — `enhance --method
+  replicate|interpolate`: SBR band replication (default since `v0.5`) plus
+  log-magnitude extrapolation into the empty high band.
+- ⬜ **HR spectral upsampling** (`0.10`) — published interpolation kernels
   ([DSRE](https://github.com/x1aoqv/DSRE---Digital-Sound-Resolution-Enhancer),
-  [HRAudioWizard](https://github.com/Super-YH/HRAudioWizard)).
+  [HRAudioWizard](https://github.com/Super-YH/HRAudioWizard)). Distinct from
+  bandwidth extension; targets fidelity / analysis depth, not `0.6.x`/`0.7.x`
+  patches.
 
 **Restoration depth — shipped `v0.7.0`** (`0.7.x` track) — research-backed
 extensions to the restoration chain, all deterministic and pure Rust:
@@ -272,6 +279,12 @@ replace SoX for routine work. Target: **SoX effect/format parity** by `0.11`.
 
 Tracks how close the swiss-army surface is. ✅ done · 🔶 partial · ⬜ planned.
 
+**Legend:** ✅ = shipped and credible for its tier. 🔶 = a usable slice exists,
+but published or research-grade depth remains (e.g. companding NR after
+first-order de-emphasis). ⬜ = not started. Closing a 🔶 or ⬜ **depth** row is
+a **minor-release algorithm task** — patch releases (`0.6.2`, `0.7.1`, …) fix
+regressions, golden tests, and docs only.
+
 | Capability | SoX | Cathar |
 | --- | --- | --- |
 | Decode common formats | ✅ | ✅ (Symphonia) |
@@ -291,8 +304,10 @@ Tracks how close the swiss-army surface is. ✅ done · 🔶 partial · ⬜ plan
 | Learned denoise | ⬜ | ✅ `ml-denoise` + bundled pretrained checkpoint (`v0.6.0`) |
 | Dither | ✅ | ✅ `v0.6.0` |
 | Vinyl RIAA / elliptical EQ | ⬜ | ✅ `riaa` (`v0.6.1`) |
-| Dequantization | ⬜ | 🔶 `dequantize` foundation (`v0.6.1`) · ⬜ sparse depth |
-| Spectral upsampling / resolution enhance | partial | 🔶 `enhance --method` (`v0.6.1`) |
+| Dequantization (lattice foundation) | ⬜ | ✅ `dequantize` (`v0.6.1`) |
+| Dequantization (co-sparse / Záviška depth) | ⬜ | ⬜ `0.8.x` |
+| Bandwidth extension (`enhance`) | partial | ✅ `enhance --method` (`v0.6.1`) |
+| HR spectral upsampling (DSRE-class) | ⬜ | ⬜ `0.10` |
 | Wow / flutter / azimuth (vinyl & tape) | ⬜ | ✅ `dewow` + `azimuth` (`v0.7.0`) |
 | Harmonic/percussive separation | ⬜ | ✅ `hpss` (`v0.7.0`) |
 | Gap interpolation (inpainting) | ⬜ | ✅ `inpaint` (AR/Janssen, `v0.7.0`) |
@@ -334,8 +349,8 @@ classical methods plateau. See also the
 | Spectral repair | Temporal-median outlier pull | iZotope RX Spectral Repair (conceptual) |
 | Voice isolate | Energy VAD + spectral gating | Classical; ML dialogue isolation TBD |
 | Vinyl | RIAA + elliptical mono | [DrCuts](https://github.com/opcode66/DrCuts), [Vinyl Restoration Suite](https://github.com/flarkflarkflark/AudioRestorationVST) |
-| Dequant | Lattice neighbour prediction | Záviška et al. co-sparse methods (depth TBD) |
-| Enhance | SBR + log-magnitude interpolate | DSRE, HRAudioWizard |
+| Dequant | Lattice neighbour prediction (`v0.6.1` foundation) | Záviška et al. co-sparse methods → `0.8.x` |
+| Enhance | SBR + log-magnitude interpolate (`v0.6.1` foundation) | DSRE, HRAudioWizard → `0.10` |
 | De-crackle | Laplacian detector over a running floor + cubic-Hermite repair | ClickRepair lineage |
 | Inpainting | Autoregressive (Janssen/Godsill–Rayner) gap interpolation | Janssen; Godsill & Rayner |
 | Wow & flutter | Instantaneous-frequency tracking → time-warp | Capstan-style archival tools |
@@ -355,9 +370,9 @@ sit here all shipped in **`v0.7.0`** and now live in the table above.
 | Area | Candidate approach | Sources |
 | --- | --- | --- |
 | **Dialogue isolation** | ML mask estimation + classical fallback | DeepFilterNet, Demucs stems; DNS Challenge data |
-| **Dequantization (deep)** | Co-sparse analysis operators | [Záviška ICASSP 2021](https://arxiv.org/abs/2010.16386) |
-| **Spectral rebalance** | Long-term envelope match to reference | [AssistedSpectralRebalancePlugin](https://github.com/joaomauricio5/AssistedSpectralRebalancePlugin) |
-| **HR upsampling** | Bandlimited interpolation kernels | [DSRE](https://github.com/x1aoqv/DSRE---Digital-Sound-Resolution-Enhancer), [libsamplerate](https://src.hydrogenaudio.org/) |
+| **Dequantization (co-sparse)** | Co-sparse analysis operators (`0.8.x`; lattice foundation shipped `v0.6.1`) | [Záviška ICASSP 2021](https://arxiv.org/abs/2010.16386) |
+| **Spectral rebalance** | Long-term envelope match to reference (`0.10`) | [AssistedSpectralRebalancePlugin](https://github.com/joaomauricio5/AssistedSpectralRebalancePlugin) |
+| **HR upsampling** | Bandlimited interpolation kernels (`0.10`; bandwidth extension shipped `v0.6.1`) | [DSRE](https://github.com/x1aoqv/DSRE---Digital-Sound-Resolution-Enhancer), [HRAudioWizard](https://github.com/Super-YH/HRAudioWizard) |
 | **Analog NR companders** | Dolby B/C, dbx decode (pre-emphasis done) | Broadcast/tape NR standards |
 | **DC offset / rumble** | Mean removal + subsonic high-pass | HyMPS DC-offsetting; `dewind` covers part |
 | **Mid-side / stereo tools** | M/S encode-decode, width, mono-maker, upmix | Spatial toolkit (`0.8`–`0.9`) |
