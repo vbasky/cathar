@@ -20,4 +20,5 @@
 - [Time and pitch — stretching without the chipmunk effect](17-time-and-pitch.md)
 - [Wow and flutter — when the pitch won't sit still](18-wow-and-flutter.md)
 - [Pulling a sound apart — separation, modeling, and gap-filling](19-separation-and-modeling.md)
+- [Broadcast and CD playback de-emphasis](20-playback-deemphasis.md)
 - [Glossary in plain language](14-glossary.md)

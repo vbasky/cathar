@@ -49,22 +49,27 @@ Three deliberate choices define it:
 Be honest about both sides:
 
 **Where cathar holds its own.** The *settled-science* tasks — loudness (LUFS /
-EBU R128 / true-peak), resampling, de-hum, de-essing, and steady-state hiss
-reduction — are well-defined problems with known-best classical methods, and
-cathar implements them properly. For these, it's genuinely comparable to the
-big tools, with the bonus of being transparent and automatable. If your job is
-"batch-normalize 500 podcast episodes to −16 LUFS and notch out a 60-cycle hum,"
-cathar is exactly the right shape of tool.
+EBU R128 / true-peak), resampling, de-hum (fixed or `--adaptive`), de-essing,
+steady-state hiss reduction, RIAA/FM/CD de-emphasis, declick/declip, wow/flutter
+and azimuth on analog transfers, HPSS separation, short-gap inpainting, and
+batchable time/pitch edits — are well-defined problems with known classical
+methods, and cathar implements many of them properly. For these, it's genuinely
+comparable to the big tools on moderate material, with the bonus of being
+transparent and automatable. If your job is "batch-normalize 500 podcast episodes
+to −16 LUFS, notch 60 Hz hum, and de-reverb dialogue with WPE," cathar is the
+right shape of tool.
 
 **Where the expensive tools pull ahead.** The *hard, perceptual* tasks — heavy or
-non-steady noise (a busy café behind a voice), strong de-reverberation, fabric
-rustle tangled in speech, badly clipped material — are where **machine learning**
-has changed the game. iZotope RX's learned models separate sound from noise in
-ways no "subtract the haze" or "gate the tails" rule can match. For
-professional film, broadcast, and archival restoration of *difficult* material,
-RX is the tool, and it isn't close. Cathar's classical methods give a real,
-useful improvement on moderate problems; they are not a substitute for a trained
-model on the worst cases.
+non-steady noise (a busy café behind a voice), film-grade de-reverberation on
+impossible rooms, fabric rustle tangled in speech, badly clipped material — are
+where **machine learning** has changed the game. iZotope RX's learned models
+separate sound from noise in ways no "subtract the haze" or "gate the tails"
+rule can match. Cathar's optional `ml-denoise` closes *some* of that gap on
+speech, but RX-class models on the worst cases are still ahead. For professional
+film, broadcast, and archival restoration of *difficult* material, RX is the
+benchmark. Cathar's classical (and selectively learned) methods give a real,
+useful improvement on moderate problems; they are not a blanket substitute for a
+trained model on every nightmare file.
 
 ## A cheat-sheet for choosing
 
@@ -74,7 +79,7 @@ model on the worst cases.
 | Clean up a recording inside a project you're already editing | your **DAW** or **Audition** |
 | Quickly de-noise/de-click one file, for free, with a GUI | **Audacity** |
 | Batch-convert, resample, or loudness-normalize many files | **FFmpeg / SoX / cathar** |
-| Batch *restoration* (de-hum, de-noise, de-ess, loudness) in a script or pipeline, transparently, in pure Rust | **cathar** |
+| Batch *restoration* (de-hum, de-noise, de-reverb/WPE, vinyl chain, inpaint, loudness) in a script or pipeline, transparently, in pure Rust | **cathar** |
 | Understand, embed, or extend the actual DSP in your own program | **cathar** (it's a library too) |
 
 ## The real takeaway

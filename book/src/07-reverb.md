@@ -33,10 +33,33 @@ every pitch and, whenever the energy is just *coasting downward toward the room'
 background level*, it gates it back. The direct, intentional sound survives; the
 ringing afterglow is suppressed.
 
-Cathar does exactly this with a two-pass scan: first it measures how low each
-pitch typically sinks (the "reverb floor"), then it gently gates anything sitting
-near that floor. The `--strength` knob controls how aggressively it chases the
-tails.
+Cathar's default **`dereverb`** does exactly this with a two-pass scan: first it
+measures how low each pitch typically sinks (the "reverb floor"), then it gently
+gates anything sitting near that floor. The `--strength` knob controls how
+aggressively it chases the tails.
+
+```bash
+cathar dereverb roomy.wav --strength 0.5 --out drier.wav
+```
+
+## A deeper mode — WPE
+
+On speech with a **long, smeary tail**, the energy-gating approach can sound
+hollow — it knows *how loud* each pitch is, but not how the late echoes relate
+to earlier ones. **Weighted Prediction Error (WPE)** is a published blind
+de-reverb method that treats each frequency bin separately: late STFT frames are
+predicted as a weighted mix of slightly earlier frames at that same pitch, and
+the prediction — the reverb part — is subtracted. No noise profile, no trained
+model; just linear prediction in the frequency domain.
+
+```bash
+cathar dereverb speech.wav --wpe --out drier.wav
+```
+
+Use WPE when the room tail is obvious on dialogue and the default gate leaves
+too much mush. It's heavier maths than gating, and like all de-reverb it trades
+against naturalness if you push too hard — but on moderate roominess it often
+pulls voice forward more cleanly than strength-gating alone.
 
 ## Why it's never perfect
 
@@ -65,5 +88,6 @@ Two honest limitations:
 This is the area where classical, no-model tools like cathar are *most* outclassed
 by modern ML, because separating a sound from delayed copies of itself is exactly
 the kind of "needs a trained ear" task that a learned model does best. Cathar's
-gate-the-tails approach gives a real, useful reduction on moderate reverb; for
-heavy, film-grade de-reverberation, RX is in a different league.
+gate-the-tails approach and its `--wpe` predictor both give real, useful reduction
+on moderate reverb; for heavy, film-grade de-reverberation, RX is in a different
+league.

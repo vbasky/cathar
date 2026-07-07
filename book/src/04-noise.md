@@ -86,3 +86,22 @@ Cathar sits firmly in the classical camp: transparent, predictable, no weights,
 genuinely good on steady hiss — and honestly outclassed by RX's ML on the hardest
 cases (heavy, non-steady background noise like a busy café). Knowing *which*
 problem you have tells you which tool you need.
+
+## Optional learned denoise (`ml-denoise`)
+
+If you build cathar with the optional **`ml`** feature, **`ml-denoise`** adds a
+third path: a small recurrent network that predicts a **per-pitch gain mask** from
+the log-magnitude spectrum — the same broad idea as DNS-Challenge / DeepFilterNet
+style speech denoisers, but with open weights you can inspect and replace. It
+still works in the frequency view (phase preserved, overlap-add out), so the
+story from this chapter still applies; only the **modify** step is learned instead
+of rule-based.
+
+```bash
+cathar ml-denoise noisy.wav --out cleaner.wav
+```
+
+A bundled checkpoint ships for light broadband cleanup; for serious speech work
+you'd retrain on data like the DNS Challenge. Classical `denoise` remains the
+default transparent path — `ml-denoise` is explicitly opt-in for when subtraction
+and Wiener aren't enough.

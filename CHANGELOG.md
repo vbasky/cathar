@@ -9,6 +9,13 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+### Changed
+
+- **Book** — brought chapters in line with `v0.6.1`–`v0.7.0`: fixed stale vinyl
+  workflow text; expanded toolbox table; added adaptive de-hum, WPE de-reverb,
+  `enhance --method`, optional `ml-denoise`, and [broadcast/CD de-emphasis](book/src/20-playback-deemphasis.md);
+  updated industry comparison, glossary, and `book/README.md` contents.
+
 ## [0.7.0] - 2026-07-07
 
 Restoration-depth & transform release: time-stretch/pitch, and a broad

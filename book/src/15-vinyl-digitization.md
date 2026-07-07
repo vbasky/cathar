@@ -60,13 +60,18 @@ Mono files get RIAA only; elliptical needs two channels.
 A typical cathar workflow after capture:
 
 1. **`riaa`** — correct the playback curve (and optionally `--elliptical`).
-2. **`declick`** — impulse pops and dust ticks (chapter 6).
-3. **`denoise` / `noiseprint`** — surface hiss (chapter 4).
-4. **`dehum`** — mains buzz if the turntable motor leaks 50/60 Hz (chapter 5).
-5. **`normalize`** — delivery loudness (chapter 10).
+2. **`dewow`** — speed drift / pitch wobble if the turntable or belt isn't steady
+   (chapter 18).
+3. **`azimuth`** — align the right channel to the left if the stereo image sounds
+   thin or smeared (chapter 18).
+4. **`declick`** — loud impulse pops and dust ticks (chapter 6).
+5. **`decrackle`** — dense surface crackle between the big pops (chapter 19).
+6. **`denoise` / `noiseprint`** — surface hiss (chapter 4).
+7. **`dehum`** — mains buzz if the turntable motor leaks 50/60 Hz (chapter 5).
+8. **`normalize`** — delivery loudness (chapter 10).
 
-Cathar does not yet correct **wow and flutter** (speed drift) or **azimuth**
-(L/R timing skew) — those are on the roadmap for a future release.
+For outright drop-outs or mutes on a transfer, **`inpaint`** can fill short gaps
+(chapter 19).
 
 ## How the big tools do it
 

@@ -94,6 +94,10 @@ across the gap, and they're why a top declipper can rebuild a peak so convincing
   continuous crackle of old records. For serious restoration of damaged vinyl or
   badly clipped masters, RX is the tool the pros reach for.
 
+For the **dense crackle** of old vinyl — thousands of tiny spikes, not isolated
+pops — see **`decrackle`** in the separation chapter (chapter 19). It hunts
+micro-spikes the way de-click hunts big ones.
+
 Cathar's de-click is solid and reliable, and its de-clip uses **the modern
 "sparse reconstruction" method described above** — A-SPADE (Kitić, Bertin &
 Gribonval, 2015), the same family iZotope-class tools use. It treats the clipped

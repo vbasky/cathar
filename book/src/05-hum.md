@@ -62,9 +62,29 @@ harmonics — and the tools differ mostly in convenience:
 - **iZotope RX's** "De-hum" adds a smart twist: real mains hum *drifts* a tiny
   bit as the power grid fluctuates, and the line isn't perfectly stable. RX can
   *track* that drift and follow the hum, and can learn the exact harmonic
-  fingerprint of a particular buzz. Cathar's notches are fixed in place, which is
-  perfectly fine for steady hum but can leave a little residue if the hum wanders.
+  fingerprint of a particular buzz.
+
+## When the hum won't sit still — adaptive tracking
+
+Fixed notches assume the hum line is nailed to exactly 50 or 60 Hz forever. In
+practice the mains frequency **wanders** a little, and cheap gear lets each
+harmonic breathe in amplitude too. A comb of static notches can leave a thin
+residue — a ghost buzz sitting *between* the notches you carved.
+
+Cathar's **`dehum --adaptive`** takes the tracking idea seriously. For each
+harmonic it **demodulates** the hum tone (shifts it to DC), low-passes to learn
+its slow amplitude wiggle, and subtracts a canceller that follows both small
+frequency drift and level changes. Use it when `--freq 60` gets you most of the
+way but a stubborn buzz remains:
+
+```bash
+cathar dehum buzzy.wav --freq 60 --harmonics 6 --adaptive --out cleaner.wav
+```
+
+Steady, textbook hum? Plain `dehum` is faster and enough. Wandering, "alive"
+buzz? Try `--adaptive`.
 
 This is the rare corner of audio where the cheap and free tools are genuinely
-*close* to the expensive ones, because the problem is so well-defined. Hum is the
-friendliest enemy in this whole book.
+*close* to the expensive ones on steady hum, because the problem is so
+well-defined. Tracking drift is where the pro tools still earn their keep — and
+where cathar's adaptive mode closes much of the gap.

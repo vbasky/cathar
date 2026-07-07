@@ -22,6 +22,13 @@ Tools, Logic, Ableton, Reaper, or Audition. The "Photoshop of sound."
 too few discrete levels (low bit depth). Cathar's `dequantize` uses neighbour
 prediction on the quantisation lattice.
 
+**De-crackle** — Suppressing dense, continuous micro-clicks (vinyl surface
+fizz) rather than isolated pops. Cathar: `decrackle`.
+
+**Pre-emphasis / de-emphasis** — Boosting highs on record and cutting them on
+playback (or the reverse when correcting a capture). RIAA is the vinyl standard;
+FM and early CD use other curves. Cathar: `riaa`, `deemphasis`.
+
 **DSP (Digital Signal Processing)** — The umbrella term for doing maths on
 digital audio (or any signal) to change it: filtering, denoising, all of it.
 
@@ -89,6 +96,22 @@ surfaces. Makes recordings sound "roomy" or "boxy."
 **RIAA curve** — The standard EQ applied when cutting and playing back vinyl: bass
 cut and treble boost on playback (**de-emphasis**) so the groove stays narrow but
 the listener hears flat audio. Cathar: `riaa`.
+
+**Wow & flutter** — Pitch wobble from unstable analog playback speed (warped
+disc, stretched tape). Cathar: `dewow`.
+
+**Azimuth** — Stereo playback head tilt that puts the left and right channels
+slightly out of step. Cathar: `azimuth`.
+
+**WPE (Weighted Prediction Error)** — A blind de-reverb method that predicts late
+spectral frames from earlier ones per frequency bin and subtracts the prediction.
+Cathar: `dereverb --wpe`.
+
+**HPSS** — Harmonic / percussive source separation via median filtering on a
+spectrogram. Cathar: `hpss`.
+
+**Inpainting** — Reconstructing a short gap of missing audio by predicting from
+samples on both sides. Cathar: `inpaint`.
 
 **Rustle** — Scratchy mid-range noise from clothing brushing a clip-on (lavalier)
 microphone.

@@ -29,6 +29,12 @@ and each chapter ends by comparing them honestly.
 11. [Sample rate and resampling](src/11-resampling.md)
 12. [Stereo, channels, and phase](src/12-stereo.md)
 13. [How cathar compares to the big tools](src/13-vs-industry.md)
-14. [Glossary in plain language](src/14-glossary.md)
+14. [Vinyl digitization — RIAA and elliptical mono](src/15-vinyl-digitization.md)
+15. [Dequantization — grain from low bit depth](src/16-dequantization.md)
+16. [Time and pitch — stretching without the chipmunk effect](src/17-time-and-pitch.md)
+17. [Wow and flutter — when the pitch won't sit still](src/18-wow-and-flutter.md)
+18. [Separation, modeling, and gap-filling](src/19-separation-and-modeling.md)
+19. [Broadcast and CD playback de-emphasis](src/20-playback-deemphasis.md)
+20. [Glossary in plain language](src/14-glossary.md)
 
 New here? **[Start with the preface →](src/preface.md)**

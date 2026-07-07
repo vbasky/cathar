@@ -56,14 +56,32 @@ anti-alias filter tracking whichever rate is lower.
 
 ## A cousin: bandwidth extension
 
-The same family of ideas powers cathar's `enhance` tool, which tackles the
+The same family of ideas powers cathar's **`enhance`** tool, which tackles the
 opposite problem — sound that's *missing* its highs (muffled, "telephone-y,"
 because heavy MP3 compression or a low recording rate threw the top away). You
-can't recover what was deleted, but you can **synthesize plausible new highs** by
-taking the texture of the existing upper range and extending it upward, so the
-result sounds brighter and more open. It's an educated fabrication, not a
+can't recover what was deleted, but you can **synthesize plausible new highs** so
+the result sounds brighter and more open. It's an educated fabrication, not a
 recovery — useful for rescuing dull material, but it's adding an informed guess,
 not restoring lost detail.
+
+Cathar offers two strategies via **`--method`**:
+
+- **`replicate`** (default) — **spectral band replication (SBR):** copy the
+  texture of the highest frequencies you still have and "paint" similar energy
+  into the empty band above, with a gentle rolloff so it doesn't sound like a
+  harsh copy-paste.
+- **`interpolate`** — draw a smooth **log-magnitude curve** through the existing
+  spectrum and extrapolate it into the missing highs. Often a bit more natural on
+  material where the top end was softly rolled off rather than brutally chopped.
+
+```bash
+cathar enhance dull.wav --rate 48000 --method replicate --out brighter.wav
+cathar enhance dull.wav --rate 48000 --method interpolate --out brighter.wav
+```
+
+Both paths resample to the target rate first (using the same anti-aliased sinc
+filter as `resample`), then fill in whatever high band is still empty. Try
+`replicate` first; switch to `interpolate` if the top sounds too "cloned."
 
 ## How the big tools do it
 

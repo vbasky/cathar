@@ -8,18 +8,28 @@ means "take away."
 | What you hear | What it is | The tool |
 | --- | --- | --- |
 | A steady background *shhhhh* | **Noise / hiss** — even, random energy across the high end | denoise |
+| Hiss that won't yield to classical denoise | **Learned noise** — complex, speech-like background | ml-denoise *(opt-in)* |
 | A low *hummmm* or buzz | **Mains hum** — electrical 50/60-cycle leakage and its echoes | de-hum |
+| Hum that *wanders* as the grid drifts | **Drifting hum** — fundamental and harmonics not perfectly fixed | de-hum --adaptive |
 | Sharp *tick*s and *pop*s | **Clicks** — brief spikes (vinyl dust, bad digital edits) | de-click |
+| Constant vinyl *fizz* under the music | **Crackle** — dense micro-spikes, not isolated pops | decrackle |
 | A harsh, fuzzy, "broken speaker" tone on loud bits | **Clipping** — peaks chopped flat by overload | de-clip |
 | It sounds like it's in a bathroom | **Reverb** — the room's echoes smearing the sound | de-reverb |
+| Long, smeary room on speech | **Heavy reverb tail** — late reflections dominate | de-reverb --wpe |
 | Piercing *ssss* and *sshhh* | **Sibilance** — over-loud consonants | de-ess |
 | A low *whoomph* on outdoor recordings | **Wind** — turbulence rumbling the mic | de-wind |
 | A thump on every "p" and "b" | **Plosives** — breath bursts hitting the mic | de-plosive |
 | Scratchy noise when someone moves | **Rustle** — clothing against a clip-on mic | de-rustle |
+| A held note that *breathes* flat/sharp | **Wow & flutter** — unstable playback speed | dewow |
+| Stereo sounds thin; mono sums badly | **Azimuth skew** — L/R channels slightly out of step | azimuth |
+| Two takes of the same moment don't line up | **Timing offset** — multi-mic or reference misalignment | align |
+| A silent gap or dropout | **Missing samples** — splice, skip, or mute | inpaint |
 | Too quiet / too loud / inconsistent | **Level** — wrong loudness for delivery | normalize |
 | Muffled, "telephone-y" | **Lost highs** — squashed by heavy compression | enhance |
 | Boomy, dull digitized vinyl | **RIAA curve** — playback de-emphasis not applied | riaa |
+| Dull FM or early-CD capture | **Broadcast/CD pre-emphasis** — wrong playback curve | deemphasis |
 | Gritty "stair-step" quiet passages | **Quantization grain** — too few stored levels | dequantize |
+| Too fast / slow / chipmunk | **Time & pitch** — duration vs pitch edits | tempo / pitch / speed |
 
 ## Two big families
 
