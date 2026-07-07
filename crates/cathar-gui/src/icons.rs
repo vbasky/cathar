@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use egui::text::LayoutJob;
 use egui::{
-    Button, FontFamily, FontId, Response, RichText, SelectableLabel, TextFormat, Ui, Vec2, Widget,
-    WidgetText,
+    Button, Color32, FontFamily, FontId, Response, RichText, SelectableLabel, TextFormat, Ui, Vec2,
+    Widget, WidgetText,
 };
 
 pub(crate) use egui_phosphor::regular::{
@@ -56,12 +56,22 @@ impl MenuItem {
         job.append(
             icon,
             0.0,
-            TextFormat { font_id: FontId::new(ICON_SIZE, family()), ..Default::default() },
+            // PLACEHOLDER → egui recolours with the widget's text colour;
+            // TextFormat's default colour is grey, which reads as "disabled".
+            TextFormat {
+                font_id: FontId::new(ICON_SIZE, family()),
+                color: Color32::PLACEHOLDER,
+                ..Default::default()
+            },
         );
         job.append(
             &format!("  {text}"),
             0.0,
-            TextFormat { font_id: FontId::proportional(ICON_SIZE), ..Default::default() },
+            TextFormat {
+                font_id: FontId::proportional(ICON_SIZE),
+                color: Color32::PLACEHOLDER,
+                ..Default::default()
+            },
         );
         Self { job }
     }
