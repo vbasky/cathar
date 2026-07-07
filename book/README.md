@@ -1,6 +1,6 @@
 # Cleaning Up Sound
 
-### Audio restoration from first principles — for people who have never touched a DAW or DSP
+## Audio restoration from first principles — for people who have never touched a DAW or DSP
 
 You have a recording that sounds bad — hiss, hum, crackle, harsh "s" sounds — and
 you'd like to understand how software fixes it, without going back to school.

@@ -1,0 +1,38 @@
+[package]
+name = "cathar-gui"
+version = "0.7.0"
+description = "Spectral audio editor GUI for Cathar — an all-Rust, iZotope-RX-style restoration front-end."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords = ["audio", "restoration", "spectrogram", "gui", "dsp"]
+categories = ["multimedia::audio"]
+
+# `cathar-gui` is the editor binary. Kept out of the default workspace build
+# path is unnecessary — it is a normal member — but it is a heavier dependency
+# tree (winit/wgpu), so it lives in its own crate rather than behind a feature
+# on the CLI.
+[[bin]]
+name = "cathar-gui"
+path = "src/main.rs"
+doc = false
+
+[lints]
+workspace = true
+
+[dependencies]
+cathar = { workspace = true }
+anyhow.workspace = true
+realfft.workspace = true
+# Immediate-mode GUI (pure Rust; winit + wgpu, no C/FFI, no pkg-config).
+eframe = "0.29"
+egui = "0.29"
+# Font parsing/validation (same crate egui rasterises with) — used to verify a
+# system font file loads before we hand it to egui.
+ab_glyph = "0.2"
+# Native file open/save dialogs.
+rfd = "0.15"
+# System audio playback — same engine the CLI `play` command uses.
+rodio = { version = "0.22.2", default-features = false, features = ["playback"] }
