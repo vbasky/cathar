@@ -121,6 +121,17 @@ enum Command {
         #[arg(short, long, default_value_t = 10.0)]
         threshold: f32,
     },
+    /// Suppress dense low-level surface crackle (vinyl), distinct from de-click.
+    Decrackle {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "decrackled.wav")]
+        out: String,
+        /// Sensitivity 1–10 (higher removes more)
+        #[arg(short, long, default_value_t = 5.0)]
+        sensitivity: f32,
+    },
     /// Reconstruct clipped peaks (overdriven recordings).
     Declip {
         /// Input file
@@ -765,6 +776,13 @@ fn main() -> Result<()> {
             let cleaned = audio.map_channels(|c| cathar::declip(c, threshold));
             cleaned.to_file(&out)?;
             eprintln!("de-clipped  threshold={threshold}  →  {out}");
+        }
+        Command::Decrackle { input, out, sensitivity } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let sr = audio.sample_rate;
+            let cleaned = audio.map_channels(|c| cathar::decrackle(c, sr, sensitivity));
+            cleaned.to_file(&out)?;
+            eprintln!("de-crackled  sensitivity={sensitivity}  →  {out}");
         }
         Command::Dereverb { input, out, strength } => {
             let audio = cathar::AudioData::from_file(&input)?;

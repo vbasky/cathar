@@ -19,6 +19,7 @@
 
 mod analysis;
 mod audio;
+mod decrackle;
 mod denoise;
 mod dequant;
 mod digitize;
@@ -40,6 +41,7 @@ mod util;
 
 pub use analysis::{Stats, compute_stats};
 pub use audio::AudioData;
+pub use decrackle::decrackle;
 pub use denoise::{Denoiser, NoisePrint, SpectralDenoiser, learn_noise_print, wiener_denoise};
 pub use dequant::dequantize;
 pub use digitize::{elliptical_mono, riaa_deemphasis, vinyl_restore};
