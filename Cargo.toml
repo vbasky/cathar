@@ -53,5 +53,5 @@ rayon = "1"
 # Pure-Rust FLAC encoder (no C bindings).
 flacenc = { version = "0.5.1", default-features = false, features = ["par"] }
 # candle for AI denoising models — pure Rust ML (enable via `ml` feature in cathar crate)
-candle-core = "0.10"
-candle-nn = "0.10"
+candle-core = "0.11"
+candle-nn = "0.11"
