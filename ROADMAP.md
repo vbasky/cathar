@@ -130,9 +130,10 @@ the swiss-army `0.7` utilities milestone in Phase 2:
 - ✅ **Azimuth / stereo skew correction** (`v0.7.0`) — `azimuth` command /
   `azimuth_correct`: sub-sample cross-correlation lag estimate + fractional
   shift aligns the right channel to the left.
-- ⬜ **WPE de-reverb** — Weighted Prediction Error dereverberation in the STFT
-  domain (Nakatani et al.) as a deeper alternative to today's energy-based
-  `dereverb`; deterministic, no weights
+- ✅ **WPE de-reverb** (`v0.7.0`) — `dereverb --wpe` / `wpe`: per-frequency-bin
+  Weighted Prediction Error — a weighted (inverse-power) linear prediction of
+  the current STFT frame from `K` frames past a delay, subtracted and refined
+  over iterations (complex Hermitian solve). Deterministic, no weights
   ([WPE paper](https://arxiv.org/abs/1807.03612)).
 - ✅ **Adaptive de-hum** (`v0.7.0`) — `dehum --adaptive` / `dehum_adaptive`:
   locate the precise fundamental from a spectral peak, then cancel each harmonic

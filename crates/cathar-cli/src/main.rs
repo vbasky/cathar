@@ -176,6 +176,15 @@ enum Command {
         /// Strength (1.0 = gentle, 5.0 = aggressive)
         #[arg(short, long, default_value_t = 2.0)]
         strength: f32,
+        /// Use WPE (Weighted Prediction Error) linear-prediction dereverb
+        #[arg(long)]
+        wpe: bool,
+        /// WPE prediction taps (only with --wpe)
+        #[arg(long, default_value_t = 15)]
+        taps: usize,
+        /// WPE prediction delay in frames (only with --wpe)
+        #[arg(long, default_value_t = 3)]
+        delay: usize,
     },
     /// Isolate speech from background noise.
     Voiceisolate {
@@ -856,11 +865,20 @@ fn main() -> Result<()> {
             cleaned.to_file(&out)?;
             eprintln!("de-crackled  sensitivity={sensitivity}  →  {out}");
         }
-        Command::Dereverb { input, out, strength } => {
+        Command::Dereverb { input, out, strength, wpe, taps, delay } => {
             let audio = cathar::AudioData::from_file(&input)?;
-            let cleaned = audio.map_channels(|c| cathar::dereverb(c, audio.sample_rate, strength));
+            let sr = audio.sample_rate;
+            let cleaned = if wpe {
+                audio.map_channels(|c| cathar::wpe(c, sr, taps, delay, 3))
+            } else {
+                audio.map_channels(|c| cathar::dereverb(c, sr, strength))
+            };
             cleaned.to_file(&out)?;
-            eprintln!("de-reverbed  strength={strength}  →  {out}");
+            if wpe {
+                eprintln!("de-reverbed (WPE, {taps} taps)  →  {out}");
+            } else {
+                eprintln!("de-reverbed  strength={strength}  →  {out}");
+            }
         }
         Command::Voiceisolate { input, out, noiseprint } => {
             let audio = cathar::AudioData::from_file(&input)?;

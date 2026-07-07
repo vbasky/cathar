@@ -11,6 +11,8 @@ The release workflow extracts the notes for a version from the matching
 
 ### Added
 
+- **`dereverb --wpe`** — Weighted Prediction Error dereverberation (per-bin
+  weighted linear prediction in the STFT domain). Library: `wpe`.
 - **`dewow` command** — correct wow & flutter (pitch drift) by tracking a
   dominant tone's instantaneous frequency and time-warping to flatten it.
   Library: `dewow`.

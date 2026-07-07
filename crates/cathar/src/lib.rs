@@ -43,6 +43,7 @@ mod restore;
 mod spectrum;
 mod timestretch;
 mod util;
+mod wpe;
 
 pub use adehum::dehum_adaptive;
 pub use align::{align, azimuth_correct, estimate_lag};
@@ -75,6 +76,7 @@ pub use restore::{declick, declip, dehum, deplosive, dereverb, derustle, dewind,
 pub use spectrum::{Spectrogram, spectrogram};
 pub use timestretch::{StretchMode, pitch_shift, time_stretch};
 pub use util::{generate_wave, variance};
+pub use wpe::wpe;
 
 #[cfg(test)]
 mod tests {
