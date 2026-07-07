@@ -269,6 +269,15 @@ enum Command {
         #[arg(short, long, default_value_t = 17)]
         kernel: usize,
     },
+    /// Tonal purify via sinusoidal modeling (SMS): keep tracked partials, drop
+    /// the stochastic residual.
+    Sms {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "sms.wav")]
+        out: String,
+    },
     /// Correct wow & flutter (pitch-drift) from tape/vinyl captures.
     Dewow {
         /// Input file
@@ -953,6 +962,14 @@ fn main() -> Result<()> {
             let cleaned = audio.map_channels(|c| cathar::dewow(c, sr));
             cleaned.to_file(&out)?;
             eprintln!("wow/flutter corrected  →  {out}");
+        }
+        Command::Sms { input, out } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let sr = audio.sample_rate;
+            let cleaned =
+                audio.map_channels(|c| cathar::synthesize_sms(&cathar::analyze_sms(c, sr)));
+            cleaned.to_file(&out)?;
+            eprintln!("SMS tonal purify  →  {out}");
         }
         Command::Azimuth { input, out, max_ms } => {
             let audio = cathar::AudioData::from_file(&input)?;

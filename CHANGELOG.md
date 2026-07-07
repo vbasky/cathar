@@ -11,6 +11,8 @@ The release workflow extracts the notes for a version from the matching
 
 ### Added
 
+- **`sms` command** — sinusoidal-modeling tonal purify (peak tracking + additive
+  resynthesis). Library: `analyze_sms`, `synthesize_sms`, `SinusoidalModel`.
 - **`dereverb --wpe`** — Weighted Prediction Error dereverberation (per-bin
   weighted linear prediction in the STFT domain). Library: `wpe`.
 - **`dewow` command** — correct wow & flutter (pitch drift) by tracking a

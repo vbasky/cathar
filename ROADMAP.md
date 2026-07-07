@@ -176,8 +176,11 @@ swiss-army surface and feed later effects:
 - ✅ **Constant-Q transform (CQT)** (`v0.7.0`) — `cqt` / `CqtSpec`: direct
   time-domain log-frequency analysis (equal octaves per bin), a library
   primitive alongside `spectrogram`. (TUI-viewer `--cqt` wiring still open.)
-- ⬜ **Sinusoidal / spectral modeling (SMS)** — peak-tracked analysis-resynthesis
-  for high-quality bandwidth extension and transformation beyond band-replication.
+- ✅ **Sinusoidal / spectral modeling (SMS)** (`v0.7.0`) — `sms` command /
+  `analyze_sms`, `synthesize_sms`, `SinusoidalModel`: per-frame spectral-peak
+  picking (parabolic), nearest-frequency partial tracking (birth/continue/death),
+  and phase-continuous additive resynthesis. Keeping only the partials discards
+  the stochastic residual ("tonal purify").
 
 **Spatial & measurement (`0.8`–`0.9`)**:
 
