@@ -127,10 +127,12 @@ pub(crate) fn hint(ui: &mut Ui, text: &str) {
 }
 
 fn apply_button_widget(label: &str) -> Button<'static> {
-    // Primary action: accent-filled with white text (Logic-style CTA).
+    // Compact accent-filled primary action — hugs its label (not a full-width
+    // bar) for a tidier, more pro look.
     Button::new(RichText::new(label.to_string()).size(12.0).color(Color32::WHITE))
         .fill(ACCENT)
-        .min_size(Vec2::new(SLIDER_W, 28.0))
+        .rounding(6.0)
+        .min_size(Vec2::new(0.0, 26.0))
 }
 
 /// Full-width primary action at the bottom of a module.
