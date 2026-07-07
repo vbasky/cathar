@@ -62,8 +62,9 @@ pub(crate) fn apply(ctx: &Context, appearance: Appearance) {
         spacing: egui::style::Spacing {
             item_spacing: vec2(8.0, 8.0),
             button_padding: vec2(12.0, 6.0),
-            interact_size: vec2(40.0, 26.0),
+            interact_size: vec2(40.0, 24.0),
             slider_width: 200.0,
+            slider_rail_height: 4.0, // thin groove instead of a fat pill
             indent: 14.0,
             window_margin: Margin::same(12.0),
             menu_margin: Margin::symmetric(8.0, 2.0),

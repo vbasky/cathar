@@ -3,7 +3,12 @@
 use std::hash::Hash;
 use std::ops::RangeInclusive;
 
-use egui::{Align, Button, CollapsingHeader, Layout, Response, RichText, Slider, Ui, Vec2};
+use egui::{
+    Align, Button, CollapsingHeader, Color32, Layout, Response, RichText, Slider, Ui, Vec2,
+};
+
+/// macOS/Logic system-blue accent (kept in sync with `theme.rs`).
+const ACCENT: Color32 = Color32::from_rgb(10, 132, 255);
 
 /// Fixed inspector column width — Logic-style narrow plugin pane.
 pub(crate) const INSPECTOR_W: f32 = 300.0;
@@ -69,7 +74,7 @@ pub(crate) fn param_f32(
     let display = format!("{:.*}", decimals, *value);
     ui.vertical(|ui| {
         param_label_row(ui, label, &display);
-        ui.add(Slider::new(value, range).show_value(false))
+        ui.add(Slider::new(value, range).show_value(false).trailing_fill(true))
     })
     .inner
 }
@@ -83,7 +88,7 @@ pub(crate) fn param_i32(
     let display = value.to_string();
     ui.vertical(|ui| {
         param_label_row(ui, label, &display);
-        ui.add(Slider::new(value, range).integer().show_value(false))
+        ui.add(Slider::new(value, range).integer().show_value(false).trailing_fill(true))
     })
     .inner
 }
@@ -122,7 +127,10 @@ pub(crate) fn hint(ui: &mut Ui, text: &str) {
 }
 
 fn apply_button_widget(label: &str) -> Button<'static> {
-    Button::new(RichText::new(label.to_string()).size(12.0)).min_size(Vec2::new(SLIDER_W, 28.0))
+    // Primary action: accent-filled with white text (Logic-style CTA).
+    Button::new(RichText::new(label.to_string()).size(12.0).color(Color32::WHITE))
+        .fill(ACCENT)
+        .min_size(Vec2::new(SLIDER_W, 28.0))
 }
 
 /// Full-width primary action at the bottom of a module.

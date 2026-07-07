@@ -896,6 +896,9 @@ impl CatharGui {
                 .id_salt("spectro")
                 .drag_to_scroll(false)
                 .auto_shrink([false, false])
+                // Cap the scroll area's height so it doesn't consume the space
+                // reserved below for the waveform strip.
+                .max_height(spectro_h + TIME_AXIS_H)
                 .show(ui, |ui| {
                     ui.set_min_size(egui::vec2(view_w + FREQ_AXIS_W, spectro_h));
                     let image_w = view_w * self.zoom_x;
