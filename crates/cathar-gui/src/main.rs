@@ -4,9 +4,12 @@
 //! restoration stage, then play back and save.
 
 mod app;
+mod axes;
 mod colormap;
 mod engine;
 mod fonts;
+mod icons;
+mod panel;
 mod spectral_edit;
 mod spectro;
 mod theme;

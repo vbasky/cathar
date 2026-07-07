@@ -26,6 +26,8 @@ workspace = true
 cathar = { workspace = true }
 anyhow.workspace = true
 realfft.workspace = true
+# Decode the bundled logo PNG for the empty-state splash.
+image.workspace = true
 # Immediate-mode GUI (pure Rust; winit + wgpu, no C/FFI, no pkg-config).
 eframe = "0.29"
 egui = "0.29"
@@ -36,3 +38,4 @@ ab_glyph = "0.2"
 rfd = "0.15"
 # System audio playback — same engine the CLI `play` command uses.
 rodio = { version = "0.22.2", default-features = false, features = ["playback"] }
+egui-phosphor = "0.7.3"

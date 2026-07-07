@@ -6,6 +6,8 @@
 //! validate it parses with `ab_glyph` (the same rasteriser egui uses), and put
 //! it first in the proportional family — egui's fonts stay as emoji/fallback.
 
+use std::sync::Arc;
+
 use egui::{FontData, FontDefinitions, FontFamily};
 
 /// Ordered candidate paths for the native UI sans-serif face.
@@ -53,17 +55,25 @@ fn load_first_valid(paths: &[&str]) -> Option<(String, Vec<u8>)> {
     None
 }
 
-/// Install the system font on `ctx`. Returns the font's name on success, or
-/// `None` when no candidate was usable (egui keeps its default — no harm).
-pub(crate) fn install_system_font(ctx: &egui::Context) -> Option<String> {
-    let (name, bytes) = load_first_valid(sans_candidates())?;
+/// Install the system UI font and Phosphor icons on `ctx`. Returns the UI font
+/// name on success, or `None` when no system candidate was usable.
+pub(crate) fn install(ctx: &egui::Context) -> Option<String> {
     let mut fonts = FontDefinitions::default();
-    fonts.font_data.insert(name.clone(), FontData::from_owned(bytes));
-    // Prepend to Proportional so it wins; keep egui's faces behind it as
-    // fallback (they cover glyphs the system font may lack, e.g. emoji).
-    fonts.families.entry(FontFamily::Proportional).or_default().insert(0, name.clone());
-    // Also make it the last-resort monospace fallback.
-    fonts.families.entry(FontFamily::Monospace).or_default().push(name.clone());
+    let name = if let Some((name, bytes)) = load_first_valid(sans_candidates()) {
+        fonts.font_data.insert(name.clone(), FontData::from_owned(bytes));
+        fonts.families.entry(FontFamily::Proportional).or_default().insert(0, name.clone());
+        fonts.families.entry(FontFamily::Monospace).or_default().push(name.clone());
+        Some(name)
+    } else {
+        None
+    };
+    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::variants::Variant::Regular);
+    // Dedicated family so icons never hit the system UI font (SF Pro has no Phosphor PUA glyphs).
+    fonts
+        .families
+        .entry(FontFamily::Name(Arc::from("phosphor")))
+        .or_default()
+        .push("phosphor".into());
     ctx.set_fonts(fonts);
-    Some(name)
+    name
 }
