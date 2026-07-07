@@ -20,6 +20,7 @@
 mod adehum;
 mod analysis;
 mod audio;
+mod cqt;
 mod decrackle;
 mod deemphasis;
 mod denoise;
@@ -44,6 +45,7 @@ mod util;
 pub use adehum::dehum_adaptive;
 pub use analysis::{Stats, compute_stats};
 pub use audio::AudioData;
+pub use cqt::{CqtSpec, cqt};
 pub use decrackle::decrackle;
 pub use deemphasis::{Emphasis, deemphasis};
 pub use denoise::{Denoiser, NoisePrint, SpectralDenoiser, learn_noise_print, wiener_denoise};
