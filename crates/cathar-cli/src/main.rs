@@ -46,6 +46,26 @@ impl From<StretchModeArg> for cathar::StretchMode {
     }
 }
 
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum EmphasisArg {
+    /// FM broadcast, 50 µs (Europe/ITU-R).
+    Fm50,
+    /// FM broadcast, 75 µs (Americas/Japan).
+    Fm75,
+    /// CD / IEC 60908 optional pre-emphasis (50/15 µs).
+    Cd,
+}
+
+impl From<EmphasisArg> for cathar::Emphasis {
+    fn from(m: EmphasisArg) -> Self {
+        match m {
+            EmphasisArg::Fm50 => cathar::Emphasis::Fm50,
+            EmphasisArg::Fm75 => cathar::Emphasis::Fm75,
+            EmphasisArg::Cd => cathar::Emphasis::CdIec,
+        }
+    }
+}
+
 /// Audio restoration toolbox — denoise, de-hum, de-click, de-clip, normalise.
 #[derive(Debug, Parser)]
 #[command(
@@ -270,6 +290,17 @@ enum Command {
         /// Elliptical mono crossover (Hz); sums lows to mono below this frequency
         #[arg(long)]
         elliptical: Option<f32>,
+    },
+    /// Apply analog playback de-emphasis (FM 50/75 µs or CD/IEC).
+    Deemphasis {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "deemphasized.wav")]
+        out: String,
+        /// De-emphasis curve
+        #[arg(long, default_value = "fm50")]
+        curve: EmphasisArg,
     },
     /// Reduce quantization grain from low-bit-depth sources.
     Dequantize {
@@ -901,6 +932,14 @@ fn main() -> Result<()> {
             cathar::AudioData { sample_rate: audio.sample_rate, channels }.to_file(&out)?;
             let ellip = elliptical.map(|f| format!("  elliptical {f} Hz")).unwrap_or_default();
             eprintln!("RIAA de-emphasis{ellip}  →  {out}");
+        }
+        Command::Deemphasis { input, out, curve } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let sr = audio.sample_rate;
+            let c: cathar::Emphasis = curve.into();
+            let cleaned = audio.map_channels(|ch| cathar::deemphasis(ch, sr, c));
+            cleaned.to_file(&out)?;
+            eprintln!("de-emphasis ({c:?})  →  {out}");
         }
 
         Command::Dequantize { input, out, bits, strength } => {
