@@ -133,22 +133,23 @@ the swiss-army `0.7` utilities milestone in Phase 2:
   ([WPE paper](https://arxiv.org/abs/1807.03612)).
 - ⬜ **Adaptive de-hum** — track drifting mains frequency and harmonic amplitudes
   instead of fixed-notch `dehum` (broadcast & field recordings).
-- ⬜ **Audio inpainting / gap interpolation** — reconstruct dropouts, tape
-  splices and CD mutes beyond transient `repair`: autoregressive **Janssen /
-  Godsill–Rayner** interpolation (fit a short AR model to the surrounding
-  samples, solve for the missing block) alongside DFT-threshold or Gabor-frame
-  sparse inpainting in the spirit of A-SPADE (already used in `declip`).
+- ✅ **Audio inpainting / gap interpolation** (`v0.7.0`) — `inpaint` command /
+  `inpaint_gap`, `inpaint_auto`: autoregressive **Janssen / Godsill–Rayner**
+  interpolation (AR model from the samples around the gap via Levinson–Durbin,
+  missing block solved by banded Cholesky, iterated). Order scales with gap
+  length; explicit-span or auto zero/NaN-mute detection.
 - ⬜ **Multi-mic alignment** — time-align separate recordings via
   cross-correlation / GCC-PHAT for reference-track workflows
   ([synaudio-cli](https://github.com/eshaz/synaudio-cli),
   [HyMPS alignment index](https://github.com/FORARTfe/HyMPS/blob/main/Audio/Treatments.md#alignmentsynch-)).
-- ⬜ **Harmonic–percussive separation (HPSS)** — Fitzgerald's median-filtering
-  method (horizontal median → harmonic, vertical median → percussive); a fully
-  deterministic, no-weights sibling to `voiceisolate` that unlocks tonal/drum
-  splitting and better transient handling.
-- ⬜ **De-crackle** — dense low-amplitude vinyl surface crackle (distinct from
-  `declick`'s isolated impulses) via matched-filter or wavelet detection over a
-  running noise-floor estimate.
+- ✅ **Harmonic–percussive separation (HPSS)** (`v0.7.0`) — `hpss` command:
+  Fitzgerald median filtering (horizontal median → harmonic, vertical →
+  percussive) with a soft Wiener mask; percussive derived by subtraction so
+  harmonic+percussive reconstructs exactly. Deterministic, no weights.
+- ✅ **De-crackle** (`v0.7.0`) — `decrackle` command: second-difference
+  (Laplacian) detector over a running EMA noise-floor flags dense impulsive
+  crackle; each micro-run is repaired by cubic-Hermite interpolation. Distinct
+  from `declick`'s isolated impulses.
 - ⬜ **Analog NR / pre-emphasis decode** — companding decoders for pre-encoded
   analog sources (Dolby B/C, dbx) plus FM 50/75 µs and CD pre-emphasis de-curve;
   pure playback-curve DSP that completes the digitization story alongside RIAA.
@@ -161,8 +162,10 @@ swiss-army surface and feed later effects:
   (default, no FFT) and a phase-vocoder engine with instantaneous-frequency
   phase propagation, decoupling duration from rate atop `resample`. Drives the
   `tempo`/`pitch`/`speed` commands below.
-- ⬜ **Pitch detection (YIN / pYIN)** — monophonic f0 estimation exposed in
-  `stats` and as the basis for later pitch correction.
+- ✅ **Pitch detection (YIN)** (`v0.7.0`) — `detect_pitch` / `fundamental_hz`:
+  difference function → cumulative-mean-normalised difference → absolute-
+  threshold trough → parabolic interpolation, with a silence gate. A `Pitch
+  (f0)` line is exposed in `stats`. (pYIN HMM smoothing still open.)
 - ⬜ **Constant-Q transform (CQT)** — log-frequency analysis for the TUI viewer
   and musically-aligned spectral work.
 - ⬜ **Sinusoidal / spectral modeling (SMS)** — peak-tracked analysis-resynthesis

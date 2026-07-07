@@ -11,6 +11,16 @@ The release workflow extracts the notes for a version from the matching
 
 ### Added
 
+- **`hpss` command** — harmonic/percussive separation (Fitzgerald median
+  filtering); writes both layers, exact reconstruction. Library: `hpss`.
+- **`inpaint` command** — reconstruct dropouts/mutes by autoregressive
+  (Janssen) gap interpolation; explicit `--start-ms/--len-ms` or auto zero/NaN
+  detection. Library: `inpaint_gap`, `inpaint_auto`.
+- **`decrackle` command** — suppress dense vinyl surface crackle via a
+  Laplacian detector over a running noise floor + cubic-Hermite repair.
+  Library: `decrackle`.
+- **YIN pitch detection** — `detect_pitch`, `fundamental_hz`; `stats` now
+  reports an f0 line.
 - **`tempo` / `pitch` / `speed` commands** — time-scale and pitch-scale audio.
   `tempo --factor` changes duration with pitch preserved; `pitch --semitones`
   shifts pitch with duration preserved; `speed --factor` resamples (both change,
