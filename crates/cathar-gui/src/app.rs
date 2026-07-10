@@ -789,9 +789,48 @@ impl CatharGui {
 
     fn seek_to(&mut self, t: f32) {
         let t = t.clamp(0.0, self.duration.max(0.0));
+        // Drained source cannot try_seek — re-append buffer at the target.
+        if self.engine.as_ref().is_some_and(|e| e.at_end()) {
+            self.seek_via_reload(t);
+            return;
+        }
         if let Some(eng) = &self.engine {
             eng.seek(t);
         }
+    }
+
+    /// Re-append the monitor buffer and land at `t` (used when the source is drained).
+    fn seek_via_reload(&mut self, t: f32) {
+        let Some(audio) = self.audio_for_engine() else {
+            return;
+        };
+        let Some(eng) = self.engine.as_mut() else {
+            return;
+        };
+        eng.set_monitor(self.monitor);
+        eng.set_volume(self.volume);
+        // Preserve play intent across the buffer swap (`is_paused` = !want_playing).
+        let was_playing = !eng.is_paused();
+        let t = t.clamp(0.0, self.duration.max(0.0));
+        let _ = eng.reload(&audio, t, was_playing);
+        self.eq_needs_reload = false;
+    }
+
+    /// Final seek for a scrub gesture (click or drag-release).
+    ///
+    /// Falls back to a full buffer reload when the source is drained so we never
+    /// call rodio `try_seek` on a finished stream (hang / no-op → stuck mute).
+    fn finish_scrub_seek(&mut self, t: f32) {
+        let t = t.clamp(0.0, self.duration.max(0.0));
+        let need_reload = self.engine.as_ref().is_some_and(|e| e.at_end());
+        if need_reload {
+            self.seek_via_reload(t);
+        } else if let Some(eng) = &self.engine {
+            if !eng.seek_scrub(t) {
+                self.seek_via_reload(t);
+            }
+        }
+        self.end_scrub();
     }
 
     fn begin_scrub(&mut self) {
@@ -806,6 +845,14 @@ impl CatharGui {
         }
     }
 
+    /// Drop UI + engine scrub state (missed drag_stopped, transport, etc.).
+    fn cancel_scrub_state(&mut self) {
+        self.scrubbing = None;
+        if let Some(eng) = self.engine.as_mut() {
+            eng.cancel_scrub();
+        }
+    }
+
     /// Map a pointer x (global screen) onto the scrub rail → seconds.
     fn time_from_scrub_x(rail: Rect, x: f32, duration: f32) -> f32 {
         if duration <= 0.0 || rail.width() <= 0.0 {
@@ -815,6 +862,11 @@ impl CatharGui {
     }
 
     fn transport_play_pause(&mut self) {
+        // Drop scrub mute without apply_transport — toggle/play owns transport.
+        self.scrubbing = None;
+        if let Some(eng) = self.engine.as_mut() {
+            eng.clear_scrub_flag();
+        }
         let need_reload = self.engine.as_ref().is_some_and(|e| e.needs_reload_to_restart());
         if need_reload {
             // Source fully finished — re-append buffer from t=0, then play.
@@ -830,6 +882,10 @@ impl CatharGui {
     }
 
     fn transport_stop(&mut self) {
+        self.scrubbing = None;
+        if let Some(eng) = self.engine.as_mut() {
+            eng.clear_scrub_flag();
+        }
         let at_end = self.engine.as_ref().is_some_and(|e| e.at_end());
         if at_end {
             // Finished source: reload at start instead of a dead seek.
@@ -1089,6 +1145,16 @@ impl eframe::App for CatharGui {
         // Live EQ: rebuild monitor buffer when settings change and pointer is up
         // (avoids re-EQ'ing a long file on every fader pixel during a drag).
         let pointer_down = ctx.input(|i| i.pointer.any_down());
+        // Scrub safety: when the pointer is up, never leave the engine hard-muted.
+        // Completes a pending scrub seek if the UI still holds a target (covers
+        // missed drag_stopped); otherwise just clears a sticky mute.
+        if !pointer_down {
+            if let Some(t) = self.scrubbing.take() {
+                self.finish_scrub_seek(t);
+            } else if self.engine.as_ref().is_some_and(|e| e.is_scrubbing()) {
+                self.cancel_scrub_state();
+            }
+        }
         if self.eq_needs_reload && self.has_audio() && !pointer_down {
             self.reload_engine(false);
             self.status = if self.fx.eq_enabled {
@@ -1631,6 +1697,8 @@ impl CatharGui {
                 }
 
                 // Overview scrub: UI-only while dragging; one seek on release.
+                // (Pointer-up safety net in update() also finishes the seek if
+                // drag_stopped is missed — avoids sticky mute / stuck playhead.)
                 if self.has_audio() && self.duration > 0.0 {
                     if resp.drag_started() {
                         self.begin_scrub();
@@ -1654,19 +1722,15 @@ impl CatharGui {
                         {
                             let t = Self::time_from_scrub_x(rect, x, self.duration);
                             self.begin_scrub();
-                            if let Some(eng) = &self.engine {
-                                eng.seek_scrub(t);
-                            }
-                            self.end_scrub();
+                            self.finish_scrub_seek(t);
                         }
                     }
                     if resp.drag_stopped() {
                         if let Some(t) = self.scrubbing.take() {
-                            if let Some(eng) = &self.engine {
-                                eng.seek_scrub(t);
-                            }
+                            self.finish_scrub_seek(t);
+                        } else if self.engine.as_ref().is_some_and(|e| e.is_scrubbing()) {
+                            self.end_scrub();
                         }
-                        self.end_scrub();
                     }
                 }
                 resp.on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -1934,26 +1998,24 @@ impl CatharGui {
                     ui.ctx().request_repaint();
                 }
             } else if scrub_resp.clicked() {
-                // Click while playing: mute → seek → fade back (same as drag end).
+                // Click: mute → seek → fade back (same as drag end).
                 if let Some(p) =
                     ui.ctx().pointer_interact_pos().or_else(|| scrub_resp.interact_pointer_pos())
                 {
                     let t = Self::time_from_scrub_x(rail, p.x, dur);
                     self.begin_scrub();
-                    if let Some(eng) = &self.engine {
-                        eng.seek_scrub(t);
-                    }
-                    self.end_scrub();
+                    self.finish_scrub_seek(t);
                 }
             }
             if scrub_resp.drag_stopped() {
                 // One seek at release (still at volume 0), then fade in.
+                // If update()'s pointer-up path already finished the seek,
+                // scrubbing is None and the engine is already unmuted.
                 if let Some(t) = self.scrubbing.take() {
-                    if let Some(eng) = &self.engine {
-                        eng.seek_scrub(t);
-                    }
+                    self.finish_scrub_seek(t);
+                } else if self.engine.as_ref().is_some_and(|e| e.is_scrubbing()) {
+                    self.end_scrub();
                 }
-                self.end_scrub();
             }
         }
         scrub_resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Seek");
