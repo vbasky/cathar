@@ -3334,8 +3334,7 @@ impl CatharGui {
                     );
                     ui.add_space(12.0);
                     let mut auto = self.playlist_auto_advance;
-                    if ui
-                        .checkbox(&mut auto, "Auto-advance")
+                    if check_row(ui, &mut auto, "Auto-advance")
                         .on_hover_text("When a track ends, load and play the next in the queue")
                         .changed()
                     {
@@ -3358,7 +3357,7 @@ impl CatharGui {
                 ui.add_space(4.0);
                 hint(
                     ui,
-                    "Add files or import M3U. Double-click a row to edit. Transport ⏮/⏭ steps the queue.",
+                    "Add files or import M3U. Double-click a row to open. Transport ⏮/⏭ steps the queue.",
                 );
                 ui.add_space(8.0);
 
@@ -3407,60 +3406,96 @@ impl CatharGui {
                             } else {
                                 Stroke::new(1.0, theme::hairline())
                             };
-                            let resp = egui::Frame::none()
+                            // Compact row height (content-sized). Buttons are outside the
+                            // title hit target so Open never loses the click to row-select.
+                            let mut open = false;
+                            let mut remove = false;
+                            let mut title_resp = None;
+                            egui::Frame::none()
                                 .fill(fill)
                                 .stroke(stroke)
                                 .rounding(theme::RADIUS_LG)
                                 .inner_margin(egui::Margin::symmetric(12.0, 10.0))
                                 .show(ui, |ui| {
+                                    // Cap vertical growth — never expand to the ScrollArea.
+                                    ui.set_max_height(56.0);
                                     ui.horizontal(|ui| {
-                                        ui.label(
-                                            egui::RichText::new(format!("{:>3}", i + 1))
-                                                .monospace()
-                                                .size(theme::FONT_LABEL)
-                                                .color(theme::text_muted()),
-                                        );
-                                        ui.add_space(8.0);
-                                        ui.vertical(|ui| {
-                                            ui.label(
-                                                egui::RichText::new(&entry.name)
-                                                    .size(theme::FONT_BODY)
-                                                    .strong()
-                                                    .color(theme::text()),
+                                        ui.spacing_mut().item_spacing.x = 8.0;
+                                        // Title + path: click/double-click (not the buttons).
+                                        let title = ui
+                                            .horizontal(|ui| {
+                                                ui.label(
+                                                    egui::RichText::new(format!("{:>3}", i + 1))
+                                                        .monospace()
+                                                        .size(theme::FONT_LABEL)
+                                                        .color(theme::text_muted()),
+                                                );
+                                                ui.vertical(|ui| {
+                                                    ui.spacing_mut().item_spacing.y = 2.0;
+                                                    ui.label(
+                                                        egui::RichText::new(&entry.name)
+                                                            .size(theme::FONT_BODY)
+                                                            .strong()
+                                                            .color(theme::text()),
+                                                    );
+                                                    ui.label(
+                                                        egui::RichText::new(
+                                                            entry.path.display().to_string(),
+                                                        )
+                                                        .size(11.0)
+                                                        .color(theme::text_muted()),
+                                                    );
+                                                });
+                                            })
+                                            .response
+                                            .interact(Sense::click())
+                                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                            .on_hover_text(
+                                                "Click to select · double-click to open",
                                             );
-                                            ui.label(
-                                                egui::RichText::new(entry.path.display().to_string())
-                                                    .size(11.0)
-                                                    .color(theme::text_muted()),
-                                            );
-                                        });
+                                        title_resp = Some(title);
+
+                                        // Push actions to the right without growing height.
                                         ui.with_layout(
                                             egui::Layout::right_to_left(egui::Align::Center),
                                             |ui| {
-                                                if ui
-                                                    .small_button("✕")
+                                                // Phosphor trash — UI font has no ✕ (showed as □).
+                                                remove = ui
+                                                    .add(
+                                                        egui::Button::new(
+                                                            rich(icons::TRASH_SIMPLE, 16.0)
+                                                                .color(theme::text()),
+                                                        )
+                                                        .min_size(egui::vec2(
+                                                            theme::CTRL_H,
+                                                            theme::CTRL_H,
+                                                        ))
+                                                        .rounding(theme::RADIUS_MD)
+                                                        .fill(theme::surface())
+                                                        .stroke(Stroke::new(
+                                                            1.0,
+                                                            theme::hairline(),
+                                                        )),
+                                                    )
                                                     .on_hover_text("Remove from queue")
-                                                    .clicked()
-                                                {
-                                                    remove_idx = Some(i);
-                                                }
-                                                if ui
-                                                    .small_button("Open")
+                                                    .clicked();
+                                                open = secondary_button(ui, "Open")
                                                     .on_hover_text("Load into editor")
-                                                    .clicked()
-                                                {
-                                                    load_idx = Some(i);
-                                                }
+                                                    .clicked();
                                             },
                                         );
                                     });
-                                })
-                                .response
-                                .interact(Sense::click());
-                            if resp.double_clicked() {
+                                });
+                            if open {
                                 load_idx = Some(i);
-                            } else if resp.clicked() {
-                                self.playlist_sel = Some(i);
+                            } else if remove {
+                                remove_idx = Some(i);
+                            } else if let Some(resp) = title_resp {
+                                if resp.double_clicked() {
+                                    load_idx = Some(i);
+                                } else if resp.clicked() {
+                                    self.playlist_sel = Some(i);
+                                }
                             }
                             ui.add_space(4.0);
                         }
