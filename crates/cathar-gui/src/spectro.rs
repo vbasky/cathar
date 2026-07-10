@@ -1,9 +1,32 @@
 //! Turn a decoded signal into an egui image (spectrogram) and a waveform
 //! peak envelope, reusing `cathar::spectrogram` for the STFT.
 
-use crate::colormap::magma;
+use crate::colormap::cathar;
 use cathar::{AudioData, Spectrogram};
 use egui::ColorImage;
+
+/// Which channel(s) the spectrogram / waveform represent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum ChannelView {
+    /// Mid = (L+R)/2 — always available.
+    #[default]
+    Mid,
+    Left,
+    Right,
+    /// Stacked L (top) + R (bottom) spectrograms.
+    Split,
+}
+
+impl ChannelView {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Mid => "L+R",
+            Self::Left => "L",
+            Self::Right => "R",
+            Self::Split => "L|R",
+        }
+    }
+}
 
 /// Mono mixdown of every channel (equal-weight average).
 pub(crate) fn mono_mix(audio: &AudioData) -> Vec<f32> {
@@ -21,6 +44,28 @@ pub(crate) fn mono_mix(audio: &AudioData) -> Vec<f32> {
     mono
 }
 
+/// Samples for a display channel view. `Right` on mono falls back to the only channel.
+pub(crate) fn channel_samples(audio: &AudioData, view: ChannelView) -> Vec<f32> {
+    match view {
+        ChannelView::Mid => mono_mix(audio),
+        ChannelView::Left | ChannelView::Split => {
+            audio.channels.first().cloned().unwrap_or_default()
+        }
+        ChannelView::Right => {
+            if audio.channels.len() >= 2 {
+                audio.channels[1].clone()
+            } else {
+                audio.channels.first().cloned().unwrap_or_default()
+            }
+        }
+    }
+}
+
+/// True when the buffer has at least two channels.
+pub(crate) fn is_stereo(audio: &AudioData) -> bool {
+    audio.channels.len() >= 2
+}
+
 /// Compute the STFT magnitude spectrogram of a mono signal.
 pub(crate) fn compute_spectrogram(
     mono: &[f32],
@@ -32,8 +77,7 @@ pub(crate) fn compute_spectrogram(
 }
 
 /// Colour a spectrogram into an egui image using a `[db_floor, db_ceil]` display
-/// window (the "gain"/contrast control). The image is `frames` wide × `bins`
-/// tall, with row 0 = Nyquist and the last row = DC.
+/// window. The image is `frames` wide × `bins` tall, with row 0 = Nyquist.
 pub(crate) fn colorize(spec: &Spectrogram, db_floor: f32, db_ceil: f32) -> ColorImage {
     let frames = spec.frames();
     let bins = spec.bins;
@@ -45,12 +89,32 @@ pub(crate) fn colorize(spec: &Spectrogram, db_floor: f32, db_ceil: f32) -> Color
         for bin in 0..bins {
             let db = spec.get(f, bin);
             let t = ((db - db_floor) / range).clamp(0.0, 1.0);
-            // Image y=0 is the top → highest frequency. Flip the bin index.
             let y = bins - 1 - bin;
-            pixels[y * w + f] = magma(t);
+            pixels[y * w + f] = cathar(t);
         }
     }
     ColorImage { size: [w, h], pixels }
+}
+
+/// Stack two spectrogram images vertically (L on top, R on bottom) with a 2px gap.
+pub(crate) fn stack_vertical(top: &ColorImage, bottom: &ColorImage) -> ColorImage {
+    let w = top.size[0].max(bottom.size[0]).max(1);
+    let gap = 2usize;
+    let h = top.size[1] + gap + bottom.size[1];
+    let mut pixels = vec![egui::Color32::from_rgb(14, 13, 12); w * h];
+    blit(top, &mut pixels, w, 0);
+    blit(bottom, &mut pixels, w, top.size[1] + gap);
+    ColorImage { size: [w, h], pixels }
+}
+
+fn blit(src: &ColorImage, dst: &mut [egui::Color32], dst_w: usize, y0: usize) {
+    let sw = src.size[0];
+    let sh = src.size[1];
+    for y in 0..sh {
+        for x in 0..sw.min(dst_w) {
+            dst[(y0 + y) * dst_w + x] = src.pixels[y * sw + x];
+        }
+    }
 }
 
 /// Reduce a signal to `buckets` (min, max) pairs for waveform drawing.

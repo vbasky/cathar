@@ -65,7 +65,9 @@ pub use enhance::{
     deesser, voice_isolate,
 };
 pub use error::Error;
-pub use filter::{bandpass, bass, compressor, equalizer, gate, highpass, limiter, lowpass, treble};
+pub use filter::{
+    bandpass, bass, compressor, equalizer, gate, graphic_eq, highpass, limiter, lowpass, treble,
+};
 pub use hpss::hpss;
 pub use inpaint::{inpaint_auto, inpaint_gap};
 pub use loudness::{integrated_loudness, normalize_peak, true_peak_dbtp};

@@ -1,6 +1,7 @@
 //! Biquad filters and dynamics processing (compressor, limiter, gate).
 
-/// Coefficients for a Direct Form I biquad filter.
+/// Biquad section — Transposed Direct Form II (better numeric behaviour than DF-I
+/// at low cutoffs / high sample rates).
 #[derive(Debug, Clone, Copy)]
 struct Biquad {
     b0: f32,
@@ -8,21 +9,20 @@ struct Biquad {
     b2: f32,
     a1: f32,
     a2: f32,
-    x1: f32,
-    x2: f32,
-    y1: f32,
-    y2: f32,
+    /// TDF-II state.
+    s1: f32,
+    s2: f32,
 }
 
 impl Biquad {
     fn process(&mut self, x: f32) -> f32 {
-        let y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2
-            - self.a1 * self.y1
-            - self.a2 * self.y2;
-        self.x2 = self.x1;
-        self.x1 = x;
-        self.y2 = self.y1;
-        self.y1 = y;
+        // Transposed Direct Form II (RBJ / standard IIR cascade form):
+        //   y  = b0·x + s1
+        //   s1 = b1·x − a1·y + s2
+        //   s2 = b2·x − a2·y
+        let y = self.b0 * x + self.s1;
+        self.s1 = self.b1 * x - self.a1 * y + self.s2;
+        self.s2 = self.b2 * x - self.a2 * y;
         y
     }
 
@@ -40,10 +40,8 @@ impl Biquad {
             b2: b2 / a0,
             a1: (-2.0 * cos_w0) / a0,
             a2: (1.0 - alpha) / a0,
-            x1: 0.0,
-            x2: 0.0,
-            y1: 0.0,
-            y2: 0.0,
+            s1: 0.0,
+            s2: 0.0,
         }
     }
 
@@ -61,10 +59,8 @@ impl Biquad {
             b2: b2 / a0,
             a1: (-2.0 * cos_w0) / a0,
             a2: (1.0 - alpha) / a0,
-            x1: 0.0,
-            x2: 0.0,
-            y1: 0.0,
-            y2: 0.0,
+            s1: 0.0,
+            s2: 0.0,
         }
     }
 
@@ -82,13 +78,12 @@ impl Biquad {
             b2: b2 / a0,
             a1: (-2.0 * cos_w0) / a0,
             a2: (1.0 - alpha) / a0,
-            x1: 0.0,
-            x2: 0.0,
-            y1: 0.0,
-            y2: 0.0,
+            s1: 0.0,
+            s2: 0.0,
         }
     }
 
+    /// Peaking / bell EQ — Audio EQ Cookbook (Robert Bristow-Johnson).
     fn design_peaking(sample_rate: f32, freq: f32, q: f32, gain_db: f32) -> Self {
         let w0 = 2.0 * std::f32::consts::PI * freq / sample_rate;
         let a = 10.0f32.powf(gain_db / 40.0);
@@ -104,10 +99,8 @@ impl Biquad {
             b2: b2 / a0,
             a1: (-2.0 * cos_w0) / a0,
             a2: (1.0 - alpha / a) / a0,
-            x1: 0.0,
-            x2: 0.0,
-            y1: 0.0,
-            y2: 0.0,
+            s1: 0.0,
+            s2: 0.0,
         }
     }
 
@@ -123,17 +116,7 @@ impl Biquad {
         let a0 = (a + 1.0) + (a - 1.0) * cos_w0 + 2.0 * sqrt_a * alpha;
         let a1 = -2.0 * ((a - 1.0) + (a + 1.0) * cos_w0);
         let a2 = (a + 1.0) + (a - 1.0) * cos_w0 - 2.0 * sqrt_a * alpha;
-        Self {
-            b0: b0 / a0,
-            b1: b1 / a0,
-            b2: b2 / a0,
-            a1: a1 / a0,
-            a2: a2 / a0,
-            x1: 0.0,
-            x2: 0.0,
-            y1: 0.0,
-            y2: 0.0,
-        }
+        Self { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0, s1: 0.0, s2: 0.0 }
     }
 
     fn design_highshelf(sample_rate: f32, cutoff: f32, q: f32, gain_db: f32) -> Self {
@@ -148,17 +131,7 @@ impl Biquad {
         let a0 = (a + 1.0) - (a - 1.0) * cos_w0 + 2.0 * sqrt_a * alpha;
         let a1 = 2.0 * ((a - 1.0) - (a + 1.0) * cos_w0);
         let a2 = (a + 1.0) - (a - 1.0) * cos_w0 - 2.0 * sqrt_a * alpha;
-        Self {
-            b0: b0 / a0,
-            b1: b1 / a0,
-            b2: b2 / a0,
-            a1: a1 / a0,
-            a2: a2 / a0,
-            x1: 0.0,
-            x2: 0.0,
-            y1: 0.0,
-            y2: 0.0,
-        }
+        Self { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0, s1: 0.0, s2: 0.0 }
     }
 }
 
@@ -185,7 +158,7 @@ pub fn bandpass(signal: &[f32], sample_rate: u32, freq: f32, q: f32) -> Vec<f32>
 }
 
 /// Apply a peaking (bell) EQ filter at `freq` Hz with `gain_db` boost/cut and
-/// bandwidth `q`.
+/// bandwidth `q` (RBJ Audio EQ Cookbook).
 pub fn equalizer(signal: &[f32], sample_rate: u32, freq: f32, q: f32, gain_db: f32) -> Vec<f32> {
     let mut filter = Biquad::design_peaking(sample_rate as f32, freq, q, gain_db);
     signal.iter().map(|&x| filter.process(x)).collect()
@@ -201,6 +174,206 @@ pub fn bass(signal: &[f32], sample_rate: u32, cutoff: f32, gain_db: f32) -> Vec<
 pub fn treble(signal: &[f32], sample_rate: u32, cutoff: f32, gain_db: f32) -> Vec<f32> {
     let mut filter = Biquad::design_highshelf(sample_rate as f32, cutoff, 1.0, gain_db);
     signal.iter().map(|&x| filter.process(x)).collect()
+}
+
+// ── Graphic EQ (RBJ / f64, no saturation) ───────────────────────────────────
+
+/// One second-order section for the graphic-EQ cascade.
+///
+/// Coefficients and state are **f64** (industry practice for LF peaking / shelves
+/// at audio rates — f32 coeff design is a common source of harsh LF mush).
+#[derive(Debug, Clone)]
+struct EqSection {
+    b0: f64,
+    b1: f64,
+    b2: f64,
+    a1: f64,
+    a2: f64,
+    s1: f64,
+    s2: f64,
+}
+
+impl EqSection {
+    #[inline]
+    fn process(&mut self, x: f64) -> f64 {
+        // Transposed Direct Form II
+        let y = self.b0 * x + self.s1;
+        self.s1 = self.b1 * x - self.a1 * y + self.s2;
+        self.s2 = self.b2 * x - self.a2 * y;
+        // Flush denormals in the state (can sound like "grit" on long tails).
+        if self.s1.abs() < 1e-20 {
+            self.s1 = 0.0;
+        }
+        if self.s2.abs() < 1e-20 {
+            self.s2 = 0.0;
+        }
+        y
+    }
+
+    /// RBJ peaking EQ using **bandwidth in octaves** (cookbook form with
+    /// `alpha = sin(w0) * sinh(ln(2)/2 * BW * w0/sin(w0))`).
+    /// This is what SoX / FFmpeg `equalizer` and most DAW peaking filters use.
+    fn peaking(sr: f64, freq: f64, gain_db: f64, bw_oct: f64) -> Self {
+        let w0 = 2.0 * std::f64::consts::PI * freq / sr;
+        let cos_w0 = w0.cos();
+        let sin_w0 = w0.sin();
+        let a = 10.0f64.powf(gain_db / 40.0);
+        // Digital bandwidth → alpha (RBJ cookbook).
+        let bw = bw_oct.clamp(0.25, 4.0);
+        let alpha = sin_w0 * (std::f64::consts::LN_2 / 2.0 * bw * w0 / sin_w0.max(1e-12)).sinh();
+        let b0 = 1.0 + alpha * a;
+        let b1 = -2.0 * cos_w0;
+        let b2 = 1.0 - alpha * a;
+        let a0 = 1.0 + alpha / a;
+        let a1 = -2.0 * cos_w0;
+        let a2 = 1.0 - alpha / a;
+        Self { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0, s1: 0.0, s2: 0.0 }
+    }
+
+    /// RBJ low shelf, shelf slope `S = 1` (maximally flat transition when gain → 0).
+    fn lowshelf(sr: f64, freq: f64, gain_db: f64) -> Self {
+        let w0 = 2.0 * std::f64::consts::PI * freq / sr;
+        let cos_w0 = w0.cos();
+        let sin_w0 = w0.sin();
+        let a = 10.0f64.powf(gain_db / 40.0);
+        // S = 1 → alpha = sin(w0)/2 * √((A + 1/A)·0 + 2) = sin(w0)/√2
+        let alpha = sin_w0 * std::f64::consts::FRAC_1_SQRT_2;
+        let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
+        let b0 = a * ((a + 1.0) - (a - 1.0) * cos_w0 + two_sqrt_a_alpha);
+        let b1 = 2.0 * a * ((a - 1.0) - (a + 1.0) * cos_w0);
+        let b2 = a * ((a + 1.0) - (a - 1.0) * cos_w0 - two_sqrt_a_alpha);
+        let a0 = (a + 1.0) + (a - 1.0) * cos_w0 + two_sqrt_a_alpha;
+        let a1 = -2.0 * ((a - 1.0) + (a + 1.0) * cos_w0);
+        let a2 = (a + 1.0) + (a - 1.0) * cos_w0 - two_sqrt_a_alpha;
+        Self { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0, s1: 0.0, s2: 0.0 }
+    }
+
+    /// RBJ high shelf, shelf slope `S = 1`.
+    fn highshelf(sr: f64, freq: f64, gain_db: f64) -> Self {
+        let w0 = 2.0 * std::f64::consts::PI * freq / sr;
+        let cos_w0 = w0.cos();
+        let sin_w0 = w0.sin();
+        let a = 10.0f64.powf(gain_db / 40.0);
+        let alpha = sin_w0 * std::f64::consts::FRAC_1_SQRT_2;
+        let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
+        let b0 = a * ((a + 1.0) + (a - 1.0) * cos_w0 + two_sqrt_a_alpha);
+        let b1 = -2.0 * a * ((a - 1.0) + (a + 1.0) * cos_w0);
+        let b2 = a * ((a + 1.0) + (a - 1.0) * cos_w0 - two_sqrt_a_alpha);
+        let a0 = (a + 1.0) - (a - 1.0) * cos_w0 + two_sqrt_a_alpha;
+        let a1 = 2.0 * ((a - 1.0) - (a + 1.0) * cos_w0);
+        let a2 = (a + 1.0) - (a - 1.0) * cos_w0 - two_sqrt_a_alpha;
+        Self { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0, s1: 0.0, s2: 0.0 }
+    }
+}
+
+/// Bandwidth (octaves) for band `i` from geometric spacing of neighbouring centres.
+///
+/// Half-power edges sit at the geometric mean with the adjacent band — the usual
+/// constant-Q construction for octave / ISO graphic equalisers.
+fn graphic_band_bw_octaves(centres: &[f32], i: usize) -> f64 {
+    let n = centres.len();
+    debug_assert!(i < n);
+    let f = centres[i] as f64;
+    if n < 2 || f <= 0.0 {
+        return 1.0;
+    }
+    let lo = if i == 0 { f * f / centres[1].max(1.0) as f64 } else { centres[i - 1] as f64 };
+    let hi =
+        if i + 1 >= n { f * f / centres[i - 1].max(1.0) as f64 } else { centres[i + 1] as f64 };
+    let f_lo = (lo.max(1.0) * f).sqrt();
+    let f_hi = (f * hi.max(f + 1.0)).sqrt();
+    (f_hi / f_lo).log2().clamp(0.5, 2.5)
+}
+
+/// Proportional-Q bandwidth: **wide at small gains, tighter at large gains**.
+///
+/// Matches classic musical / console graphic behaviour — small boosts tilt the
+/// spectrum gently; deep cuts become more selective. Avoids the resonant
+/// “honk / grunge” of fixed high-Q peaking at every fader move.
+fn proportional_bw_octaves(base_bw: f64, gain_db: f64) -> f64 {
+    let g = gain_db.abs().clamp(0.0, 18.0);
+    // g=0 → ~2.2× base; g=12 → ~1.0× base; g=18 → ~0.85× base
+    let widen = 1.0 + 1.2 * (1.0 - (g / 12.0).min(1.0));
+    let narrow = if g > 12.0 { 1.0 - 0.15 * ((g - 12.0) / 6.0).min(1.0) } else { 1.0 };
+    (base_bw * widen * narrow).clamp(0.4, 3.0)
+}
+
+/// **Graphic equalizer** — RBJ cookbook cascade (SoX / FFmpeg / JUCE style).
+///
+/// Design choices (why this does not sound “grungy”):
+/// * Coefficients and filter state in **f64**; process in f64, write f32.
+/// * Mid bands: peaking with bandwidth from **geometric band spacing**, then
+///   **proportional-Q** (wider for mild gains).
+/// * Outer bands: **low / high shelf** (standard consumer 10-band practice —
+///   cleaner bass/treble than a 32 Hz / 16 kHz peaker).
+/// * Preamp first. **No soft-clip or peak-normalize** on this path (those add
+///   harmonics and were a primary source of grunge). Use negative preamp for
+///   headroom when stacking boosts.
+///
+/// # Panics
+/// Panics if `centre_hz.len() != gains_db.len()`.
+pub fn graphic_eq(
+    signal: &[f32],
+    sample_rate: u32,
+    centre_hz: &[f32],
+    gains_db: &[f32],
+    preamp_db: f32,
+) -> Vec<f32> {
+    assert_eq!(
+        centre_hz.len(),
+        gains_db.len(),
+        "graphic_eq: centre_hz and gains_db length mismatch"
+    );
+    let sr = sample_rate as f64;
+    if sr < 1.0 {
+        return signal.to_vec();
+    }
+    // Keep poles comfortably below Nyquist (cookbook recommendation).
+    let nyq = sr * 0.45;
+
+    let mut stages: Vec<EqSection> = Vec::with_capacity(centre_hz.len());
+    let n = centre_hz.len();
+    for (i, (&f_hz, &g_db)) in centre_hz.iter().zip(gains_db.iter()).enumerate() {
+        if g_db.abs() < 0.05 {
+            continue;
+        }
+        let gain = f64::from(g_db).clamp(-18.0, 18.0);
+        let freq = f64::from(f_hz).clamp(20.0, nyq);
+        if freq >= nyq {
+            continue;
+        }
+
+        let section = if n >= 2 && i == 0 {
+            // Bottom fader → low shelf at the band centre.
+            EqSection::lowshelf(sr, freq, gain)
+        } else if n >= 2 && i + 1 == n {
+            // Top fader → high shelf.
+            EqSection::highshelf(sr, freq, gain)
+        } else {
+            let base_bw = graphic_band_bw_octaves(centre_hz, i);
+            let bw = proportional_bw_octaves(base_bw, gain);
+            EqSection::peaking(sr, freq, gain, bw)
+        };
+        stages.push(section);
+    }
+
+    let pre = if preamp_db.abs() >= 0.05 { 10.0f64.powf(f64::from(preamp_db) / 20.0) } else { 1.0 };
+
+    if stages.is_empty() && (pre - 1.0).abs() < 1e-12 {
+        return signal.to_vec();
+    }
+
+    signal
+        .iter()
+        .map(|&x| {
+            let mut y = f64::from(x) * pre;
+            for st in &mut stages {
+                y = st.process(y);
+            }
+            // Transparent path — no saturator. Clamp only pure NaN/Inf.
+            if !y.is_finite() { 0.0 } else { y as f32 }
+        })
+        .collect()
 }
 
 // ── dynamics ────────────────────────────────────────────────────────────────
@@ -314,6 +487,43 @@ mod tests {
         let orig_rms = (sig.iter().map(|x| x * x).sum::<f32>() / sig.len() as f32).sqrt();
         let boost_rms = (boosted.iter().map(|x| x * x).sum::<f32>() / boosted.len() as f32).sqrt();
         assert!(boost_rms > orig_rms, "peaking boost should increase RMS");
+    }
+
+    #[test]
+    fn graphic_eq_flat_is_near_identity() {
+        let sig: Vec<f32> = (0..4800)
+            .map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / 48_000.0).sin() * 0.5)
+            .collect();
+        let freqs = [32.0, 64.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16_000.0];
+        let gains = [0.0f32; 10];
+        let out = graphic_eq(&sig, 48_000, &freqs, &gains, 0.0);
+        let err: f32 =
+            sig.iter().zip(out.iter()).map(|(a, b)| (a - b).abs()).sum::<f32>() / sig.len() as f32;
+        assert!(err < 1e-5, "flat graphic_eq should pass through, mean err={err}");
+    }
+
+    #[test]
+    fn graphic_eq_boost_at_1k_raises_energy() {
+        // 1 kHz tone should get louder when only the 1 kHz band is boosted.
+        let sr = 48_000u32;
+        let sig: Vec<f32> = (0..sr as usize)
+            .map(|i| (2.0 * std::f32::consts::PI * 1000.0 * i as f32 / sr as f32).sin() * 0.25)
+            .collect();
+        let freqs = [32.0, 64.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16_000.0];
+        let mut gains = [0.0f32; 10];
+        gains[5] = 6.0; // 1 kHz band
+        let out = graphic_eq(&sig, sr, &freqs, &gains, 0.0);
+        let skip = 2000; // settle filter state
+        let rms = |s: &[f32]| {
+            let n = s.len().saturating_sub(skip);
+            (s[skip..].iter().map(|x| x * x).sum::<f32>() / n as f32).sqrt()
+        };
+        assert!(
+            rms(&out) > rms(&sig) * 1.3,
+            "6 dB @ 1 kHz should raise 1 kHz tone RMS ({} vs {})",
+            rms(&out),
+            rms(&sig)
+        );
     }
 
     #[test]

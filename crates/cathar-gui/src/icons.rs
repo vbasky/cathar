@@ -2,20 +2,23 @@
 
 use std::sync::Arc;
 
-use egui::text::LayoutJob;
-use egui::{
-    Button, Color32, FontFamily, FontId, Response, RichText, SelectableLabel, TextFormat, Ui, Vec2,
-    Widget, WidgetText,
+use egui::{Button, Color32, FontFamily, RichText, Vec2, Widget, WidgetText};
+
+use crate::theme::{
+    CHIP_H, FONT_LABEL, RADIUS_LG, RADIUS_MD, TOOLBAR_BTN, TRANSPORT_PLAY, on_accent,
 };
 
 pub(crate) use egui_phosphor::regular::{
-    ARROW_COUNTER_CLOCKWISE, ARROWS_CLOCKWISE, DESKTOP, FLOPPY_DISK, FOLDER_OPEN, MOON, PAUSE,
-    PLAY, SUN, SWAP,
+    ARROW_COUNTER_CLOCKWISE, ARROWS_CLOCKWISE, ARROWS_OUT_LINE_HORIZONTAL, BROOM, CHART_BAR,
+    CLOCK_CLOCKWISE, COMPASS, DISC, DROP, EAR, EQUALIZER, FADERS, FAST_FORWARD, GAUGE, HEADPHONES,
+    LIGHTNING, MAGNIFYING_GLASS, MICROPHONE, MICROPHONE_STAGE, MONITOR, MUSIC_NOTE, MUSIC_NOTES,
+    PAUSE, PLAY, PLAYLIST, REWIND, SKIP_BACK, SKIP_FORWARD, SPARKLE, SPEAKER_HIGH, SPEAKER_SLASH,
+    STOP, SWAP, WAVEFORM, WIND, WRENCH,
 };
 
-pub(crate) const ICON_SIZE: f32 = 17.0;
-pub(crate) const TOOLBAR_ICON: f32 = 16.0;
-pub(crate) const TRANSPORT_ICON: f32 = 20.0;
+pub(crate) const TOOLBAR_ICON: f32 = 18.0;
+pub(crate) const TRANSPORT_ICON: f32 = 22.0;
+pub(crate) const TOOL_ICON: f32 = 18.0;
 
 /// Explicit family — icons must not go through the system UI font first.
 pub(crate) fn family() -> FontFamily {
@@ -32,53 +35,55 @@ pub(crate) fn widget(icon: &str, size: f32) -> WidgetText {
 
 /// Square toolbar control — icon only; attach `.on_hover_text()` when adding.
 pub(crate) fn toolbar_button(icon: &'static str) -> Button<'static> {
-    Button::new(widget(icon, TOOLBAR_ICON)).min_size(Vec2::new(32.0, 26.0))
+    Button::new(widget(icon, TOOLBAR_ICON)).min_size(Vec2::splat(TOOLBAR_BTN)).rounding(RADIUS_MD)
 }
 
-/// Larger transport control (play/pause).
-pub(crate) fn transport_button(icon: &'static str) -> Button<'static> {
-    Button::new(widget(icon, TRANSPORT_ICON)).min_size(Vec2::new(40.0, 32.0))
+/// Toggle toolbar control for A/B compare and viewer modes.
+/// Same hit target as [`toolbar_button`] so rows line up.
+pub(crate) fn toolbar_toggle(selected: bool, icon: &'static str) -> impl Widget + 'static {
+    let stroke = if selected {
+        egui::Stroke::NONE
+    } else {
+        egui::Stroke::new(1.0, crate::theme::hairline())
+    };
+    let icon_color = if selected { on_accent() } else { Color32::PLACEHOLDER };
+    Button::new(rich(icon, TOOLBAR_ICON).color(icon_color))
+        .min_size(Vec2::splat(TOOLBAR_BTN))
+        .rounding(RADIUS_MD)
+        .selected(selected)
+        .fill(if selected { crate::theme::accent() } else { crate::theme::surface() })
+        .stroke(stroke)
 }
 
-/// Toggle toolbar control for A/B compare and similar states.
-pub(crate) fn toolbar_toggle(selected: bool, icon: &'static str) -> SelectableLabel {
-    SelectableLabel::new(selected, widget(icon, TOOLBAR_ICON))
-}
-
-/// Menu row: phosphor glyph + label in one clickable item.
-pub(crate) struct MenuItem {
-    job: LayoutJob,
-}
-
-impl MenuItem {
-    pub(crate) fn new(icon: &str, text: &str) -> Self {
-        let mut job = LayoutJob::default();
-        job.append(
-            icon,
-            0.0,
-            // PLACEHOLDER → egui recolours with the widget's text colour;
-            // TextFormat's default colour is grey, which reads as "disabled".
-            TextFormat {
-                font_id: FontId::new(ICON_SIZE, family()),
-                color: Color32::PLACEHOLDER,
-                ..Default::default()
-            },
-        );
-        job.append(
-            &format!("  {text}"),
-            0.0,
-            TextFormat {
-                font_id: FontId::proportional(ICON_SIZE),
-                color: Color32::PLACEHOLDER,
-                ..Default::default()
-            },
-        );
-        Self { job }
+/// Text chip for L / R / L+R / L|R channel selection.
+pub(crate) fn channel_chip(selected: bool, label: &str) -> Button<'static> {
+    let color = if selected { on_accent() } else { Color32::PLACEHOLDER };
+    let text = RichText::new(label.to_string()).size(FONT_LABEL).strong().color(color);
+    let mut b = Button::new(text).min_size(Vec2::new(42.0, CHIP_H)).rounding(RADIUS_MD).stroke(
+        if selected {
+            egui::Stroke::NONE
+        } else {
+            egui::Stroke::new(1.0, crate::theme::hairline())
+        },
+    );
+    if selected {
+        b = b.fill(crate::theme::accent());
+    } else {
+        b = b.fill(crate::theme::surface());
     }
+    b
 }
 
-impl Widget for MenuItem {
-    fn ui(self, ui: &mut Ui) -> Response {
-        ui.add(Button::new(self.job))
-    }
+/// Primary play/pause control on the transport strip.
+pub(crate) fn transport_play_button(playing: bool, icon: &'static str) -> Button<'static> {
+    let icon_color = if playing { on_accent() } else { Color32::PLACEHOLDER };
+    Button::new(rich(icon, TRANSPORT_ICON).color(icon_color))
+        .min_size(Vec2::new(TRANSPORT_PLAY + 6.0, TRANSPORT_PLAY))
+        .rounding(RADIUS_LG)
+        .fill(if playing { crate::theme::accent() } else { crate::theme::surface() })
+        .stroke(if playing {
+            egui::Stroke::NONE
+        } else {
+            egui::Stroke::new(1.0, crate::theme::hairline())
+        })
 }
