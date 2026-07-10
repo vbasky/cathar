@@ -161,6 +161,9 @@ impl Engine {
     /// Always feeds a **stereo** interleaved buffer so L/R monitoring is
     /// predictable. Volume is applied by the player (dezippered), not baked in.
     pub(crate) fn load(&mut self, audio: &AudioData) -> Result<()> {
+        // New buffer — never inherit a stuck scrub mute from the previous player.
+        self.scrubbing = false;
+
         // Swap in a fresh Player on the shared mixer.
         // Replacing avoids rodio `stop`+`append` which can `sleep_until_end` and hang.
         let new_player = rodio::Player::connect_new(self.stream.mixer());
@@ -287,10 +290,47 @@ impl Engine {
         // slamming the new position at full volume.
     }
 
-    /// One seek at scrub release (must be called while still muted / scrubbing).
-    pub(crate) fn seek_scrub(&self, t: f32) {
-        if !self.loaded {
+    /// True while a scrub gesture has muted the engine.
+    pub(crate) fn is_scrubbing(&self) -> bool {
+        self.scrubbing
+    }
+
+    /// Force-clear scrub mute and restore transport (missed drag_stopped, etc.).
+    ///
+    /// Leaves volume at 0 so [`Self::tick_volume`] can fade in cleanly.
+    pub(crate) fn cancel_scrub(&mut self) {
+        if !self.scrubbing {
             return;
+        }
+        self.end_scrub();
+    }
+
+    /// Drop the scrub flag only — no transport change.
+    ///
+    /// Used before play/pause/toggle so we do not `apply_transport` and then
+    /// immediately invert intent via toggle.
+    pub(crate) fn clear_scrub_flag(&mut self) {
+        if !self.scrubbing {
+            return;
+        }
+        self.scrubbing = false;
+        self.volume_actual = 0.0;
+        self.last_volume_tick = Instant::now();
+        self.player.set_volume(0.0);
+    }
+
+    /// One seek at scrub release (must be called while still muted / scrubbing).
+    ///
+    /// Returns `false` when the source is drained and `try_seek` would hang or
+    /// no-op — caller must re-append the buffer via [`Self::reload`] instead.
+    pub(crate) fn seek_scrub(&self, t: f32) -> bool {
+        if !self.loaded {
+            return true;
+        }
+        // Drained source: try_seek can hang; at_end path in seek_internal also
+        // refuses non-zero seeks. Force a full reload from the UI.
+        if self.at_end() {
+            return false;
         }
         let t = t.clamp(0.0, self.duration.max(0.0));
         // Force silence around the handshake even if begin_scrub was skipped.
@@ -298,6 +338,7 @@ impl Engine {
         self.seek_internal(Duration::from_secs_f32(t), false);
         self.player.set_volume(0.0);
         self.player.pause();
+        true
     }
 
     /// Reload buffer, keep playhead, restore transport intent.
@@ -328,6 +369,13 @@ impl Engine {
         if !self.loaded {
             return;
         }
+        // Never stay hard-muted after the user hits play.
+        if self.scrubbing {
+            self.scrubbing = false;
+            self.volume_actual = 0.0;
+            self.last_volume_tick = Instant::now();
+            self.player.set_volume(0.0);
+        }
         self.want_playing = true;
         // Restart from 0 only if the buffer is still seekable (not drained).
         if self.at_end() {
@@ -339,6 +387,12 @@ impl Engine {
     }
 
     pub(crate) fn pause(&mut self) {
+        // Clear scrub mute so pause does not leave volume stuck at 0 forever.
+        if self.scrubbing {
+            self.scrubbing = false;
+            self.volume_actual = 0.0;
+            self.last_volume_tick = Instant::now();
+        }
         self.want_playing = false;
         self.player.pause();
     }
@@ -354,6 +408,11 @@ impl Engine {
 
     /// Pause and return to the start (no-op seek if already finished — reload instead).
     pub(crate) fn stop(&mut self) {
+        if self.scrubbing {
+            self.scrubbing = false;
+            self.volume_actual = 0.0;
+            self.last_volume_tick = Instant::now();
+        }
         self.want_playing = false;
         self.player.pause();
         if !self.at_end() {

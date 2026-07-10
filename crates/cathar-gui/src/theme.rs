@@ -134,24 +134,26 @@ impl Palette {
         }
     }
 
-    /// Real light mode — warm paper chrome, light spectrogram well, same brand accent.
+    /// Real light mode — warm paper chrome, light spectrogram well, deeper brand
+    /// accent so slider trails / chips read on pale paper (not a washed mint).
     pub(crate) fn light() -> Self {
         Self {
-            accent: Color32::from_rgb(0, 150, 115),
+            // Deeper teal — pale cyan was nearly invisible on paper backgrounds.
+            accent: Color32::from_rgb(0, 120, 95),
             well_bg: Color32::from_rgb(236, 232, 226),
             chrome_bg: Color32::from_rgb(248, 245, 240),
             surface: Color32::from_rgb(255, 253, 250),
             window_bg: Color32::from_rgb(255, 252, 248),
-            hairline: Color32::from_rgb(200, 192, 180),
+            hairline: Color32::from_rgb(190, 182, 170),
             // Slightly deeper traces so they read on pale paper.
-            wave_l: Color32::from_rgb(0, 150, 120),
+            wave_l: Color32::from_rgb(0, 130, 105),
             wave_r: Color32::from_rgb(200, 110, 20),
             playhead: Color32::from_rgb(210, 45, 40),
             text: Color32::from_rgb(32, 28, 24),
             text_muted: Color32::from_rgb(110, 102, 92),
             axis: Color32::from_rgb(100, 94, 86),
-            selection_stroke: Color32::from_rgb(0, 140, 110),
-            selection_fill: Color32::from_rgba_unmultiplied(0, 150, 115, 40),
+            selection_stroke: Color32::from_rgb(0, 120, 95),
+            selection_fill: Color32::from_rgba_unmultiplied(0, 120, 95, 48),
             ok: Color32::from_rgb(20, 150, 90),
             warn: Color32::from_rgb(200, 120, 10),
             player_bar: Color32::from_rgb(242, 238, 232),
@@ -290,7 +292,8 @@ pub(crate) fn apply(ctx: &Context, appearance: Appearance) {
             button_padding: vec2(12.0, 6.0),
             interact_size: vec2(40.0, CTRL_H),
             slider_width: 160.0,
-            slider_rail_height: 4.0,
+            // Thicker rail so filled/empty track is legible on light chrome.
+            slider_rail_height: 6.0,
             indent: 14.0,
             window_margin: Margin::same(12.0),
             menu_margin: Margin::symmetric(10.0, 6.0),
@@ -314,10 +317,11 @@ fn dark_visuals(p: Palette, r: Rounding) -> Visuals {
     v.window_rounding = Rounding::same(RADIUS_LG);
     v.menu_rounding = Rounding::same(RADIUS_MD);
     v.hyperlink_color = p.accent;
-    // Soft selection so default light text stays readable in combo menus
-    // (solid accent made labels vanish / look corrupt).
+    // Slider trailing_fill uses selection.bg_fill — keep it strong enough to
+    // read as a real progress track, not a ghost tint. Combo rows still get
+    // dark text over a translucent teal, which stays legible.
     v.selection.bg_fill =
-        Color32::from_rgba_unmultiplied(p.accent.r(), p.accent.g(), p.accent.b(), 56);
+        Color32::from_rgba_unmultiplied(p.accent.r(), p.accent.g(), p.accent.b(), 140);
     v.selection.stroke = Stroke::new(1.0, p.accent);
     v.handle_shape = HandleShape::Rect { aspect_ratio: 0.45 };
     paint_widgets(
@@ -347,8 +351,9 @@ fn light_visuals(p: Palette, r: Rounding) -> Visuals {
     v.window_rounding = Rounding::same(RADIUS_LG);
     v.menu_rounding = Rounding::same(RADIUS_MD);
     v.hyperlink_color = p.accent;
-    v.selection.bg_fill =
-        Color32::from_rgba_unmultiplied(p.accent.r(), p.accent.g(), p.accent.b(), 48);
+    // Solid accent for slider trails / progress. Soft alpha (~48) washed out
+    // to an invisible mint on paper chrome. Dark body text still reads on it.
+    v.selection.bg_fill = p.accent;
     v.selection.stroke = Stroke::new(1.0, p.accent);
     v.handle_shape = HandleShape::Rect { aspect_ratio: 0.45 };
     // Override light default greys with warm paper.
@@ -360,10 +365,12 @@ fn light_visuals(p: Palette, r: Rounding) -> Visuals {
         p.on_accent,
         r,
         WidgetColors {
-            inactive_bg: p.surface,
+            // Warm stone rail — pure surface (near-white) made empty slider
+            // tracks disappear against chrome_bg.
+            inactive_bg: Color32::from_rgb(214, 208, 198),
             inactive_border: Stroke::new(1.0, p.hairline),
             hover_bg: Color32::from_rgb(232, 246, 240),
-            hover_border: Color32::from_rgb(0, 150, 115),
+            hover_border: p.accent,
             open_bg: Color32::from_rgb(236, 248, 242),
             separator: p.hairline,
         },
