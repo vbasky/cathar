@@ -1173,7 +1173,7 @@ fn main() -> Result<()> {
                 let name = path.file_stem().unwrap().to_string_lossy();
 
                 let process = || -> Result<()> {
-                    let audio = cathar::AudioData::from_file(&path.to_string_lossy())?;
+                    let audio = cathar::AudioData::from_file(path)?;
                     let denoiser = cathar::SpectralDenoiser { alpha, beta, ..Default::default() };
                     let mut clean = denoiser.denoise(&audio)?;
 

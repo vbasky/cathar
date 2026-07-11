@@ -25,11 +25,14 @@ impl AudioData {
     /// extension and content.
     ///
     /// [`symphonia`]: https://crates.io/crates/symphonia
-    pub fn from_file(path: &str) -> Result<Self, Error> {
+    pub fn from_file(path: impl AsRef<std::path::Path>) -> Result<Self, Error> {
+        // Take `AsRef<Path>` so Windows paths from `rfd` / `PathBuf` are opened
+        // without a lossy `display()` round-trip (which can break File Open).
+        let path = path.as_ref();
         let file = std::fs::File::open(path)?;
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
         let mut hint = Hint::new();
-        if let Some(ext) = std::path::Path::new(path).extension().and_then(|e| e.to_str()) {
+        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             hint.with_extension(ext);
         }
         let mut format = symphonia::default::get_probe()
