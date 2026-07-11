@@ -43,6 +43,8 @@ winit = "0.30"
 # System audio playback — same engine the CLI `play` command uses.
 rodio = { version = "0.22.2", default-features = false, features = ["playback"] }
 egui-phosphor = "0.7.3"
+# Console Ctrl+C → hard exit (eframe may not wake; cpal/rodio Drop can hang on Windows).
+ctrlc = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Set NSProcessInfo process name so the menu bar shows "Cathar", not the crate id.
