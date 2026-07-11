@@ -685,74 +685,87 @@ impl CatharGui {
     ///
     /// Returns `true` on success. Always fully reloads even when `path` matches
     /// the current file (needed for playlist re-open / engine resync).
-    fn open(&mut self, ctx: &egui::Context, path: String) -> bool {
-        // Drop UI transport overrides so a prior scrub/EQ debounce cannot block
-        // the new buffer or keep volume at 0.
-        self.scrubbing = None;
-        self.eq_needs_reload = false;
-        if let Some(eng) = self.engine.as_mut() {
-            eng.clear_scrub_flag();
-            eng.pause();
-        }
+    ///
+    /// Accepts a real [`Path`] (not a `display()` string) so Windows paths from
+    /// the file dialog open correctly.
+    fn open(&mut self, ctx: &egui::Context, path: impl AsRef<std::path::Path>) -> bool {
+        let path = path.as_ref();
 
-        match AudioData::from_file(&path) {
-            Ok(audio) => {
-                self.sample_rate = audio.sample_rate;
-                self.n_channels = audio.channels.len();
-                // Default display: split when stereo so L/R are both visible.
-                self.channel_view =
-                    if is_stereo(&audio) { ChannelView::Split } else { ChannelView::Mid };
-                self.monitor = Monitor::Stereo;
-                self.original = Some(audio.clone());
-                self.history = vec![audio];
-                self.hist_idx = 0;
-                self.show_original = false;
-                self.selection = None;
-                self.drag_anchor = None;
-                self.preview = None;
-                self.noise_print = None;
-                self.meter_l = 0.0;
-                self.meter_r = 0.0;
-                // Invalidate GPU spectrogram immediately (unique name on recompute).
-                self.texture = None;
-                self.spec = None;
-                let pbuf = std::path::PathBuf::from(&path);
-                self.file_name = Some(
-                    pbuf.file_name()
-                        .map(|s| s.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| path.clone()),
-                );
-                self.file_path = Some(pbuf.clone());
-                // Reflect in playlist selection if this path is queued.
-                if let Some(i) = self.playlist.iter().position(|e| e.path == pbuf) {
-                    self.playlist_sel = Some(i);
-                } else if let Some(name) = self.file_name.clone() {
-                    // Single open: ensure a playlist entry for the queue view.
-                    if !self.playlist.iter().any(|e| e.path == pbuf) {
-                        self.playlist.push(PlaylistEntry { path: pbuf, name });
-                        self.playlist_sel = Some(self.playlist.len() - 1);
-                    }
-                }
-                if let Err(e) = self.reload_engine_result(true) {
-                    self.status = format!("Loaded file but playback failed: {e}");
-                } else {
-                    let ch = if self.n_channels >= 2 { "stereo" } else { "mono" };
-                    self.status = format!(
-                        "Loaded {} ({ch}, {} Hz)",
-                        self.file_name.as_deref().unwrap_or("file"),
-                        self.sample_rate
-                    );
-                }
-                self.sync_window_title(ctx);
-                self.recompute(ctx);
-                ctx.request_repaint();
-                true
-            }
+        // Decode first — never touch rodio until we have a buffer. Touching the
+        // engine before decode could hang/fail the whole open on some Windows setups.
+        let audio = match AudioData::from_file(path) {
+            Ok(a) => a,
             Err(e) => {
                 self.status = format!("Failed to open: {e}");
-                false
+                return false;
+            }
+        };
+
+        // Drop UI transport overrides so a prior scrub/EQ debounce cannot keep volume at 0.
+        self.scrubbing = None;
+        self.eq_needs_reload = false;
+
+        self.sample_rate = audio.sample_rate;
+        self.n_channels = audio.channels.len();
+        // Default display: split when stereo so L/R are both visible.
+        self.channel_view = if is_stereo(&audio) { ChannelView::Split } else { ChannelView::Mid };
+        self.monitor = Monitor::Stereo;
+        self.original = Some(audio.clone());
+        self.history = vec![audio];
+        self.hist_idx = 0;
+        self.show_original = false;
+        self.selection = None;
+        self.drag_anchor = None;
+        self.preview = None;
+        self.noise_print = None;
+        self.meter_l = 0.0;
+        self.meter_r = 0.0;
+        // Invalidate GPU spectrogram immediately (unique name on recompute).
+        self.texture = None;
+        self.spec = None;
+
+        let pbuf = path.to_path_buf();
+        self.file_name = Some(
+            pbuf.file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| pbuf.display().to_string()),
+        );
+        self.file_path = Some(pbuf.clone());
+        // Reflect in playlist selection if this path is queued.
+        if let Some(i) = self.playlist.iter().position(|e| e.path == pbuf) {
+            self.playlist_sel = Some(i);
+        } else if let Some(name) = self.file_name.clone() {
+            // Single open: ensure a playlist entry for the queue view.
+            if !self.playlist.iter().any(|e| e.path == pbuf) {
+                self.playlist.push(PlaylistEntry { path: pbuf, name });
+                self.playlist_sel = Some(self.playlist.len() - 1);
             }
         }
+
+        // Always show the editor so File → Open never "succeeds" while stuck on Playlist.
+        self.viewer_mode = ViewerMode::Spectrogram;
+
+        // Playback is best-effort — a device/engine error must not undo the load.
+        if let Some(eng) = self.engine.as_mut() {
+            eng.clear_scrub_flag();
+        }
+        if let Err(e) = self.reload_engine_result(true) {
+            self.status = format!(
+                "Loaded {} (playback unavailable: {e})",
+                self.file_name.as_deref().unwrap_or("file")
+            );
+        } else {
+            let ch = if self.n_channels >= 2 { "stereo" } else { "mono" };
+            self.status = format!(
+                "Loaded {} ({ch}, {} Hz)",
+                self.file_name.as_deref().unwrap_or("file"),
+                self.sample_rate
+            );
+        }
+        self.sync_window_title(ctx);
+        self.recompute(ctx);
+        ctx.request_repaint();
+        true
     }
 
     /// Buffer fed to the player: current edit/preview, with live EQ if enabled.
@@ -1291,7 +1304,8 @@ impl CatharGui {
             .add_filter("Audio", &["wav", "mp3", "flac", "ogg", "m4a", "aiff", "aif"])
             .pick_file()
         {
-            self.open(ctx, p.display().to_string());
+            // Pass PathBuf directly — never path.display().to_string() (breaks on Windows).
+            let _ = self.open(ctx, p);
         }
     }
 
@@ -1321,9 +1335,9 @@ impl CatharGui {
         }
         self.status = format!("Added {added} track(s) to playlist");
         if load_first {
-            if let Some(first) = self.playlist.first().map(|e| e.path.display().to_string()) {
+            if let Some(first) = self.playlist.first().map(|e| e.path.clone()) {
                 self.playlist_sel = Some(0);
-                self.open(ctx, first);
+                let _ = self.open(ctx, first);
             }
         }
     }
@@ -1337,12 +1351,10 @@ impl CatharGui {
             return;
         };
         self.playlist_sel = Some(idx);
-        // Always re-decode from disk (never assume the current buffer is this track).
-        let path = entry.path.to_string_lossy().into_owned();
-        if !self.open(ctx, path) {
+        // Always re-decode from disk via PathBuf (Windows-safe).
+        if !self.open(ctx, &entry.path) {
             return;
         }
-        self.viewer_mode = ViewerMode::Spectrogram;
         if autoplay {
             if let Some(eng) = self.engine.as_mut() {
                 eng.play();
