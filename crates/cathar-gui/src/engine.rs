@@ -144,6 +144,20 @@ impl Engine {
         drop(old);
     }
 
+    /// Tear down playback without blocking on audio-device Drop.
+    ///
+    /// On Windows, dropping cpal/rodio streams during process exit can hang
+    /// forever; we stop the player then `mem::forget` the stream so the OS
+    /// reclaims the device when the process actually ends.
+    pub(crate) fn force_shutdown(self) {
+        let Self { stream, player, .. } = self;
+        player.set_volume(0.0);
+        player.pause();
+        player.stop();
+        std::mem::forget(player);
+        std::mem::forget(stream);
+    }
+
     /// Apply [`Self::want_playing`] to the rodio player.
     fn apply_transport(&self) {
         if self.want_playing && self.loaded && !self.at_end() {

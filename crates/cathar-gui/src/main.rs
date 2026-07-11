@@ -18,6 +18,7 @@ mod theme;
 mod visualizer;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use app::CatharGui;
 use egui::IconData;
@@ -25,10 +26,35 @@ use egui::IconData;
 /// Product name shown in the OS menu bar, Dock, and window title.
 pub(crate) const APP_NAME: &str = "Cathar";
 
+/// Guards against re-entrant Ctrl+C while a previous handler is still running.
+static CTRL_C_SEEN: AtomicBool = AtomicBool::new(false);
+
+fn install_ctrl_c_handler() {
+    // Console Ctrl+C does not reliably deliver a winit event, so the eframe loop
+    // may never notice a graceful close flag if the app is idle. On Windows,
+    // dropping cpal/rodio streams during normal process teardown can also hang
+    // indefinitely. Use an immediate hard exit (skip destructors).
+    let result = ctrlc::set_handler(|| {
+        if CTRL_C_SEEN.swap(true, Ordering::SeqCst) {
+            // Second Ctrl+C while a previous exit is stuck — force again.
+            std::process::exit(130);
+        }
+        eprintln!("\nInterrupted — exiting {APP_NAME}.");
+        // `process::exit` does not run Drop; avoids rodio/cpal hang on Windows.
+        std::process::exit(130);
+    });
+    if let Err(e) = result {
+        // Non-fatal: GUI still works; only console interrupt is unavailable.
+        eprintln!("note: Ctrl+C handler not installed ({e})");
+    }
+}
+
 fn main() -> eframe::Result<()> {
     // Must run before NSApplication is created — menu bar uses process name.
     #[cfg(target_os = "macos")]
     macos::set_process_name(APP_NAME);
+
+    install_ctrl_c_handler();
 
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size([1280.0, 800.0])

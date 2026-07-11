@@ -1170,6 +1170,11 @@ impl CatharGui {
 
 impl eframe::App for CatharGui {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // Window close (title-bar X / Alt+F4): release audio without hanging.
+        if ctx.input(|i| i.viewport().close_requested()) {
+            self.shutdown_audio();
+        }
+
         if let Some(menu) = self.native_menu.as_mut() {
             menu.ensure_installed(frame);
         }
@@ -1243,9 +1248,20 @@ impl eframe::App for CatharGui {
             ctx.request_repaint_after(std::time::Duration::from_millis(33));
         }
     }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.shutdown_audio();
+    }
 }
 
 impl CatharGui {
+    /// Stop playback and drop the device without blocking (see [`Engine::force_shutdown`]).
+    fn shutdown_audio(&mut self) {
+        if let Some(eng) = self.engine.take() {
+            eng.force_shutdown();
+        }
+    }
+
     fn sync_window_title(&self, ctx: &egui::Context) {
         // Title bar: track name only (product name lives in the menu bar / Dock).
         let title = self.file_name.clone().unwrap_or_else(|| "Cathar".into());
