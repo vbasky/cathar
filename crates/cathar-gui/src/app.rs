@@ -574,6 +574,8 @@ pub(crate) struct CatharGui {
     visualizer: SpectrumViz,
     /// Debounce live EQ reloads while dragging faders.
     eq_needs_reload: bool,
+    /// Bumps on every spectrogram rebuild so egui never keeps a stale texture id/size.
+    spectro_tex_gen: u64,
 }
 
 impl CatharGui {
@@ -637,6 +639,7 @@ impl CatharGui {
             playlist_auto_advance: true,
             visualizer: SpectrumViz::new(),
             eq_needs_reload: false,
+            spectro_tex_gen: 0,
         }
     }
 
@@ -678,7 +681,20 @@ impl CatharGui {
         self.history.get(self.hist_idx)
     }
 
-    fn open(&mut self, ctx: &egui::Context, path: String) {
+    /// Load a file into the editor, replacing any previous buffer.
+    ///
+    /// Returns `true` on success. Always fully reloads even when `path` matches
+    /// the current file (needed for playlist re-open / engine resync).
+    fn open(&mut self, ctx: &egui::Context, path: String) -> bool {
+        // Drop UI transport overrides so a prior scrub/EQ debounce cannot block
+        // the new buffer or keep volume at 0.
+        self.scrubbing = None;
+        self.eq_needs_reload = false;
+        if let Some(eng) = self.engine.as_mut() {
+            eng.clear_scrub_flag();
+            eng.pause();
+        }
+
         match AudioData::from_file(&path) {
             Ok(audio) => {
                 self.sample_rate = audio.sample_rate;
@@ -692,8 +708,14 @@ impl CatharGui {
                 self.hist_idx = 0;
                 self.show_original = false;
                 self.selection = None;
+                self.drag_anchor = None;
                 self.preview = None;
                 self.noise_print = None;
+                self.meter_l = 0.0;
+                self.meter_r = 0.0;
+                // Invalidate GPU spectrogram immediately (unique name on recompute).
+                self.texture = None;
+                self.spec = None;
                 let pbuf = std::path::PathBuf::from(&path);
                 self.file_name = Some(
                     pbuf.file_name()
@@ -705,23 +727,31 @@ impl CatharGui {
                 if let Some(i) = self.playlist.iter().position(|e| e.path == pbuf) {
                     self.playlist_sel = Some(i);
                 } else if let Some(name) = self.file_name.clone() {
-                    // Single open: ensure a one-track playlist entry for the toggle view.
+                    // Single open: ensure a playlist entry for the queue view.
                     if !self.playlist.iter().any(|e| e.path == pbuf) {
                         self.playlist.push(PlaylistEntry { path: pbuf, name });
                         self.playlist_sel = Some(self.playlist.len() - 1);
                     }
                 }
-                self.reload_engine(true);
-                let ch = if self.n_channels >= 2 { "stereo" } else { "mono" };
-                self.status = format!(
-                    "Loaded {} ({ch}, {} Hz)",
-                    self.file_name.as_deref().unwrap_or("file"),
-                    self.sample_rate
-                );
+                if let Err(e) = self.reload_engine_result(true) {
+                    self.status = format!("Loaded file but playback failed: {e}");
+                } else {
+                    let ch = if self.n_channels >= 2 { "stereo" } else { "mono" };
+                    self.status = format!(
+                        "Loaded {} ({ch}, {} Hz)",
+                        self.file_name.as_deref().unwrap_or("file"),
+                        self.sample_rate
+                    );
+                }
                 self.sync_window_title(ctx);
                 self.recompute(ctx);
+                ctx.request_repaint();
+                true
             }
-            Err(e) => self.status = format!("Failed to open: {e}"),
+            Err(e) => {
+                self.status = format!("Failed to open: {e}");
+                false
+            }
         }
     }
 
@@ -743,11 +773,15 @@ impl CatharGui {
 
     /// Push current buffer to the engine with monitor routing (volume is live).
     fn reload_engine(&mut self, reset_pos: bool) {
+        let _ = self.reload_engine_result(reset_pos);
+    }
+
+    fn reload_engine_result(&mut self, reset_pos: bool) -> anyhow::Result<()> {
         let Some(audio) = self.audio_for_engine() else {
-            return;
+            return Ok(());
         };
         let Some(eng) = self.engine.as_mut() else {
-            return;
+            return Ok(());
         };
         eng.set_monitor(self.monitor);
         // Volume target only — load/reload keeps actual gain continuous.
@@ -755,14 +789,15 @@ impl CatharGui {
         if reset_pos {
             // Hard reset (open file, stop, etc.): always land paused at t=0.
             eng.pause();
-            let _ = eng.load(&audio);
+            eng.load(&audio)?;
         } else {
             // Live EQ / monitor change: keep playhead + transport intent.
             let pos = eng.pos();
             let playing = eng.is_playing();
-            let _ = eng.reload(&audio, pos, playing);
+            eng.reload(&audio, pos, playing)?;
         }
         self.eq_needs_reload = false;
+        Ok(())
     }
 
     /// Mark EQ dirty — applied next frame so fader drags stay smooth.
@@ -932,8 +967,7 @@ impl CatharGui {
                 let img_r = colorize(&sr_ch, self.db_floor, self.db_ceil);
                 let stacked = stack_vertical(&img_l, &img_r);
                 self.spec = Some(sl);
-                self.texture =
-                    Some(ctx.load_texture("spectrogram", stacked, TextureOptions::LINEAR));
+                self.store_spectro_texture(ctx, stacked);
             }
             view => {
                 let samples = channel_samples(&audio, view);
@@ -943,6 +977,13 @@ impl CatharGui {
                 self.recolor(ctx);
             }
         }
+    }
+
+    /// Upload spectrogram pixels under a unique name (avoids stale size/id reuse).
+    fn store_spectro_texture(&mut self, ctx: &egui::Context, img: egui::ColorImage) {
+        self.spectro_tex_gen = self.spectro_tex_gen.wrapping_add(1);
+        let name = format!("spectrogram_{}", self.spectro_tex_gen);
+        self.texture = Some(ctx.load_texture(name, img, TextureOptions::LINEAR));
     }
 
     fn recolor(&mut self, ctx: &egui::Context) {
@@ -960,8 +1001,7 @@ impl CatharGui {
                     &colorize(&sr_ch, self.db_floor, self.db_ceil),
                 );
                 self.spec = Some(sl);
-                self.texture =
-                    Some(ctx.load_texture("spectrogram", stacked, TextureOptions::LINEAR));
+                self.store_spectro_texture(ctx, stacked);
             }
             return;
         }
@@ -969,7 +1009,7 @@ impl CatharGui {
             Some(spec) => colorize(spec, self.db_floor, self.db_ceil),
             None => return,
         };
-        self.texture = Some(ctx.load_texture("spectrogram", img, TextureOptions::LINEAR));
+        self.store_spectro_texture(ctx, img);
     }
 
     fn push_edit(&mut self, ctx: &egui::Context, audio: AudioData) {
@@ -1297,7 +1337,11 @@ impl CatharGui {
             return;
         };
         self.playlist_sel = Some(idx);
-        self.open(ctx, entry.path.display().to_string());
+        // Always re-decode from disk (never assume the current buffer is this track).
+        let path = entry.path.to_string_lossy().into_owned();
+        if !self.open(ctx, path) {
+            return;
+        }
         self.viewer_mode = ViewerMode::Spectrogram;
         if autoplay {
             if let Some(eng) = self.engine.as_mut() {
@@ -3357,7 +3401,7 @@ impl CatharGui {
                 ui.add_space(4.0);
                 hint(
                     ui,
-                    "Add files or import M3U. Double-click a row to open. Transport ⏮/⏭ steps the queue.",
+                    "Add files or import M3U. Click a row (or Open) to load it. Transport ⏮/⏭ steps the queue.",
                 );
                 ui.add_space(8.0);
 
@@ -3406,8 +3450,8 @@ impl CatharGui {
                             } else {
                                 Stroke::new(1.0, theme::hairline())
                             };
-                            // Compact row height (content-sized). Buttons are outside the
-                            // title hit target so Open never loses the click to row-select.
+                            // Compact row: fixed title width so long paths never steal
+                            // the Open/remove hit targets. Clicking the row loads the track.
                             let mut open = false;
                             let mut remove = false;
                             let mut title_resp = None;
@@ -3417,49 +3461,64 @@ impl CatharGui {
                                 .rounding(theme::RADIUS_LG)
                                 .inner_margin(egui::Margin::symmetric(12.0, 10.0))
                                 .show(ui, |ui| {
-                                    // Cap vertical growth — never expand to the ScrollArea.
                                     ui.set_max_height(56.0);
                                     ui.horizontal(|ui| {
                                         ui.spacing_mut().item_spacing.x = 8.0;
-                                        // Title + path: click/double-click (not the buttons).
+                                        // Reserve space for Open + trash before laying out title.
+                                        const ACTIONS_W: f32 = 128.0;
+                                        let title_w =
+                                            (ui.available_width() - ACTIONS_W).max(100.0);
                                         let title = ui
-                                            .horizontal(|ui| {
-                                                ui.label(
-                                                    egui::RichText::new(format!("{:>3}", i + 1))
+                                            .allocate_ui_with_layout(
+                                                egui::vec2(title_w, 40.0),
+                                                egui::Layout::left_to_right(egui::Align::Center),
+                                                |ui| {
+                                                    ui.label(
+                                                        egui::RichText::new(format!(
+                                                            "{:>3}",
+                                                            i + 1
+                                                        ))
                                                         .monospace()
                                                         .size(theme::FONT_LABEL)
                                                         .color(theme::text_muted()),
-                                                );
-                                                ui.vertical(|ui| {
-                                                    ui.spacing_mut().item_spacing.y = 2.0;
-                                                    ui.label(
-                                                        egui::RichText::new(&entry.name)
-                                                            .size(theme::FONT_BODY)
-                                                            .strong()
-                                                            .color(theme::text()),
                                                     );
-                                                    ui.label(
-                                                        egui::RichText::new(
-                                                            entry.path.display().to_string(),
-                                                        )
-                                                        .size(11.0)
-                                                        .color(theme::text_muted()),
-                                                    );
-                                                });
-                                            })
+                                                    ui.add_space(8.0);
+                                                    ui.vertical(|ui| {
+                                                        ui.spacing_mut().item_spacing.y = 2.0;
+                                                        ui.add(
+                                                            egui::Label::new(
+                                                                egui::RichText::new(&entry.name)
+                                                                    .size(theme::FONT_BODY)
+                                                                    .strong()
+                                                                    .color(theme::text()),
+                                                            )
+                                                            .truncate(),
+                                                        );
+                                                        ui.add(
+                                                            egui::Label::new(
+                                                                egui::RichText::new(
+                                                                    entry
+                                                                        .path
+                                                                        .display()
+                                                                        .to_string(),
+                                                                )
+                                                                .size(11.0)
+                                                                .color(theme::text_muted()),
+                                                            )
+                                                            .truncate(),
+                                                        );
+                                                    });
+                                                },
+                                            )
                                             .response
                                             .interact(Sense::click())
                                             .on_hover_cursor(egui::CursorIcon::PointingHand)
-                                            .on_hover_text(
-                                                "Click to select · double-click to open",
-                                            );
+                                            .on_hover_text("Click to open in editor");
                                         title_resp = Some(title);
 
-                                        // Push actions to the right without growing height.
                                         ui.with_layout(
                                             egui::Layout::right_to_left(egui::Align::Center),
                                             |ui| {
-                                                // Phosphor trash — UI font has no ✕ (showed as □).
                                                 remove = ui
                                                     .add(
                                                         egui::Button::new(
@@ -3491,10 +3550,9 @@ impl CatharGui {
                             } else if remove {
                                 remove_idx = Some(i);
                             } else if let Some(resp) = title_resp {
-                                if resp.double_clicked() {
+                                // Single- or double-click on the row loads the track.
+                                if resp.clicked() || resp.double_clicked() {
                                     load_idx = Some(i);
-                                } else if resp.clicked() {
-                                    self.playlist_sel = Some(i);
                                 }
                             }
                             ui.add_space(4.0);
