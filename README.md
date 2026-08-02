@@ -54,6 +54,9 @@ cargo install --path crates/cathar-cli       # install the binary from source
 just setup        # one-time: enable pre-commit hook (fmt + clippy)
 just build        # build the workspace
 just test         # run all tests
+
+# Optional spectral-editor GUI (workspace crate; not on crates.io yet):
+cargo run -p cathar-gui --release            # launches the `Cathar` binary
 ```
 
 ```bash

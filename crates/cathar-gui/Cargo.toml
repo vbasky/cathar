@@ -1,6 +1,6 @@
 [package]
 name = "cathar-gui"
-version = "0.7.0"
+version = "0.7.1"
 description = "Spectral audio editor GUI for Cathar — pure-Rust restoration front-end with its own visual identity."
 edition.workspace = true
 rust-version.workspace = true

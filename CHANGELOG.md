@@ -9,6 +9,45 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+### Added
+
+- **`cathar-gui`** — optional spectral editor (`Cathar` binary): spectrogram +
+  selection heal, toolbox FX covering the restoration chain, playlist/queue,
+  bottom transport with live meters, graphic EQ (live monitor), undo/redo and
+  A/B compare, light/dark theme, native menus. De-click / de-clip expose the
+  v0.7.1 method pickers (AR/cubic; SPADE/social/OMP/NMF/neural/cubic). Status
+  bar with spectrogram **t × f** cursor readout. Undo history capped at 40
+  states. Linux CI installs eframe/rodio system deps; release archives ship both
+  `cathar` and `Cathar` when present. ROADMAP treats the desktop GUI as an
+  optional workspace member (no longer “out of scope”).
+
+### Changed
+
+- **Biquad EQ** — transposed direct form II + `graphic_eq` for the GUI live EQ
+  path (library improvement shared with the CLI surface).
+
+## [0.7.1] - 2026-08-02
+
+De-click / de-clip method selection and survey-family reconstruction algorithms
+([#17](https://github.com/vbasky/cathar/issues/17)).
+
+### Added
+
+- **`declick --method ar|cubic`** — reconstruction is selectable. Default is
+  autoregressive Janssen interpolation (same family as `inpaint`); `cubic` keeps
+  the legacy Hermite fill. Library: `DeclickMethod`, `declick_with_method`.
+- **`declip --method spade|cubic|social|omp|nmf|neural`** — A-SPADE remains
+  the default (survey-preferred sparse Gabor reconstruction). Additional pure-
+  Rust methods from the Rajmic et al. / Adler / Bilen lineage:
+  - `social` — Persistent Empirical Wiener (PEW) social sparsity on a
+    time-frequency neighbourhood + consistency projection
+  - `omp` — constrained matching pursuit on a per-frame DFT dictionary
+  - `nmf` — low-rank NMF of the STFT magnitude, phase retained
+  - `neural` — deep-unfolded soft-threshold ISTA (LISTA-style, weight-free;
+    not a supervised DeclipNet — those need trained checkpoints)
+  - `cubic` — fast shoulder-Hermite fill for light clips / previews
+  Library: `DeclipMethod`, `declip_with_method` (module `declip`).
+
 ### Changed
 
 - **Book** — brought chapters in line with `v0.6.1`–`v0.7.0`: fixed stale vinyl

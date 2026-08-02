@@ -21,7 +21,8 @@ use crate::spectro::{
 use crate::theme::{self, Appearance};
 use crate::visualizer::SpectrumViz;
 use cathar::{
-    AudioData, Denoiser, EnhanceMethod, NoisePrint, SpectralDenoiser, Spectrogram, StretchMode,
+    AudioData, DeclickMethod, DeclipMethod, Denoiser, EnhanceMethod, NoisePrint, SpectralDenoiser,
+    Spectrogram, StretchMode,
 };
 use egui::{Color32, Pos2, Rect, Sense, Stroke, TextureHandle, TextureOptions, Theme, pos2};
 
@@ -29,6 +30,8 @@ const FFT_SIZE: usize = 2048;
 const HOP: usize = 512;
 /// Max spectrogram columns (GPU texture side limit is 16384; leave margin).
 const MAX_COLS: usize = 16000;
+/// Cap undo history so long sessions don't blow RAM (each step holds full audio).
+const MAX_HISTORY: usize = 40;
 
 /// Active floating module window (RX Modules list → panel).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -386,7 +389,9 @@ struct FxParams {
     // declick / decrackle / declip
     declick_threshold: f32,
     declick_window: usize,
+    declick_method: DeclickMethod,
     declip_threshold: f32,
+    declip_method: DeclipMethod,
     decrackle_sensitivity: f32,
     // deess
     deess_crossover: f32,
@@ -455,7 +460,9 @@ impl Default for FxParams {
             hum_adaptive: false,
             declick_threshold: 5.0,
             declick_window: 64,
+            declick_method: DeclickMethod::Ar,
             declip_threshold: 0.95,
+            declip_method: DeclipMethod::Spade,
             decrackle_sensitivity: 5.0,
             deess_crossover: 6000.0,
             deess_threshold_db: -30.0,
@@ -576,6 +583,8 @@ pub(crate) struct CatharGui {
     eq_needs_reload: bool,
     /// Bumps on every spectrogram rebuild so egui never keeps a stale texture id/size.
     spectro_tex_gen: u64,
+    /// Live spectrogram cursor in physical units `(seconds, Hz)` when hovering.
+    cursor_tf: Option<(f32, f32)>,
 }
 
 impl CatharGui {
@@ -640,6 +649,7 @@ impl CatharGui {
             visualizer: SpectrumViz::new(),
             eq_needs_reload: false,
             spectro_tex_gen: 0,
+            cursor_tf: None,
         }
     }
 
@@ -1028,6 +1038,11 @@ impl CatharGui {
     fn push_edit(&mut self, ctx: &egui::Context, audio: AudioData) {
         self.history.truncate(self.hist_idx + 1);
         self.history.push(audio);
+        // Drop oldest committed states when the stack grows too large (keep index 0
+        // as "Initial State" only while the stack is small; after that, slide).
+        while self.history.len() > MAX_HISTORY {
+            self.history.remove(0);
+        }
         self.hist_idx = self.history.len() - 1;
         self.show_original = false;
         self.preview = None;
@@ -1227,6 +1242,7 @@ impl eframe::App for CatharGui {
         let volume_ramping = self.engine.as_mut().is_some_and(|e| e.tick_volume());
 
         // No in-window File/Edit/View — those live in the OS menu bar.
+        // First bottom panel sits at the outer edge — player transport is bottommost.
         self.toolbar(ctx);
         if self.viewer_mode == ViewerMode::Spectrogram {
             self.overview_strip(ctx);
@@ -1865,12 +1881,12 @@ impl CatharGui {
     fn player_bar(&mut self, ctx: &egui::Context) {
         // Content ≈ 36px + 6+6 margin = 48; use 52 for hairline breathing room.
         egui::TopBottomPanel::bottom("player")
-            .exact_height(52.0)
+            .exact_height(72.0)
             .frame(
                 egui::Frame::none()
                     .fill(theme::player_bar())
                     .stroke(Stroke::new(1.0, theme::hairline()))
-                    .inner_margin(egui::Margin::symmetric(10.0, 6.0)),
+                    .inner_margin(egui::Margin::symmetric(10.0, 4.0)),
             )
             .show(ctx, |ui| {
                 let eng_pos = self.engine.as_ref().map(|e| e.pos()).unwrap_or(0.0);
@@ -1976,10 +1992,10 @@ impl CatharGui {
 
                     ui.separator();
 
-                    // ── Scrub: takes leftover after fixed right block ───────
+                    // ── Scrub: take remaining space after fixed right block ─
                     // Right block ≈ headphones+chips(190) + meters(120) + vol(140) + gaps
                     const RIGHT_FIXED: f32 = 190.0 + 120.0 + 140.0 + 24.0;
-                    let scrub_w = (ui.available_width() - RIGHT_FIXED).clamp(64.0, 360.0);
+                    let scrub_w = (ui.available_width() - RIGHT_FIXED).clamp(96.0, 720.0);
                     self.player_scrubber(ui, scrub_w, pos, dur, has);
 
                     ui.separator();
@@ -2022,6 +2038,50 @@ impl CatharGui {
 
                     // ── Volume ─────────────────────────────────────────────
                     self.player_volume_control(ui);
+                });
+
+                // Status + cursor readout (numeric grid values for spectro hover).
+                ui.add_space(2.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    let status =
+                        if self.status.is_empty() { "Ready" } else { self.status.as_str() };
+                    ui.label(
+                        egui::RichText::new(status)
+                            .size(theme::FONT_CAPTION)
+                            .color(theme::text_muted()),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if let Some((t, f)) = self.cursor_tf {
+                            let t_s = fmt_time_player(t);
+                            let f_s = if f >= 1000.0 {
+                                format!("{:.2} kHz", f / 1000.0)
+                            } else {
+                                format!("{f:.0} Hz")
+                            };
+                            ui.label(
+                                egui::RichText::new(format!("f {f_s}  ·  t {t_s}"))
+                                    .monospace()
+                                    .size(11.0)
+                                    .color(theme::text().gamma_multiply(0.9)),
+                            )
+                            .on_hover_text("Spectrogram cursor (time × frequency)");
+                        } else if has {
+                            ui.label(
+                                egui::RichText::new("Hover spectrogram for t / f")
+                                    .size(theme::FONT_CAPTION)
+                                    .color(theme::text_muted().gamma_multiply(0.75)),
+                            );
+                        }
+                        if let Some(name) = &self.file_name {
+                            ui.label(
+                                egui::RichText::new(name)
+                                    .size(theme::FONT_CAPTION)
+                                    .color(theme::text_muted()),
+                            );
+                            ui.separator();
+                        }
+                    });
                 });
             });
     }
@@ -2595,17 +2655,83 @@ impl CatharGui {
         param_f32(ui, "Threshold × RMS", &mut self.fx.declick_threshold, 1.0..=12.0, 1);
         param_usize(ui, "Window (samples)", &mut self.fx.declick_window, 8..=512);
         hint(ui, "Lower threshold catches more clicks; higher is gentler.");
+        section(ui, "Reconstruction");
+        let method_label = match self.fx.declick_method {
+            DeclickMethod::Ar => "AR (Janssen)",
+            DeclickMethod::Cubic => "Cubic Hermite",
+        };
+        egui::ComboBox::from_label("Method").selected_text(method_label).show_ui(ui, |ui| {
+            ui.selectable_value(
+                &mut self.fx.declick_method,
+                DeclickMethod::Ar,
+                "AR (Janssen) — default",
+            );
+            ui.selectable_value(
+                &mut self.fx.declick_method,
+                DeclickMethod::Cubic,
+                "Cubic Hermite — legacy / fast",
+            );
+        });
+        hint(ui, "AR models the surrounding waveform (same family as Inpaint).");
         let (preview, bypass, compare, render) = action_row(ui);
         self.run_fx(ctx, preview, bypass, compare, render, "de-click", |a, fx| {
-            let (t, w) = (fx.declick_threshold, fx.declick_window);
-            a.map_channels(|c| cathar::declick(c, t, w))
+            let (t, w, m) = (fx.declick_threshold, fx.declick_window, fx.declick_method);
+            a.map_channels(|c| cathar::declick_with_method(c, t, w, m))
         });
     }
 
     fn fx_declip(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         section(ui, "Clip detect");
         param_f32(ui, "Clip level", &mut self.fx.declip_threshold, 0.5..=1.0, 3);
-        hint(ui, "Samples at/above this linear level are rebuilt (A-SPADE).");
+        hint(ui, "Samples at/above this linear level are treated as clipped.");
+        section(ui, "Reconstruction");
+        let method_label = match self.fx.declip_method {
+            DeclipMethod::Spade => "A-SPADE",
+            DeclipMethod::Social => "Social (PEW)",
+            DeclipMethod::Omp => "OMP",
+            DeclipMethod::Nmf => "NMF",
+            DeclipMethod::Neural => "Neural (ISTA)",
+            DeclipMethod::Cubic => "Cubic Hermite",
+        };
+        egui::ComboBox::from_label("Method").selected_text(method_label).show_ui(ui, |ui| {
+            ui.selectable_value(
+                &mut self.fx.declip_method,
+                DeclipMethod::Spade,
+                "A-SPADE — default (survey-preferred)",
+            );
+            ui.selectable_value(
+                &mut self.fx.declip_method,
+                DeclipMethod::Social,
+                "Social sparsity (PEW)",
+            );
+            ui.selectable_value(
+                &mut self.fx.declip_method,
+                DeclipMethod::Omp,
+                "Constrained OMP (DFT)",
+            );
+            ui.selectable_value(&mut self.fx.declip_method, DeclipMethod::Nmf, "NMF spectrogram");
+            ui.selectable_value(
+                &mut self.fx.declip_method,
+                DeclipMethod::Neural,
+                "Deep-unfolded ISTA",
+            );
+            ui.selectable_value(
+                &mut self.fx.declip_method,
+                DeclipMethod::Cubic,
+                "Cubic Hermite — fast / light clips",
+            );
+        });
+        hint(
+            ui,
+            match self.fx.declip_method {
+                DeclipMethod::Spade => "Sparse Gabor reconstruction; best quality default.",
+                DeclipMethod::Social => "PEW neighbourhood shrink + consistency projection.",
+                DeclipMethod::Omp => "Greedy DFT matching pursuit per frame.",
+                DeclipMethod::Nmf => "Low-rank magnitude model; slower on long files.",
+                DeclipMethod::Neural => "Multi-layer soft-threshold ISTA (no trained weights).",
+                DeclipMethod::Cubic => "Fast shoulder fill — light clips / previews only.",
+            },
+        );
         // Histogram helps set clip level.
         section(ui, "Level reference");
         if self.has_audio() {
@@ -2613,8 +2739,8 @@ impl CatharGui {
         }
         let (preview, bypass, compare, render) = action_row(ui);
         self.run_fx(ctx, preview, bypass, compare, render, "de-clip", |a, fx| {
-            let t = fx.declip_threshold;
-            a.map_channels(|c| cathar::declip(c, t))
+            let (t, m) = (fx.declip_threshold, fx.declip_method);
+            a.map_channels(|c| cathar::declip_with_method(c, t, m))
         });
     }
 
@@ -3732,6 +3858,7 @@ impl CatharGui {
                                     self.handle_spectro_interaction(&resp, image);
                                     self.draw_selection(&painter, image);
                                     self.draw_playhead(&painter, image);
+                                    self.draw_cursor_crosshair(&painter, image);
                                 }
                             });
                     },
@@ -3794,6 +3921,13 @@ impl CatharGui {
         let to_time = |x: f32| ((x - rect.left()) / rect.width()).clamp(0.0, 1.0) * dur;
         let to_freq = |y: f32| (1.0 - ((y - rect.top()) / rect.height()).clamp(0.0, 1.0)) * nyq;
 
+        // Numeric readout for the pointer (status bar) + soft crosshair cue.
+        if let Some(p) = resp.hover_pos().filter(|p| rect.contains(*p)) {
+            self.cursor_tf = Some((to_time(p.x), to_freq(p.y)));
+        } else if !resp.hovered() {
+            self.cursor_tf = None;
+        }
+
         if resp.drag_started() {
             self.drag_anchor = resp.interact_pointer_pos();
         }
@@ -3841,6 +3975,20 @@ impl CatharGui {
             [pos2(x, rect.top()), pos2(x, rect.bottom())],
             Stroke::new(1.5, theme::playhead()),
         );
+    }
+
+    /// Soft crosshair at the spectrogram cursor (pairs with status-bar t/f readout).
+    fn draw_cursor_crosshair(&self, painter: &egui::Painter, rect: Rect) {
+        let Some((t, f)) = self.cursor_tf else { return };
+        if self.duration <= 0.0 {
+            return;
+        }
+        let nyq = self.nyquist();
+        let x = rect.left() + (t / self.duration).clamp(0.0, 1.0) * rect.width();
+        let y = rect.top() + (1.0 - (f / nyq).clamp(0.0, 1.0)) * rect.height();
+        let c = theme::accent().gamma_multiply(0.55);
+        painter.line_segment([pos2(x, rect.top()), pos2(x, rect.bottom())], Stroke::new(1.0, c));
+        painter.line_segment([pos2(rect.left(), y), pos2(rect.right(), y)], Stroke::new(1.0, c));
     }
 
     fn draw_waveform_env(

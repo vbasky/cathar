@@ -282,12 +282,15 @@ here repeats it.
 - Stable, semver-guaranteed library API.
 - Comprehensive format coverage (pure-Rust default; C-backed codecs opt-in).
 - Plugin formats — CLAP (via `nih-plug`) and/or VST3/LV2 — so Cathar runs inside
-  a DAW — the primary integration path for a graphical workflow (a standalone
-  desktop GUI is out of scope for the core project; collaboration with external
-  tools such as
+  a DAW (still the preferred *in-session* integration path).
+- **Optional desktop GUI** — the `cathar-gui` crate (`Cathar` binary) is an
+  in-tree spectral editor (egui): spectrogram + selection, toolbox FX, playlist,
+  live graphic EQ, transport. Shipped as a workspace member and release asset
+  alongside the CLI; not required for library / CLI use. DAW plugins and
+  collaboration with external tools such as
   [SpectraMini](https://github.com/hamiltonbarber/SpectraMini) or
   [Vinyl Restoration Suite](https://github.com/flarkflarkflark/AudioRestorationVST)
-  is encouraged — see [#12](https://github.com/vbasky/cathar/issues/12)).
+  remain welcome — see [#12](https://github.com/vbasky/cathar/issues/12).
 
 ---
 
