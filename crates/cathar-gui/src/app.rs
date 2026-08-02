@@ -530,8 +530,16 @@ pub(crate) struct CatharGui {
     channel_view: ChannelView,
     /// Playback routing (independent of display view).
     monitor: Monitor,
-    /// Output gain 0…1.5 (engine linear volume).
+    /// Output gain 0…1.5 (engine linear volume). When muted, engine hears 0.
     volume: f32,
+    /// Mute leaves [`Self::volume`] intact so unmute restores the slider.
+    muted: bool,
+    /// Whole-file loop (end → start).
+    loop_file: bool,
+    /// A–B loop region in seconds (`a < b`). Takes priority over [`Self::loop_file`].
+    ab_loop: Option<(f32, f32)>,
+    /// One-shot: pause when playhead reaches this time (play-selection).
+    play_until: Option<f32>,
     /// Current selection in physical units (seconds, Hz).
     selection: Option<Selection>,
     drag_anchor: Option<Pos2>,
@@ -618,6 +626,10 @@ impl CatharGui {
             channel_view: ChannelView::Mid,
             monitor: Monitor::Stereo,
             volume: 1.0,
+            muted: false,
+            loop_file: false,
+            ab_loop: None,
+            play_until: None,
             selection: None,
             drag_anchor: None,
             show_original: false,
@@ -803,12 +815,14 @@ impl CatharGui {
         let Some(audio) = self.audio_for_engine() else {
             return Ok(());
         };
+        let vol = self.effective_volume();
+        let mon = self.monitor;
         let Some(eng) = self.engine.as_mut() else {
             return Ok(());
         };
-        eng.set_monitor(self.monitor);
+        eng.set_monitor(mon);
         // Volume target only — load/reload keeps actual gain continuous.
-        eng.set_volume(self.volume);
+        eng.set_volume(vol);
         if reset_pos {
             // Hard reset (open file, stop, etc.): always land paused at t=0.
             eng.pause();
@@ -919,17 +933,129 @@ impl CatharGui {
         ((x - rail.left()) / rail.width()).clamp(0.0, 1.0) * duration
     }
 
+    /// Gain sent to the engine (0 while muted).
+    fn effective_volume(&self) -> f32 {
+        if self.muted { 0.0 } else { self.volume }
+    }
+
+    fn apply_volume_to_engine(&mut self) {
+        let v = self.effective_volume();
+        if let Some(eng) = self.engine.as_mut() {
+            eng.set_volume(v);
+        }
+    }
+
+    fn toggle_mute(&mut self) {
+        self.muted = !self.muted;
+        self.apply_volume_to_engine();
+        self.status = if self.muted { "Muted".into() } else { "Unmuted".into() };
+    }
+
+    fn toggle_loop_file(&mut self) {
+        self.loop_file = !self.loop_file;
+        if self.loop_file {
+            self.play_until = None; // whole-file loop, not one-shot
+            self.status = "Loop file on".into();
+        } else {
+            self.status = "Loop file off".into();
+        }
+    }
+
+    /// Set A–B from the spectrogram selection (or clear if none).
+    fn ab_from_selection(&mut self) {
+        if let Some(sel) = self.selection {
+            let a = sel.t0.min(sel.t1);
+            let b = sel.t0.max(sel.t1);
+            if b - a > 0.02 {
+                self.ab_loop = Some((a, b));
+                self.play_until = None;
+                self.status = format!("A–B loop  {a:.2}s → {b:.2}s");
+                return;
+            }
+        }
+        self.status = "Draw a spectrogram selection for A–B loop".into();
+    }
+
+    fn set_loop_a_from_playhead(&mut self) {
+        let t = self.engine.as_ref().map(|e| e.pos()).unwrap_or(0.0);
+        let b = self.ab_loop.map(|(_, b)| b).unwrap_or((t + 1.0).min(self.duration.max(t + 0.1)));
+        let (a, b) = if t < b { (t, b) } else { (b.min(t), t.max(b)) };
+        if b - a > 0.02 {
+            self.ab_loop = Some((a, b));
+            self.status = format!("Loop A = {a:.2}s  (B = {b:.2}s)");
+        }
+    }
+
+    fn set_loop_b_from_playhead(&mut self) {
+        let t = self.engine.as_ref().map(|e| e.pos()).unwrap_or(0.0);
+        let a = self.ab_loop.map(|(a, _)| a).unwrap_or(0.0);
+        let (a, b) = if a < t { (a, t) } else { (t, a.max(t + 0.05)) };
+        if b - a > 0.02 {
+            self.ab_loop = Some((a, b));
+            self.play_until = None;
+            self.status = format!("Loop B = {b:.2}s  (A = {a:.2}s)");
+        }
+    }
+
+    fn clear_ab_loop(&mut self) {
+        self.ab_loop = None;
+        self.play_until = None;
+        self.status = "A–B loop cleared".into();
+    }
+
+    /// Play only the spectrogram selection (one-shot), or loop it if Loop is on.
+    fn play_selection(&mut self) {
+        let Some(sel) = self.selection else {
+            self.status = "Draw a selection on the spectrogram first".into();
+            return;
+        };
+        let a = sel.t0.min(sel.t1);
+        let b = sel.t0.max(sel.t1);
+        if b - a < 0.02 {
+            self.status = "Selection too short".into();
+            return;
+        }
+        if self.loop_file {
+            self.ab_loop = Some((a, b));
+            self.play_until = None;
+            self.status = format!("Looping selection  {a:.2}s → {b:.2}s");
+        } else {
+            self.play_until = Some(b);
+            self.status = format!("Playing selection  {a:.2}s → {b:.2}s");
+        }
+        self.scrubbing = None;
+        if let Some(eng) = self.engine.as_mut() {
+            eng.clear_scrub_flag();
+        }
+        // Seek to start of region then play.
+        if self.engine.as_ref().is_some_and(|e| e.at_end() || e.needs_reload_to_restart()) {
+            self.reload_engine(true);
+        }
+        if let Some(eng) = self.engine.as_mut() {
+            eng.seek(a);
+            eng.play();
+        }
+    }
+
     fn transport_play_pause(&mut self) {
         // Drop scrub mute without apply_transport — toggle/play owns transport.
         self.scrubbing = None;
         if let Some(eng) = self.engine.as_mut() {
             eng.clear_scrub_flag();
         }
+        // Starting play clears one-shot end unless A–B is active.
+        if self.engine.as_ref().is_some_and(|e| e.is_paused()) && self.ab_loop.is_none() {
+            self.play_until = None;
+        }
         let need_reload = self.engine.as_ref().is_some_and(|e| e.needs_reload_to_restart());
         if need_reload {
             // Source fully finished — re-append buffer from t=0, then play.
+            let start = self.ab_loop.map(|(a, _)| a).unwrap_or(0.0);
             self.reload_engine(true);
             if let Some(eng) = self.engine.as_mut() {
+                if start > 0.02 {
+                    eng.seek(start);
+                }
                 eng.play();
             }
             return;
@@ -941,6 +1067,7 @@ impl CatharGui {
 
     fn transport_stop(&mut self) {
         self.scrubbing = None;
+        self.play_until = None;
         if let Some(eng) = self.engine.as_mut() {
             eng.clear_scrub_flag();
         }
@@ -953,6 +1080,67 @@ impl CatharGui {
         }
         self.meter_l = 0.0;
         self.meter_r = 0.0;
+    }
+
+    /// A–B wrap, play-selection end, whole-file loop, or playlist advance.
+    fn tick_transport_bounds(&mut self, ctx: &egui::Context) {
+        let Some(eng) = self.engine.as_ref() else { return };
+        if !eng.is_loaded() || eng.is_paused() || eng.is_scrubbing() {
+            return;
+        }
+        let pos = eng.pos();
+        let at_end = eng.at_end();
+
+        // One-shot play-selection: stop at end of region.
+        if let Some(until) = self.play_until {
+            if pos >= until - 0.03 || at_end {
+                self.play_until = None;
+                if let Some(eng) = self.engine.as_mut() {
+                    eng.pause();
+                    if !at_end {
+                        eng.seek(until);
+                    }
+                }
+                self.status = "Selection end".into();
+                return;
+            }
+        }
+
+        // A–B loop: wrap before draining the source.
+        if let Some((a, b)) = self.ab_loop {
+            if pos >= b - 0.03 || (at_end && b >= self.duration - 0.05) {
+                if at_end {
+                    self.reload_engine(true);
+                    if let Some(eng) = self.engine.as_mut() {
+                        eng.seek(a);
+                        eng.play();
+                    }
+                } else if let Some(eng) = self.engine.as_mut() {
+                    eng.seek(a);
+                }
+                return;
+            }
+        }
+
+        if !at_end {
+            return;
+        }
+
+        // Whole-file loop.
+        if self.loop_file {
+            self.reload_engine(true);
+            if let Some(eng) = self.engine.as_mut() {
+                eng.play();
+            }
+            return;
+        }
+
+        // Playlist auto-advance, else pause.
+        if !(self.playlist_auto_advance && self.playlist_advance(ctx, 1, true)) {
+            if let Some(eng) = self.engine.as_mut() {
+                eng.pause();
+            }
+        }
     }
 
     fn stereo_file(&self) -> bool {
@@ -1197,18 +1385,9 @@ impl eframe::App for CatharGui {
         self.sync_native_menu_enabled();
         self.handle_player_keys(ctx);
 
-        // End-of-track: auto-advance playlist, else just pause.
-        // Never seek-to-end here — rodio try_seek can hang once the source has
-        // finished draining (was freezing the whole UI after a song ended).
-        let at_end = self
-            .engine
-            .as_ref()
-            .is_some_and(|eng| eng.is_loaded() && !eng.is_paused() && eng.at_end());
-        if at_end && !(self.playlist_auto_advance && self.playlist_advance(ctx, 1, true)) {
-            if let Some(eng) = self.engine.as_mut() {
-                eng.pause();
-            }
-        }
+        // Loop / A–B / play-selection / end-of-track handling.
+        // Never seek-to-end on a drained source — rodio try_seek can hang.
+        self.tick_transport_bounds(ctx);
 
         self.sync_system_theme(ctx);
         self.tick_meters();
@@ -1520,6 +1699,15 @@ impl CatharGui {
                 i.key_pressed(egui::Key::Home),
                 i.key_pressed(egui::Key::Z),
                 i.key_pressed(egui::Key::Y),
+                i.key_pressed(egui::Key::M),
+                i.key_pressed(egui::Key::L),
+                shift && i.key_pressed(egui::Key::L),
+                i.key_pressed(egui::Key::A) && !cmd,
+                i.key_pressed(egui::Key::B) && !cmd,
+                shift && i.key_pressed(egui::Key::A) && !cmd,
+                i.key_pressed(egui::Key::P) && !cmd,
+                i.key_pressed(egui::Key::C) && !cmd,
+                shift,
             )
         });
         let (
@@ -1540,6 +1728,15 @@ impl CatharGui {
             home,
             z,
             y,
+            key_m,
+            key_l,
+            key_shift_l,
+            key_a,
+            key_b,
+            key_shift_a,
+            key_p,
+            key_c,
+            shift,
         ) = keys;
 
         if cmd_o {
@@ -1592,18 +1789,54 @@ impl CatharGui {
         if space && self.has_audio() {
             self.transport_play_pause();
         }
+        // Shift+←/→ = ±1s, plain = ±5s.
         if left && self.has_audio() {
+            let dt = if shift { -1.0 } else { -5.0 };
             if let Some(eng) = &self.engine {
-                eng.skip(-5.0);
+                eng.skip(dt);
             }
         }
         if right && self.has_audio() {
+            let dt = if shift { 1.0 } else { 5.0 };
             if let Some(eng) = &self.engine {
-                eng.skip(5.0);
+                eng.skip(dt);
             }
         }
         if home && self.has_audio() {
             self.seek_to(0.0);
+        }
+        if key_m {
+            self.toggle_mute();
+            return;
+        }
+        if key_shift_l {
+            self.clear_ab_loop();
+            return;
+        }
+        if key_l {
+            self.toggle_loop_file();
+            return;
+        }
+        if key_shift_a {
+            self.ab_from_selection();
+            return;
+        }
+        if key_a && self.has_audio() {
+            self.set_loop_a_from_playhead();
+            return;
+        }
+        if key_b && self.has_audio() {
+            self.set_loop_b_from_playhead();
+            return;
+        }
+        if key_p && self.has_audio() {
+            self.play_selection();
+            return;
+        }
+        if key_c && self.has_audio() {
+            // A/B compare while playing — keeps playhead via reload_engine(false).
+            self.toggle_compare(ctx);
+            return;
         }
         if z {
             self.undo(ctx);
@@ -1956,6 +2189,42 @@ impl CatharGui {
                         self.playlist_next(ctx);
                     }
 
+                    // Loop file · play selection · A–B from selection
+                    if ui
+                        .add(toolbar_toggle(self.loop_file, icons::LOOP))
+                        .on_hover_text(if self.loop_file {
+                            "Loop file off (L)"
+                        } else {
+                            "Loop file on (L) — with selection: loop selection"
+                        })
+                        .clicked()
+                    {
+                        self.toggle_loop_file();
+                    }
+                    if ui
+                        .add_enabled(has && self.selection.is_some(), toolbar_button(icons::PLAY))
+                        .on_hover_text("Play selection (P) — loops if Loop is on")
+                        .clicked()
+                    {
+                        self.play_selection();
+                    }
+                    let ab_on = self.ab_loop.is_some();
+                    if ui
+                        .add_enabled(has, toolbar_toggle(ab_on, icons::ARROWS_OUT_LINE_HORIZONTAL))
+                        .on_hover_text(if ab_on {
+                            "Clear A–B loop (⇧L)"
+                        } else {
+                            "A–B from selection (⇧A) · set A/B at playhead (A / B)"
+                        })
+                        .clicked()
+                    {
+                        if ab_on {
+                            self.clear_ab_loop();
+                        } else {
+                            self.ab_from_selection();
+                        }
+                    }
+
                     ui.separator();
 
                     // ── Time: "MM:SS.s / MM:SS.s" fixed slot ───────────────
@@ -1992,8 +2261,8 @@ impl CatharGui {
                     ui.separator();
 
                     // ── Scrub (middle): leave room for the full right cluster ─
-                    // chips(~200) + meters(~125) + volume(168) + seps(~32) + slack
-                    const RIGHT_RESERVE: f32 = 200.0 + 125.0 + 168.0 + 32.0 + 16.0; // 541
+                    // chips(~200) + meters(~125) + volume(200) + seps(~32) + slack
+                    const RIGHT_RESERVE: f32 = 200.0 + 125.0 + 200.0 + 32.0 + 16.0; // 573
                     let scrub_w = (ui.available_width() - RIGHT_RESERVE).clamp(80.0, 900.0);
                     self.player_scrubber(ui, scrub_w, pos, dur, has);
 
@@ -2091,13 +2360,27 @@ impl CatharGui {
         let scrub_id = ui.make_persistent_id("player_scrubber");
         let scrub_resp = ui.interact(scrub_rect, scrub_id, Sense::click_and_drag());
 
-        const RAIL_H: f32 = 4.0;
+        const RAIL_H: f32 = 5.0;
         let rail = Rect::from_center_size(
             scrub_rect.center(),
             egui::vec2(scrub_rect.width().max(1.0), RAIL_H),
         );
-        ui.painter().rect_filled(rail, 2.0, theme::well_bg());
+        // Higher-contrast empty rail in dark mode (well_bg ≈ player_bar was muddy).
+        ui.painter().rect_filled(rail, 2.0, theme::surface());
         ui.painter().rect_stroke(rail, 2.0, Stroke::new(1.0, theme::hairline()));
+
+        // A–B loop region tint on the rail.
+        if let Some((a, b)) = self.ab_loop {
+            if dur > 0.0 {
+                let x0 = rail.left() + (a / dur).clamp(0.0, 1.0) * rail.width();
+                let x1 = rail.left() + (b / dur).clamp(0.0, 1.0) * rail.width();
+                ui.painter().rect_filled(
+                    Rect::from_min_max(pos2(x0, rail.top()), pos2(x1, rail.bottom())),
+                    2.0,
+                    theme::selection_fill(),
+                );
+            }
+        }
 
         let frac = if dur > 0.0 { (pos / dur).clamp(0.0, 1.0) } else { 0.0 };
         let filled_w = (rail.width() * frac).max(if frac > 0.0 { 2.0 } else { 0.0 });
@@ -2157,16 +2440,23 @@ impl CatharGui {
         const RAIL_H: f32 = 5.0;
         const THUMB_R: f32 = 6.5;
         const VOL_MAX: f32 = 1.5;
-        // Fixed strip so RTL parent never shrinks icon / rail / percent independently.
-        // icon(~18) + gap(5) + rail(93) + gap(5) + pct(36) ≈ 157.
-        const TOTAL_W: f32 = 168.0;
+        // mute + rail + % — fixed so layout never starves volume.
+        const TOTAL_W: f32 = 200.0;
 
         ui.allocate_ui_with_layout(
-            egui::vec2(TOTAL_W, 28.0),
+            egui::vec2(TOTAL_W, 32.0),
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
                 ui.spacing_mut().item_spacing.x = 5.0;
-                ui.label(rich(icons::SPEAKER_HIGH, 14.0).color(theme::text_muted()));
+
+                let mute_icon = if self.muted { icons::MUTE } else { icons::SPEAKER_HIGH };
+                if ui
+                    .add(toolbar_toggle(self.muted, mute_icon))
+                    .on_hover_text(if self.muted { "Unmute (M)" } else { "Mute (M)" })
+                    .clicked()
+                {
+                    self.toggle_mute();
+                }
 
                 let (rect, _) = ui
                     .allocate_exact_size(egui::vec2(RAIL_W + THUMB_R * 2.0, 28.0), Sense::hover());
@@ -2177,10 +2467,11 @@ impl CatharGui {
                 );
 
                 let rail = Rect::from_center_size(rect.center(), egui::vec2(RAIL_W, RAIL_H));
-                ui.painter().rect_filled(rail, 2.0, theme::well_bg());
+                ui.painter().rect_filled(rail, 2.0, theme::surface());
                 ui.painter().rect_stroke(rail, 2.0, Stroke::new(1.0, theme::hairline()));
 
-                let t = (self.volume / VOL_MAX).clamp(0.0, 1.0);
+                let display_vol = if self.muted { 0.0 } else { self.volume };
+                let t = (display_vol / VOL_MAX).clamp(0.0, 1.0);
                 let filled_w = (rail.width() * t).max(if t > 0.0 { 2.0 } else { 0.0 });
                 if filled_w > 0.0 {
                     ui.painter().rect_filled(
@@ -2200,22 +2491,24 @@ impl CatharGui {
                     {
                         let u = ((p.x - rail.left()) / rail.width().max(1.0)).clamp(0.0, 1.0);
                         self.volume = u * VOL_MAX;
-                        if let Some(eng) = self.engine.as_mut() {
-                            eng.set_volume(self.volume);
+                        if self.muted {
+                            self.muted = false;
                         }
+                        self.apply_volume_to_engine();
                         ui.ctx().request_repaint();
                     }
                 }
                 resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Volume");
 
-                // 0…150% (VOL_MAX = 1.5) — fixed width so digits never reflow the bar.
+                let pct = if self.muted {
+                    " mut".to_string()
+                } else {
+                    format!("{:>3.0}%", self.volume * 100.0)
+                };
                 ui.add_sized(
                     [36.0, 14.0],
                     egui::Label::new(
-                        egui::RichText::new(format!("{:>3.0}%", self.volume * 100.0))
-                            .monospace()
-                            .size(11.0)
-                            .color(theme::text_muted()),
+                        egui::RichText::new(pct).monospace().size(11.0).color(theme::text_muted()),
                     ),
                 );
             },

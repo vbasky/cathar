@@ -16,6 +16,10 @@ pub(crate) use egui_phosphor::regular::{
     STOP, SWAP, TRASH_SIMPLE, WAVEFORM, WIND, WRENCH,
 };
 
+// Aliases for transport extras (Phosphor names vary by version).
+pub(crate) const LOOP: &str = ARROWS_CLOCKWISE;
+pub(crate) const MUTE: &str = SPEAKER_SLASH;
+
 pub(crate) const TOOLBAR_ICON: f32 = 18.0;
 pub(crate) const TRANSPORT_ICON: f32 = 22.0;
 pub(crate) const TOOL_ICON: f32 = 18.0;

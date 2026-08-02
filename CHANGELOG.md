@@ -20,6 +20,11 @@ The release workflow extracts the notes for a version from the matching
   states. Linux CI installs eframe/rodio system deps; release archives ship both
   `cathar` and `Cathar` when present. ROADMAP treats the desktop GUI as an
   optional workspace member (no longer “out of scope”).
+- **Player: basics + restoration listen** — mute (M), whole-file loop (L),
+  A–B loop from selection (⇧A) or playhead (A/B), clear A–B (⇧L), play
+  selection (P), A/B compare while playing (C), ±1s seek (⇧←/→). A–B region
+  tinted on the scrub rail. Dark palette contrast raised (rails, muted text,
+  hairlines, player bar).
 
 ### Changed
 

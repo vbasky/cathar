@@ -112,25 +112,27 @@ pub(crate) struct Palette {
 
 impl Palette {
     pub(crate) fn dark() -> Self {
+        // Lift muted chrome/text vs pure near-black so rails, captions, and
+        // inactive buttons read on OLED / dark monitors (was too muddy).
         Self {
-            accent: Color32::from_rgb(0, 214, 160),
-            well_bg: Color32::from_rgb(10, 10, 10),
-            chrome_bg: Color32::from_rgb(24, 22, 20),
-            surface: Color32::from_rgb(38, 35, 32),
-            window_bg: Color32::from_rgb(30, 28, 26),
-            hairline: Color32::from_rgb(62, 56, 50),
-            wave_l: Color32::from_rgb(0, 220, 168),
-            wave_r: Color32::from_rgb(255, 148, 48),
-            playhead: Color32::from_rgb(255, 72, 64),
-            text: Color32::from_rgb(242, 236, 228),
-            text_muted: Color32::from_rgb(150, 142, 130),
-            axis: Color32::from_rgb(170, 160, 145),
-            selection_stroke: Color32::from_rgb(0, 230, 170),
-            selection_fill: Color32::from_rgba_unmultiplied(0, 214, 160, 55),
-            ok: Color32::from_rgb(48, 210, 120),
-            warn: Color32::from_rgb(255, 170, 40),
-            player_bar: Color32::from_rgb(22, 20, 18),
-            on_accent: Color32::from_rgb(12, 20, 18),
+            accent: Color32::from_rgb(0, 224, 168),
+            well_bg: Color32::from_rgb(14, 13, 12),
+            chrome_bg: Color32::from_rgb(28, 26, 24),
+            surface: Color32::from_rgb(48, 44, 40),
+            window_bg: Color32::from_rgb(34, 32, 30),
+            hairline: Color32::from_rgb(88, 80, 72),
+            wave_l: Color32::from_rgb(0, 230, 175),
+            wave_r: Color32::from_rgb(255, 160, 55),
+            playhead: Color32::from_rgb(255, 90, 78),
+            text: Color32::from_rgb(248, 244, 238),
+            text_muted: Color32::from_rgb(178, 168, 154),
+            axis: Color32::from_rgb(188, 176, 160),
+            selection_stroke: Color32::from_rgb(40, 240, 185),
+            selection_fill: Color32::from_rgba_unmultiplied(0, 220, 170, 70),
+            ok: Color32::from_rgb(64, 220, 130),
+            warn: Color32::from_rgb(255, 180, 50),
+            player_bar: Color32::from_rgb(30, 28, 26),
+            on_accent: Color32::from_rgb(8, 18, 16),
         }
     }
 
@@ -333,9 +335,9 @@ fn dark_visuals(p: Palette, r: Rounding) -> Visuals {
         WidgetColors {
             inactive_bg: p.surface,
             inactive_border: Stroke::new(1.0, p.hairline),
-            hover_bg: Color32::from_rgb(52, 48, 44),
-            hover_border: Color32::from_rgb(0, 180, 140),
-            open_bg: Color32::from_rgb(52, 48, 44),
+            hover_bg: Color32::from_rgb(62, 56, 50),
+            hover_border: Color32::from_rgb(0, 200, 155),
+            open_bg: Color32::from_rgb(62, 56, 50),
             separator: p.hairline,
         },
     );
