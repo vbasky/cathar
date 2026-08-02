@@ -15,6 +15,10 @@ pub(crate) mod id {
     pub(crate) const SAVE: &str = "cathar.save";
     pub(crate) const UNDO: &str = "cathar.undo";
     pub(crate) const REDO: &str = "cathar.redo";
+    pub(crate) const CLEAR_SELECTION: &str = "cathar.clear_selection";
+    pub(crate) const HEAL_SELECTION: &str = "cathar.heal_selection";
+    pub(crate) const ATTENUATE_SELECTION: &str = "cathar.attenuate_selection";
+    pub(crate) const COMPARE_ORIGINAL: &str = "cathar.compare_original";
     pub(crate) const THEME_SYSTEM: &str = "cathar.theme_system";
     pub(crate) const THEME_LIGHT: &str = "cathar.theme_light";
     pub(crate) const THEME_DARK: &str = "cathar.theme_dark";
@@ -41,6 +45,12 @@ pub(crate) struct NativeMenu {
     save: MenuItem,
     undo: MenuItem,
     redo: MenuItem,
+    clear_selection: MenuItem,
+    play_selection: MenuItem,
+    heal_selection: MenuItem,
+    attenuate_selection: MenuItem,
+    compare_original: MenuItem,
+    clear_ab: MenuItem,
     installed: bool,
 }
 
@@ -115,7 +125,59 @@ impl NativeMenu {
             false,
             Some(Accelerator::new(Some(CMD_OR_CTRL | Modifiers::SHIFT), Code::KeyZ)),
         );
-        let edit = Submenu::with_items("Edit", true, &[&undo, &redo])?;
+        let clear_selection = MenuItem::with_id(
+            id::CLEAR_SELECTION,
+            "Clear Selection",
+            false,
+            Some(Accelerator::new(None, Code::Escape)),
+        );
+        let play_selection = MenuItem::with_id(
+            id::PLAY_SELECTION,
+            "Play Selection",
+            false,
+            Some(Accelerator::new(None, Code::KeyP)),
+        );
+        let heal_selection = MenuItem::with_id(
+            id::HEAL_SELECTION,
+            "Heal Selection",
+            false,
+            Some(Accelerator::new(Some(CMD_OR_CTRL), Code::KeyH)),
+        );
+        let attenuate_selection = MenuItem::with_id(
+            id::ATTENUATE_SELECTION,
+            "Attenuate Selection (−12 dB)",
+            false,
+            Some(Accelerator::new(Some(CMD_OR_CTRL), Code::KeyD)),
+        );
+        let compare_original = MenuItem::with_id(
+            id::COMPARE_ORIGINAL,
+            "Compare Original",
+            false,
+            Some(Accelerator::new(None, Code::KeyC)),
+        );
+        // Same id as Playback → Clear A–B (one handler).
+        let clear_ab = MenuItem::with_id(
+            id::AB_CLEAR,
+            "Clear A–B Loop",
+            false,
+            Some(Accelerator::new(Some(Modifiers::SHIFT), Code::KeyL)),
+        );
+        let edit = Submenu::with_items(
+            "Edit",
+            true,
+            &[
+                &undo,
+                &redo,
+                &PredefinedMenuItem::separator(),
+                &clear_selection,
+                &play_selection,
+                &heal_selection,
+                &attenuate_selection,
+                &PredefinedMenuItem::separator(),
+                &compare_original,
+                &clear_ab,
+            ],
+        )?;
         menu.append(&edit)?;
 
         // View-mode shortcuts: ⌘1 / ⌘2 / ⌘3 (macOS) · Ctrl+1… on Windows/Linux.
@@ -188,30 +250,18 @@ impl NativeMenu {
         )?;
         menu.append(&view)?;
 
-        // Playback tools live in the menu — keeps the player strip uncluttered.
+        // Playback: loop + A–B set + listen (selection ops live under Edit).
         let loop_file = MenuItem::with_id(
             id::LOOP_FILE,
             "Loop File",
             true,
             Some(Accelerator::new(None, Code::KeyL)),
         );
-        let play_sel = MenuItem::with_id(
-            id::PLAY_SELECTION,
-            "Play Selection",
-            true,
-            Some(Accelerator::new(None, Code::KeyP)),
-        );
         let ab_from = MenuItem::with_id(
             id::AB_FROM_SEL,
             "A–B Loop from Selection",
             true,
             Some(Accelerator::new(Some(Modifiers::SHIFT), Code::KeyA)),
-        );
-        let ab_clear = MenuItem::with_id(
-            id::AB_CLEAR,
-            "Clear A–B Loop",
-            true,
-            Some(Accelerator::new(Some(Modifiers::SHIFT), Code::KeyL)),
         );
         let listen_stereo = MenuItem::with_id(id::LISTEN_STEREO, "Listen: Stereo", true, None);
         let listen_left = MenuItem::with_id(id::LISTEN_LEFT, "Listen: Left", true, None);
@@ -222,10 +272,7 @@ impl NativeMenu {
             true,
             &[
                 &loop_file,
-                &play_sel,
-                &PredefinedMenuItem::separator(),
                 &ab_from,
-                &ab_clear,
                 &PredefinedMenuItem::separator(),
                 &listen_stereo,
                 &listen_left,
@@ -235,7 +282,19 @@ impl NativeMenu {
         )?;
         menu.append(&playback)?;
 
-        Ok(Self { _menu: menu, save, undo, redo, installed: false })
+        Ok(Self {
+            _menu: menu,
+            save,
+            undo,
+            redo,
+            clear_selection,
+            play_selection,
+            heal_selection,
+            attenuate_selection,
+            compare_original,
+            clear_ab,
+            installed: false,
+        })
     }
 
     /// Attach the menu to the OS (once). Safe to call every frame until installed.
@@ -279,10 +338,25 @@ impl NativeMenu {
         }
     }
 
-    pub(crate) fn set_enabled(&self, can_save: bool, can_undo: bool, can_redo: bool) {
+    /// Enable menu items from current app state.
+    pub(crate) fn set_enabled(
+        &self,
+        can_save: bool,
+        can_undo: bool,
+        can_redo: bool,
+        has_selection: bool,
+        can_compare: bool,
+        has_ab_loop: bool,
+    ) {
         self.save.set_enabled(can_save);
         self.undo.set_enabled(can_undo);
         self.redo.set_enabled(can_redo);
+        self.clear_selection.set_enabled(has_selection);
+        self.play_selection.set_enabled(has_selection);
+        self.heal_selection.set_enabled(has_selection);
+        self.attenuate_selection.set_enabled(has_selection);
+        self.compare_original.set_enabled(can_compare);
+        self.clear_ab.set_enabled(has_ab_loop);
     }
 }
 

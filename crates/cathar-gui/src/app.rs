@@ -1471,6 +1471,9 @@ impl CatharGui {
             self.has_audio(),
             self.hist_idx > 0,
             self.hist_idx + 1 < self.history.len(),
+            self.selection.is_some() && self.has_audio(),
+            self.original.is_some() && self.has_audio(),
+            self.ab_loop.is_some(),
         );
     }
 
@@ -1486,6 +1489,23 @@ impl CatharGui {
                 native_menu::id::SAVE => self.pick_save(),
                 native_menu::id::UNDO => self.undo(ctx),
                 native_menu::id::REDO => self.redo(ctx),
+                native_menu::id::CLEAR_SELECTION => {
+                    self.selection = None;
+                    self.status = "Selection cleared".into();
+                }
+                native_menu::id::HEAL_SELECTION => {
+                    self.apply_selection(ctx, SpectralOp::Heal, "heal", true);
+                }
+                native_menu::id::ATTENUATE_SELECTION => {
+                    // −12 dB linear gain ≈ 0.251
+                    self.apply_selection(
+                        ctx,
+                        SpectralOp::Gain(10f32.powf(-12.0 / 20.0)),
+                        "attenuate −12 dB",
+                        true,
+                    );
+                }
+                native_menu::id::COMPARE_ORIGINAL => self.toggle_compare(ctx),
                 native_menu::id::VIEW_SPECTRO => {
                     self.viewer_mode = ViewerMode::Spectrogram;
                 }
@@ -1844,6 +1864,30 @@ impl CatharGui {
         if key_c && self.has_audio() {
             // A/B compare while playing — keeps playhead via reload_engine(false).
             self.toggle_compare(ctx);
+            return;
+        }
+        // Escape clears spectrogram selection (same as Edit → Clear Selection).
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) && self.selection.is_some() {
+            self.selection = None;
+            self.status = "Selection cleared".into();
+            return;
+        }
+        // ⌘H heal / ⌘D attenuate selection (mirrors Edit menu).
+        let (cmd_h, cmd_d) = ctx.input(|i| {
+            let cmd = i.modifiers.command;
+            (cmd && i.key_pressed(egui::Key::H), cmd && i.key_pressed(egui::Key::D))
+        });
+        if cmd_h && self.has_audio() {
+            self.apply_selection(ctx, SpectralOp::Heal, "heal", true);
+            return;
+        }
+        if cmd_d && self.has_audio() {
+            self.apply_selection(
+                ctx,
+                SpectralOp::Gain(10f32.powf(-12.0 / 20.0)),
+                "attenuate −12 dB",
+                true,
+            );
             return;
         }
         if z {
