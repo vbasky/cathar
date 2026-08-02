@@ -151,12 +151,17 @@ fn icon_layout() -> IconLayout {
 }
 
 /// Window / Dock / taskbar icon from the bundled Cathar mark (`docs/logo.png`).
+///
+/// The source asset has a near-black navy field. On a dark macOS Dock that plate
+/// disappears; we key the field out, paint a **lifted brand plate** + light rim,
+/// and brighten silver mark strokes so the tile reads against dark chrome.
 fn app_icon() -> Option<IconData> {
     let layout = icon_layout();
     let bytes = include_bytes!("../../../docs/logo.png");
     let img = image::load_from_memory(bytes).ok()?.to_rgba8();
     let (w, h) = img.dimensions();
-    let plate = *img.get_pixel(0, 0); // ~rgb(19, 27, 38) brand ink
+    // Source plate / key colour (logo corner) — not the Dock fill colour.
+    let key = *img.get_pixel(0, 0); // ~rgb(19, 27, 38)
     let near = |a: u8, b: u8| (a as i32 - b as i32).abs() < 28;
 
     // Crop to the emblem — the asset has large empty margins.
@@ -168,7 +173,7 @@ fn app_icon() -> Option<IconData> {
     for y in 0..h {
         for x in 0..w {
             let px = img.get_pixel(x, y);
-            if near(px[0], plate[0]) && near(px[1], plate[1]) && near(px[2], plate[2]) {
+            if near(px[0], key[0]) && near(px[1], key[1]) && near(px[2], key[2]) {
                 continue;
             }
             any = true;
@@ -200,11 +205,18 @@ fn app_icon() -> Option<IconData> {
     let mark =
         image::imageops::resize(&cropped, mark_w, mark_h, image::imageops::FilterType::Lanczos3);
 
-    // Transparent canvas → draw rounded plate centered → mark on top.
+    // Dock plate: lifted navy (readable on dark macOS Dock) vs source key black.
+    // Windows/Linux keep a slightly deeper plate (taskbar tiles often sit on light bars).
+    #[cfg(target_os = "macos")]
+    let plate_fill = image::Rgba([32u8, 44, 64, 255]); // brand navy, lifted
+    #[cfg(not(target_os = "macos"))]
+    let plate_fill = image::Rgba([22u8, 30, 44, 255]);
+
+    // Transparent canvas → rounded plate → light rim → mark on top.
     let mut canvas = image::RgbaImage::from_pixel(size, size, image::Rgba([0, 0, 0, 0]));
     let mut plate_img =
         image::RgbaImage::from_pixel(plate_side, plate_side, image::Rgba([0, 0, 0, 0]));
-    fill_rounded_rect(&mut plate_img, plate, layout.corner_radius_frac);
+    fill_rounded_rect(&mut plate_img, plate_fill, layout.corner_radius_frac);
 
     let pox = (size - plate_side) / 2;
     let poy = (size - plate_side) / 2;
@@ -217,12 +229,24 @@ fn app_icon() -> Option<IconData> {
         }
     }
 
+    // Soft outer rim so the squircle separates from a dark Dock / wallpaper.
+    stroke_rounded_rect_rim(
+        &mut canvas,
+        pox,
+        poy,
+        plate_side,
+        layout.corner_radius_frac,
+        image::Rgba([120, 145, 175, 255]), // cool steel highlight
+        (size as f32 * 0.012).clamp(1.5, 5.0),
+    );
+
     let ox = pox + (plate_side - mark_w) / 2;
     let oy = poy + (plate_side - mark_h) / 2;
     for y in 0..mark_h {
         for x in 0..mark_w {
             let px = *mark.get_pixel(x, y);
-            if near(px[0], plate[0]) && near(px[1], plate[1]) && near(px[2], plate[2]) {
+            // Key out original navy field (and near-black plate leftovers).
+            if near(px[0], key[0]) && near(px[1], key[1]) && near(px[2], key[2]) {
                 continue;
             }
             let dx = x + ox;
@@ -235,7 +259,9 @@ fn app_icon() -> Option<IconData> {
             if dest[3] == 0 {
                 continue;
             }
-            canvas.put_pixel(dx, dy, image::Rgba([px[0], px[1], px[2], 255]));
+            // Brighten cool metal / silver so the mark pops on the lifted plate.
+            let out = boost_mark_pixel(px);
+            canvas.put_pixel(dx, dy, image::Rgba([out[0], out[1], out[2], 255]));
         }
     }
 
@@ -246,6 +272,128 @@ fn app_icon() -> Option<IconData> {
         }
     }
     Some(IconData { rgba, width: size, height: size })
+}
+
+/// Lift near-white / silver strokes toward pure white; leave terracotta alone.
+fn boost_mark_pixel(px: image::Rgba<u8>) -> image::Rgba<u8> {
+    let r = px[0] as i32;
+    let g = px[1] as i32;
+    let b = px[2] as i32;
+    let lum = (r + g + b) / 3;
+    // Warm brand accent (terracotta) — keep as-is.
+    let warm = r > g + 20 && r > b + 20 && r > 90;
+    if warm {
+        return px;
+    }
+    // Cool metal / silver / grey → push toward white for Dock contrast.
+    if lum > 100 && (r - g).abs() < 50 && (g - b).abs() < 55 {
+        let t = ((lum - 100) as f32 / 140.0).clamp(0.0, 1.0);
+        let lift = 0.35 + 0.65 * t; // keep some structure at lower greys
+        let br = |c: u8| -> u8 {
+            let v = c as f32 + (255.0 - c as f32) * lift;
+            v.round().clamp(0.0, 255.0) as u8
+        };
+        return image::Rgba([br(px[0]), br(px[1]), br(px[2]), px[3]]);
+    }
+    px
+}
+
+/// Anti-aliased stroke along the rounded-rect edge of the plate on `canvas`.
+fn stroke_rounded_rect_rim(
+    canvas: &mut image::RgbaImage,
+    ox: u32,
+    oy: u32,
+    side: u32,
+    radius_frac: f32,
+    color: image::Rgba<u8>,
+    stroke_px: f32,
+) {
+    let w = side as f32;
+    let h = side as f32;
+    let r = (w.min(h) * radius_frac).clamp(1.0, w.min(h) * 0.5);
+    let cx0 = r;
+    let cy0 = r;
+    let cx1 = w - 1.0 - r;
+    let cy1 = h - 1.0 - r;
+    let half = stroke_px * 0.5;
+
+    for y in 0..side {
+        for x in 0..side {
+            let px = x as f32 + 0.5;
+            let py = y as f32 + 0.5;
+            let dx = if px < cx0 {
+                cx0 - px
+            } else if px > cx1 {
+                px - cx1
+            } else {
+                0.0
+            };
+            let dy = if py < cy0 {
+                cy0 - py
+            } else if py > cy1 {
+                py - cy1
+            } else {
+                0.0
+            };
+            let dist = (dx * dx + dy * dy).sqrt();
+            // Distance to the rounded boundary: inside negative-ish via r - dist on corners;
+            // for axis segments use distance to edge of AABB of centers.
+            let d_edge = if dx == 0.0 && dy == 0.0 {
+                // Interior of straight edges — distance to nearest outer edge.
+                (px.min(py).min(w - px).min(h - py)).min(r)
+            } else {
+                // Near corner arcs: |dist - r|
+                (dist - r).abs()
+            };
+            // Only draw a band near the outer perimeter, not deep inside.
+            let near_perimeter = if dx == 0.0 && dy == 0.0 {
+                let to_border = px.min(py).min(w - px).min(h - py);
+                to_border < stroke_px + 0.5
+            } else {
+                d_edge < half + 0.75
+            };
+            if !near_perimeter {
+                continue;
+            }
+            let band =
+                if dx == 0.0 && dy == 0.0 { px.min(py).min(w - px).min(h - py) } else { d_edge };
+            let alpha = if band <= half {
+                200u8
+            } else if band >= half + 0.85 {
+                0u8
+            } else {
+                let t = 1.0 - (band - half) / 0.85;
+                let t = t.clamp(0.0, 1.0);
+                let t = t * t * (3.0 - 2.0 * t);
+                (t * 200.0).round() as u8
+            };
+            if alpha == 0 {
+                continue;
+            }
+            let dx = x + ox;
+            let dy = y + oy;
+            if dx >= canvas.width() || dy >= canvas.height() {
+                continue;
+            }
+            let base = *canvas.get_pixel(dx, dy);
+            if base[3] == 0 {
+                continue; // only rim where plate exists
+            }
+            // Alpha-blend rim over plate.
+            let a = alpha as f32 / 255.0;
+            let blend = |c: u8, b: u8| ((c as f32) * a + (b as f32) * (1.0 - a)).round() as u8;
+            canvas.put_pixel(
+                dx,
+                dy,
+                image::Rgba([
+                    blend(color[0], base[0]),
+                    blend(color[1], base[1]),
+                    blend(color[2], base[2]),
+                    base[3],
+                ]),
+            );
+        }
+    }
 }
 
 /// Rounded-rect plate with anti-aliased edge (transparent outside).
