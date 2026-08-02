@@ -9,8 +9,36 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-08-02
+
+De-click / de-clip method selection and survey-family reconstruction algorithms
+([#17](https://github.com/vbasky/cathar/issues/17)).
+
+### Added
+
+- **`declick --method ar|cubic`** — reconstruction is selectable. Default is
+  autoregressive Janssen interpolation (same family as `inpaint`); `cubic` keeps
+  the legacy Hermite fill. Library: `DeclickMethod`, `declick_with_method`.
+- **`declip --method spade|cubic|social|omp|nmf|neural`** — A-SPADE remains
+  the default (survey-preferred sparse Gabor reconstruction). Additional pure-
+  Rust methods from the Rajmic et al. / Adler / Bilen lineage:
+  - `social` — Persistent Empirical Wiener (PEW) social sparsity on a
+    time-frequency neighbourhood + consistency projection
+  - `omp` — constrained matching pursuit on a per-frame DFT dictionary
+  - `nmf` — low-rank NMF of the STFT magnitude, phase retained
+  - `neural` — deep-unfolded soft-threshold ISTA (LISTA-style, weight-free;
+    not a supervised DeclipNet — those need trained checkpoints)
+  - `cubic` — fast shoulder-Hermite fill for light clips / previews
+  Library: `DeclipMethod`, `declip_with_method` (module `declip`).
+
 ### Changed
 
+- **`declick` default reconstruction** — now AR (Janssen) instead of cubic-
+  Hermite; detection is unchanged (sliding-window local RMS).
+- **README** — algorithm table corrected: `declip` documents A-SPADE (was stale
+  cubic text), `declick` documents AR + method flags.
+- **Book** — chapter 6 (clicks/clipping) updated for AR de-click and method flags;
+  cites the Rajmic et al. de-clipping survey for A-SPADE.
 - **Book** — brought chapters in line with `v0.6.1`–`v0.7.0`: fixed stale vinyl
   workflow text; expanded toolbox table; added adaptive de-hum, WPE de-reverb,
   `enhance --method`, optional `ml-denoise`, and [broadcast/CD de-emphasis](book/src/20-playback-deemphasis.md);

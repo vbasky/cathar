@@ -21,9 +21,11 @@ The fix, **de-click**, is wonderfully intuitive:
    it's almost certainly a click, not real sound. (Cathar's `--threshold` is
    exactly this "how many times louder than normal counts as a click" number.)
 2. **Cut it out and redraw.** Delete the offending samples, leaving a tiny gap,
-   and **draw a smooth curve across the hole** that connects what came before to
-   what comes after. Cathar uses a gentle curved line (a *cubic interpolation*)
-   so the patch blends in.
+   and **rebuild** what connects before to after. By default Cathar uses an
+   *autoregressive* (Janssen) model of the surrounding wave — the same family as
+   `inpaint` — so the patch follows the local waveform rather than a straight
+   smooth curve. `--method cubic` keeps the older gentle Hermite fill when you
+   want something faster or more predictable.
 
 Because a click is only a handful of samples — a fraction of a millisecond — the
 gap is tiny and the redraw is almost always invisible. De-click is one of
@@ -98,15 +100,29 @@ For the **dense crackle** of old vinyl — thousands of tiny spikes, not isolate
 pops — see **`decrackle`** in the separation chapter (chapter 19). It hunts
 micro-spikes the way de-click hunts big ones.
 
-Cathar's de-click is solid and reliable, and its de-clip uses **the modern
+Cathar's de-click is solid and reliable, and its de-clip defaults to **the modern
 "sparse reconstruction" method described above** — A-SPADE (Kitić, Bertin &
-Gribonval, 2015), the same family iZotope-class tools use. It treats the clipped
-samples as unknowns and solves for the signal that is *simplest in the frequency
-view* (sparsest across a windowed, overlapping spectrum) while keeping every
-reliable sample exact and every clipped sample beyond the threshold — so a peak
-is rebuilt toward its true height rather than flattened to a plateau. It's an
-iterative solve (a little slower than a one-shot fill, and worth it). Light-to-
-moderate clipping cleans up convincingly; it's still not a substitute for RX on
-*heavily* distorted material — across long flat runs any tool is guessing. As
-always: knowing *how badly* something is damaged tells you whether any tool can
-save it.
+Gribonval, 2015), the same family iZotope-class tools use and the preferred
+method in the [Rajmic et al. 2020 survey](https://arxiv.org/pdf/2007.07663) of
+popular de-clipping algorithms. It treats the clipped samples as unknowns and
+solves for the signal that is *simplest in the frequency view* (sparsest across a
+windowed, overlapping spectrum) while keeping every reliable sample exact and
+every clipped sample beyond the threshold — so a peak is rebuilt toward its true
+height rather than flattened to a plateau. It's an iterative solve (a little
+slower than a one-shot fill, and worth it).
+
+Other survey-family methods are selectable with `--method`:
+
+| Flag | Idea |
+| --- | --- |
+| `spade` *(default)* | A-SPADE sparse Gabor reconstruction |
+| `social` | Social sparsity — PEW neighbourhood shrink on the STFT |
+| `omp` | Constrained matching pursuit on a per-frame DFT dictionary |
+| `nmf` | Non-negative matrix factorization of the spectrogram magnitude |
+| `neural` | Deep-unfolded soft-threshold ISTA (LISTA-style; no trained weights) |
+| `cubic` | Fast Hermite shoulder fill for light clips / previews |
+
+Light-to-moderate clipping cleans up convincingly; it's still not a substitute
+for RX on *heavily* distorted material — across long flat runs any tool is
+guessing. As always: knowing *how badly* something is damaged tells you whether
+any tool can save it.

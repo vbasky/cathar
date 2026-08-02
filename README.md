@@ -113,8 +113,8 @@ grouped here by what they fix; run them in any order, or chain them.
 
 | Command | What it does | Key flags |
 | --- | --- | --- |
-| `declick` | Detect impulse clicks against the local RMS and interpolate across them | `--threshold` 10.0 |
-| `declip` | Find flat-topped clipped runs and rebuild the missing peaks | `--threshold` 0.95 |
+| `declick` | Detect impulse clicks against the local RMS and rebuild the gap | `--threshold` 10.0, `--method ar\|cubic` |
+| `declip` | Rebuild clipped peaks (A-SPADE by default; survey methods available) | `--threshold` 0.95, `--method spade\|cubic\|social\|omp\|nmf\|neural` |
 | `repair` | Paint out isolated transient spectral artifacts (whistles, bursts, glitches) | `--strength` 4.0 |
 | `inpaint` | Reconstruct dropouts/mutes by autoregressive (Janssen) interpolation — explicit span or auto zero/NaN detection | `--start-ms`, `--len-ms`, `--iterations` 3, `--max-gap-ms` 50 |
 
@@ -235,8 +235,8 @@ Every stage is classic, inspectable DSP — no black boxes.
 | `dewind` | 4th-order Butterworth high-pass (two cascaded biquads, ~24 dB/oct) at `--cutoff` |
 | `noiseprint` | Per-bin magnitude spectrum of a noise clip, serialised to JSON |
 | `dehum` | Cascade of 2nd-order IIR notch biquads (Q = 30) at the base frequency and each harmonic up to Nyquist |
-| `declick` | Sliding-window local RMS; samples exceeding `threshold × RMS` are clicks, replaced by cubic-Hermite interpolation |
-| `declip` | Detect runs at/above `threshold` (shoulders extended ±4 samples), rebuild with cubic-Hermite interpolation |
+| `declick` | Sliding-window local RMS detects clicks; default rebuild is autoregressive Janssen interpolation (`--method ar`, same family as `inpaint`); `--method cubic` keeps the legacy Hermite fill |
+| `declip` | Default **A-SPADE** (Kitić, Bertin & Gribonval) over a Hann-windowed 4×-overlap Gabor tight frame. Also: `--method social` (PEW social sparsity), `omp` (constrained DFT matching pursuit), `nmf` (STFT magnitude NMF), `neural` (deep-unfolded soft-threshold ISTA), `cubic` (fast Hermite fill) |
 | `repair` | STFT 2048/512; per bin, compare magnitude to its temporal median (±4 frames) and pull transient outliers back to the median, phase preserved — sustained content is untouched, overlap-add is window-normalised to unity |
 | `dereverb` | Two-pass spectral-decay gating: track each bin's envelope (8 ms attack / 50 ms release), gate bins sitting near their reverb floor |
 | `voiceisolate` | Energy VAD on 20 ms frames (gap-fill < 120 ms, drop segments < 50 ms) + spectral gating of non-speech (tighter with a noiseprint) |
@@ -304,7 +304,7 @@ The public surface is small and direct:
 - **`NeuralDenoiser`** + **`NeuralConfig`** *(opt-in `ml` feature)* — the learned
   spectral-gain denoiser; `new()` for the passthrough default, `from_safetensors`
   to load trained weights. Implements the same `Denoiser` trait.
-- Free functions: `dehum`, `dewind`, `declick`, `declip`, `spectral_repair`,
+- Free functions: `dehum`, `dewind`, `declick` / `declick_with_method`, `declip` / `declip_with_method`, `spectral_repair`,
   `deplosive`, `derustle`, `dereverb`, `voice_isolate`, `deesser`,
   `deess_multiband`, `breath_remove`, `bandwidth_extend`, `resample`,
   `normalize_peak`, `integrated_loudness`, `true_peak_dbtp`, `generate_wave`.
