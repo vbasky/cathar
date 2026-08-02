@@ -1915,7 +1915,7 @@ impl CatharGui {
                         }
                     }
 
-                    // Remaining width → pack A/B · Undo · Redo on the far right.
+                    // Far right: undo · status/flags (Playback menu owns loop/listen).
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 6.0;
                         if ui
@@ -1942,7 +1942,7 @@ impl CatharGui {
                         let mut ab = self.show_original;
                         if ui
                             .add_enabled(ab_enabled, toolbar_toggle(ab, icons::SWAP))
-                            .on_hover_text("Compare original (A/B)")
+                            .on_hover_text("Compare original (A/B) — C while playing")
                             .clicked()
                         {
                             ab = !ab;
@@ -1950,6 +1950,55 @@ impl CatharGui {
                             self.reload_engine(true);
                             self.recompute(ctx);
                         }
+
+                        // Status + loop/A–B/mute flags (not on the player bar).
+                        ui.separator();
+                        if let Some((t, f)) = self.cursor_tf {
+                            let f_s = if f >= 1000.0 {
+                                format!("{:.1}k", f / 1000.0)
+                            } else {
+                                format!("{f:.0}")
+                            };
+                            ui.label(
+                                egui::RichText::new(format!("{f_s}Hz · {}", fmt_time_player(t)))
+                                    .monospace()
+                                    .size(theme::FONT_CAPTION)
+                                    .color(theme::text_muted()),
+                            );
+                        }
+                        let mut flags = String::new();
+                        if self.loop_file {
+                            flags.push_str("Loop");
+                        }
+                        if let Some((a, b)) = self.ab_loop {
+                            if !flags.is_empty() {
+                                flags.push(' ');
+                            }
+                            flags.push_str(&format!("A–B {a:.1}–{b:.1}"));
+                        }
+                        if self.muted {
+                            if !flags.is_empty() {
+                                flags.push(' ');
+                            }
+                            flags.push_str("Mute");
+                        }
+                        if !flags.is_empty() {
+                            ui.label(
+                                egui::RichText::new(flags)
+                                    .size(theme::FONT_CAPTION)
+                                    .strong()
+                                    .color(theme::accent()),
+                            )
+                            .on_hover_text("Playback menu · L P ⇧A A B ⇧L M");
+                        }
+                        let status =
+                            if self.status.is_empty() { "Ready" } else { self.status.as_str() };
+                        ui.label(
+                            egui::RichText::new(status)
+                                .size(theme::FONT_CAPTION)
+                                .color(theme::text_muted()),
+                        )
+                        .on_hover_text("Playback → Loop / Selection / A–B / Listen");
                     });
                 });
             });
@@ -2114,14 +2163,15 @@ impl CatharGui {
         }
     }
 
-    /// Bottom transport strip.
+    /// Bottom transport — **single row only**.
     ///
-    /// Strict LTR: `[transport][time][scrub grows][meters][mute/volume]`.
-    /// Loop / selection play / A–B / listen routing live in the **Playback**
-    /// menu (+ keyboard) so this strip stays a pure transport.
+    /// `[transport][time][scrub][meters][mute/volume]`
+    ///
+    /// Listen routing (LR/L/R/M), loop, play-selection, and A–B are **not** on
+    /// the bar — use **Playback** menu + keys (`L` `P` `⇧A` `A`/`B` `⇧L` `M`).
     fn player_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("player")
-            .exact_height(58.0)
+            .exact_height(48.0)
             .frame(
                 egui::Frame::none()
                     .fill(theme::player_bar())
@@ -2197,7 +2247,7 @@ impl CatharGui {
 
                     ui.separator();
 
-                    // ── Time: "MM:SS.s / MM:SS.s" fixed slot ───────────────
+                    // ── Time ───────────────────────────────────────────────
                     let remaining = (dur - pos).max(0.0);
                     let t_left = if self.show_time_remaining {
                         format!("−{}", fmt_time_player(remaining))
@@ -2230,15 +2280,13 @@ impl CatharGui {
 
                     ui.separator();
 
-                    // ── Scrub: meters + volume only on the right ───────────
-                    // meters(~125) + volume(~200) + seps(~24) + slack
-                    const RIGHT_RESERVE: f32 = 125.0 + 200.0 + 24.0 + 12.0; // 361
-                    let scrub_w = (ui.available_width() - RIGHT_RESERVE).clamp(120.0, 1200.0);
+                    // meters(~125) + volume(~200) + seps + slack — no listen chips
+                    const RIGHT_RESERVE: f32 = 125.0 + 200.0 + 24.0 + 12.0;
+                    let scrub_w = (ui.available_width() - RIGHT_RESERVE).clamp(120.0, 1400.0);
                     self.player_scrubber(ui, scrub_w, pos, dur, has);
 
                     ui.separator();
 
-                    // ── Meters ─────────────────────────────────────────────
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
                         vu_meter_h(ui, "L", self.meter_l, 72.0);
@@ -2247,82 +2295,7 @@ impl CatharGui {
 
                     ui.separator();
 
-                    // ── Volume ─────────────────────────────────────────────
                     self.player_volume_control(ui);
-                });
-
-                // Thin status: message + optional loop/A–B flag + cursor readout.
-                ui.add_space(1.0);
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    let mut flags = String::new();
-                    if self.loop_file {
-                        flags.push_str("Loop");
-                    }
-                    if let Some((a, b)) = self.ab_loop {
-                        if !flags.is_empty() {
-                            flags.push_str(" · ");
-                        }
-                        flags.push_str(&format!("A–B {a:.1}–{b:.1}s"));
-                    }
-                    if self.muted {
-                        if !flags.is_empty() {
-                            flags.push_str(" · ");
-                        }
-                        flags.push_str("Mute");
-                    }
-                    if !flags.is_empty() {
-                        ui.label(
-                            egui::RichText::new(flags)
-                                .size(theme::FONT_CAPTION)
-                                .strong()
-                                .color(theme::accent()),
-                        );
-                        ui.separator();
-                    }
-                    let status =
-                        if self.status.is_empty() { "Ready" } else { self.status.as_str() };
-                    ui.label(
-                        egui::RichText::new(status)
-                            .size(theme::FONT_CAPTION)
-                            .color(theme::text_muted()),
-                    )
-                    .on_hover_text(
-                        "Playback → Loop / Play Selection / A–B / Listen  ·  keys L P ⇧A A B ⇧L M",
-                    );
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 8.0;
-                        if let Some((t, f)) = self.cursor_tf {
-                            let t_s = fmt_time_player(t);
-                            let f_s = if f >= 1000.0 {
-                                format!("{:.2} kHz", f / 1000.0)
-                            } else {
-                                format!("{f:.0} Hz")
-                            };
-                            ui.label(
-                                egui::RichText::new(format!("f {f_s}  ·  t {t_s}"))
-                                    .monospace()
-                                    .size(11.0)
-                                    .color(theme::text().gamma_multiply(0.9)),
-                            )
-                            .on_hover_text("Spectrogram cursor (time × frequency)");
-                        } else if has {
-                            ui.label(
-                                egui::RichText::new("Hover spectrogram for t / f")
-                                    .size(theme::FONT_CAPTION)
-                                    .color(theme::text_muted().gamma_multiply(0.75)),
-                            );
-                        }
-                        if let Some(name) = &self.file_name {
-                            ui.label(
-                                egui::RichText::new(name)
-                                    .size(theme::FONT_CAPTION)
-                                    .color(theme::text_muted()),
-                            );
-                            ui.separator();
-                        }
-                    });
                 });
             });
     }
