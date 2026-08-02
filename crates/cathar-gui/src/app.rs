@@ -876,14 +876,17 @@ impl CatharGui {
         let Some(audio) = self.audio_for_engine() else {
             return;
         };
+        // Snapshot before mutably borrowing `engine` (avoids E0502 with effective_volume).
+        let vol = self.effective_volume();
+        let monitor = self.monitor;
+        let t = t.clamp(0.0, self.duration.max(0.0));
         let Some(eng) = self.engine.as_mut() else {
             return;
         };
-        eng.set_monitor(self.monitor);
-        eng.set_volume(self.volume);
+        eng.set_monitor(monitor);
+        eng.set_volume(vol);
         // Preserve play intent across the buffer swap (`is_paused` = !want_playing).
         let was_playing = !eng.is_paused();
-        let t = t.clamp(0.0, self.duration.max(0.0));
         let _ = eng.reload(&audio, t, was_playing);
         self.eq_needs_reload = false;
     }
@@ -4240,11 +4243,14 @@ impl CatharGui {
         if resp.drag_stopped() {
             self.drag_anchor = None;
         }
+        // Click (not a drag-select): silent seek — same mute handshake as the
+        // player scrubber. Raw `eng.seek` briefly unpauses rodio at full gain
+        // and makes a click/screech on the spectrogram.
         if resp.clicked() {
-            if let Some(p) = resp.interact_pointer_pos() {
-                if let Some(eng) = &self.engine {
-                    eng.seek(to_time(p.x));
-                }
+            if let Some(p) = resp.interact_pointer_pos().filter(|p| rect.contains(*p)) {
+                let t = to_time(p.x);
+                self.begin_scrub();
+                self.finish_scrub_seek(t);
             }
         }
     }
