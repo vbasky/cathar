@@ -1875,9 +1875,9 @@ impl CatharGui {
 
     /// Bottom transport strip.
     ///
-    /// Layout: `[transport][time][scrub grows][🎧 chips][meters][volume]`.
-    /// The right cluster is laid out **right-to-left** so volume (rightmost) is
-    /// allocated first and never clipped by the scrubber or window edge.
+    /// Strict LTR: `[transport][time][scrub grows][🎧 chips][meters][volume]`.
+    /// Scrub takes leftover after a measured right-side reserve so volume (fixed
+    /// strip) is never clipped; no RTL — that left a dead gap and collapsed scrub.
     fn player_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("player")
             .exact_height(72.0)
@@ -1885,7 +1885,7 @@ impl CatharGui {
                 egui::Frame::none()
                     .fill(theme::player_bar())
                     .stroke(Stroke::new(1.0, theme::hairline()))
-                    // Extra right margin — window rounded corners used to eat the volume thumb.
+                    // Extra right margin so the window corner doesn't eat the volume thumb.
                     .inner_margin(egui::Margin { left: 10.0, right: 16.0, top: 4.0, bottom: 4.0 }),
             )
             .show(ctx, |ui| {
@@ -1897,7 +1897,6 @@ impl CatharGui {
                 let stereo = self.stereo_file();
                 let has_queue = self.playlist.len() > 1;
 
-                // Plain horizontal — not horizontal_centered (can flip RTL on some systems).
                 ui.horizontal(|ui| {
                     ui.set_min_height(36.0);
                     ui.spacing_mut().item_spacing.x = 8.0;
@@ -1992,58 +1991,52 @@ impl CatharGui {
 
                     ui.separator();
 
-                    // Reserve a real-world right cluster width so scrub cannot
-                    // starve volume. Measured:
-                    //   volume ≈ 168 · meters ≈ 125 · chips ≈ 200 · seps ≈ 24
-                    const RIGHT_RESERVE: f32 = 168.0 + 125.0 + 200.0 + 24.0; // 517
-                    let mid_w = ui.available_width();
-                    let scrub_w = (mid_w - RIGHT_RESERVE).clamp(64.0, 720.0);
-                    let right_w = (mid_w - scrub_w).max(0.0);
-
-                    // Scrub in the middle band.
+                    // ── Scrub (middle): leave room for the full right cluster ─
+                    // chips(~200) + meters(~125) + volume(168) + seps(~32) + slack
+                    const RIGHT_RESERVE: f32 = 200.0 + 125.0 + 168.0 + 32.0 + 16.0; // 541
+                    let scrub_w = (ui.available_width() - RIGHT_RESERVE).clamp(80.0, 900.0);
                     self.player_scrubber(ui, scrub_w, pos, dur, has);
 
-                    // Right cluster hugs the trailing edge; RTL → volume rightmost.
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(right_w, 36.0),
-                        egui::Layout::right_to_left(egui::Align::Center),
-                        |ui| {
-                            ui.spacing_mut().item_spacing.x = 8.0;
-                            // First in RTL = right edge of the bar.
-                            self.player_volume_control(ui);
-                            ui.separator();
-                            ui.vertical(|ui| {
-                                ui.spacing_mut().item_spacing.y = 2.0;
-                                vu_meter_h(ui, "L", self.meter_l, 72.0);
-                                vu_meter_h(ui, "R", self.meter_r, 72.0);
-                            });
-                            ui.separator();
-                            // Chips: place Mid…LR so visual order stays LR L R M left-to-right.
-                            for (m, label) in [
-                                (Monitor::Mid, "M"),
-                                (Monitor::Right, "R"),
-                                (Monitor::Left, "L"),
-                                (Monitor::Stereo, "LR"),
-                            ] {
-                                let sel = self.monitor == m;
-                                let en = has && (m != Monitor::Right || stereo);
-                                if ui
-                                    .add_enabled(en, channel_chip(sel, label))
-                                    .on_hover_text(match m {
-                                        Monitor::Stereo => "Listen: stereo",
-                                        Monitor::Left => "Listen: left only",
-                                        Monitor::Right => "Listen: right only",
-                                        Monitor::Mid => "Listen: mid mono",
-                                    })
-                                    .clicked()
-                                {
-                                    self.set_monitor(m);
-                                }
-                            }
-                            ui.label(rich(icons::HEADPHONES, 15.0).color(theme::text_muted()))
-                                .on_hover_text("Listen — what you hear (independent of Display)");
-                        },
-                    );
+                    ui.separator();
+
+                    // ── Listen (headphones) + routing chips ─────────────────
+                    ui.label(rich(icons::HEADPHONES, 15.0).color(theme::text_muted()))
+                        .on_hover_text("Listen — what you hear (independent of Display)");
+                    for (m, label) in [
+                        (Monitor::Stereo, "LR"),
+                        (Monitor::Left, "L"),
+                        (Monitor::Right, "R"),
+                        (Monitor::Mid, "M"),
+                    ] {
+                        let sel = self.monitor == m;
+                        let en = has && (m != Monitor::Right || stereo);
+                        if ui
+                            .add_enabled(en, channel_chip(sel, label))
+                            .on_hover_text(match m {
+                                Monitor::Stereo => "Listen: stereo",
+                                Monitor::Left => "Listen: left only",
+                                Monitor::Right => "Listen: right only",
+                                Monitor::Mid => "Listen: mid mono",
+                            })
+                            .clicked()
+                        {
+                            self.set_monitor(m);
+                        }
+                    }
+
+                    ui.separator();
+
+                    // ── Meters ─────────────────────────────────────────────
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        vu_meter_h(ui, "L", self.meter_l, 72.0);
+                        vu_meter_h(ui, "R", self.meter_r, 72.0);
+                    });
+
+                    ui.separator();
+
+                    // ── Volume (fixed-width strip — last, fully visible) ───
+                    self.player_volume_control(ui);
                 });
 
                 // Status + cursor readout (numeric grid values for spectro hover).
