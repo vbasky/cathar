@@ -152,15 +152,16 @@ fn icon_layout() -> IconLayout {
 
 /// Window / Dock / taskbar icon from the bundled Cathar mark (`docs/logo.png`).
 ///
-/// The source asset has a near-black navy field. On a dark macOS Dock that plate
-/// disappears; we key the field out, paint a **lifted brand plate** + light rim,
-/// and brighten silver mark strokes so the tile reads against dark chrome.
+/// Source art is white metal on near-black navy — that plate vanishes on a dark
+/// macOS Dock. On macOS we flip to a **light paper plate + charcoal mark**
+/// (terracotta kept) so the tile reads next to bright neighbour icons. Other
+/// platforms keep a deep navy plate with a bright mark.
 fn app_icon() -> Option<IconData> {
     let layout = icon_layout();
     let bytes = include_bytes!("../../../docs/logo.png");
     let img = image::load_from_memory(bytes).ok()?.to_rgba8();
     let (w, h) = img.dimensions();
-    // Source plate / key colour (logo corner) — not the Dock fill colour.
+    // Source plate / key colour (logo corner).
     let key = *img.get_pixel(0, 0); // ~rgb(19, 27, 38)
     let near = |a: u8, b: u8| (a as i32 - b as i32).abs() < 28;
 
@@ -194,7 +195,6 @@ fn app_icon() -> Option<IconData> {
     let cropped = image::imageops::crop_imm(&img, min_x, min_y, crop_w, crop_h).to_image();
 
     let size = layout.size;
-    // Plate is inset on the canvas so optical size matches system Dock tiles.
     let plate_side = ((size as f32) * layout.plate_scale).round().clamp(16.0, size as f32) as u32;
     let plate_side = plate_side.max(16);
 
@@ -205,14 +205,13 @@ fn app_icon() -> Option<IconData> {
     let mark =
         image::imageops::resize(&cropped, mark_w, mark_h, image::imageops::FilterType::Lanczos3);
 
-    // Dock plate: lifted navy (readable on dark macOS Dock) vs source key black.
-    // Windows/Linux keep a slightly deeper plate (taskbar tiles often sit on light bars).
+    // macOS Dock: light paper plate (high contrast on dark Dock).
+    // Win/Linux: deep navy plate + bright mark (taskbars are often light).
     #[cfg(target_os = "macos")]
-    let plate_fill = image::Rgba([32u8, 44, 64, 255]); // brand navy, lifted
+    let (plate_fill, light_plate) = (image::Rgba([245u8, 242, 236, 255]), true);
     #[cfg(not(target_os = "macos"))]
-    let plate_fill = image::Rgba([22u8, 30, 44, 255]);
+    let (plate_fill, light_plate) = (image::Rgba([22u8, 30, 44, 255]), false);
 
-    // Transparent canvas → rounded plate → light rim → mark on top.
     let mut canvas = image::RgbaImage::from_pixel(size, size, image::Rgba([0, 0, 0, 0]));
     let mut plate_img =
         image::RgbaImage::from_pixel(plate_side, plate_side, image::Rgba([0, 0, 0, 0]));
@@ -229,15 +228,20 @@ fn app_icon() -> Option<IconData> {
         }
     }
 
-    // Soft outer rim so the squircle separates from a dark Dock / wallpaper.
+    // Soft rim: dark on light plate, steel on dark plate.
+    let rim = if light_plate {
+        image::Rgba([170u8, 160, 148, 255])
+    } else {
+        image::Rgba([120u8, 145, 175, 255])
+    };
     stroke_rounded_rect_rim(
         &mut canvas,
         pox,
         poy,
         plate_side,
         layout.corner_radius_frac,
-        image::Rgba([120, 145, 175, 255]), // cool steel highlight
-        (size as f32 * 0.012).clamp(1.5, 5.0),
+        rim,
+        (size as f32 * 0.014).clamp(1.5, 6.0),
     );
 
     let ox = pox + (plate_side - mark_w) / 2;
@@ -245,7 +249,6 @@ fn app_icon() -> Option<IconData> {
     for y in 0..mark_h {
         for x in 0..mark_w {
             let px = *mark.get_pixel(x, y);
-            // Key out original navy field (and near-black plate leftovers).
             if near(px[0], key[0]) && near(px[1], key[1]) && near(px[2], key[2]) {
                 continue;
             }
@@ -254,13 +257,12 @@ fn app_icon() -> Option<IconData> {
             if dx >= size || dy >= size {
                 continue;
             }
-            // Only paint where the plate has coverage (respect rounded alpha).
             let dest = canvas.get_pixel(dx, dy);
             if dest[3] == 0 {
                 continue;
             }
-            // Brighten cool metal / silver so the mark pops on the lifted plate.
-            let out = boost_mark_pixel(px);
+            let out =
+                if light_plate { mark_for_light_plate(px) } else { boost_mark_for_dark_plate(px) };
             canvas.put_pixel(dx, dy, image::Rgba([out[0], out[1], out[2], 255]));
         }
     }
@@ -274,21 +276,52 @@ fn app_icon() -> Option<IconData> {
     Some(IconData { rgba, width: size, height: size })
 }
 
-/// Lift near-white / silver strokes toward pure white; leave terracotta alone.
-fn boost_mark_pixel(px: image::Rgba<u8>) -> image::Rgba<u8> {
+/// Light paper plate: silver/white metal → charcoal ink; keep terracotta.
+fn mark_for_light_plate(px: image::Rgba<u8>) -> image::Rgba<u8> {
     let r = px[0] as i32;
     let g = px[1] as i32;
     let b = px[2] as i32;
     let lum = (r + g + b) / 3;
-    // Warm brand accent (terracotta) — keep as-is.
+    // Terracotta / warm accent — leave alone (reads on paper).
     let warm = r > g + 20 && r > b + 20 && r > 90;
     if warm {
         return px;
     }
-    // Cool metal / silver / grey → push toward white for Dock contrast.
+    // Cool metal / silver / light grey → dark charcoal (like light-mode splash).
+    if lum > 90 && (r - g).abs() < 55 && (g - b).abs() < 60 {
+        // Map bright metal → deep ink; mid greys → medium charcoal.
+        let t = ((lum - 90) as f32 / 165.0).clamp(0.0, 1.0);
+        // Target ink ~ rgb(32, 28, 24) for bright strokes.
+        const INK: [f32; 3] = [32.0, 28.0, 24.0];
+        let mix = |c: u8, i: f32| {
+            let v = (c as f32) * (1.0 - t) + i * t;
+            // Always pull bright metal hard toward ink.
+            let v2 = v * (1.0 - 0.55 * t) + i * (0.55 * t);
+            v2.round().clamp(0.0, 255.0) as u8
+        };
+        // For high-lum strokes, force ink; for mid, blend.
+        if lum > 160 {
+            return image::Rgba([32, 28, 24, px[3]]);
+        }
+        return image::Rgba([mix(px[0], INK[0]), mix(px[1], INK[1]), mix(px[2], INK[2]), px[3]]);
+    }
+    // Already dark detail — keep.
+    px
+}
+
+/// Dark plate: lift silver toward white; leave terracotta.
+fn boost_mark_for_dark_plate(px: image::Rgba<u8>) -> image::Rgba<u8> {
+    let r = px[0] as i32;
+    let g = px[1] as i32;
+    let b = px[2] as i32;
+    let lum = (r + g + b) / 3;
+    let warm = r > g + 20 && r > b + 20 && r > 90;
+    if warm {
+        return px;
+    }
     if lum > 100 && (r - g).abs() < 50 && (g - b).abs() < 55 {
         let t = ((lum - 100) as f32 / 140.0).clamp(0.0, 1.0);
-        let lift = 0.35 + 0.65 * t; // keep some structure at lower greys
+        let lift = 0.45 + 0.55 * t;
         let br = |c: u8| -> u8 {
             let v = c as f32 + (255.0 - c as f32) * lift;
             v.round().clamp(0.0, 255.0) as u8
