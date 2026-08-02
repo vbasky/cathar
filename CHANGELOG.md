@@ -9,6 +9,23 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+### Added
+
+- **`cathar-gui`** — optional spectral editor (`Cathar` binary): spectrogram +
+  selection heal, toolbox FX covering the restoration chain, playlist/queue,
+  bottom transport with live meters, graphic EQ (live monitor), undo/redo and
+  A/B compare, light/dark theme, native menus. De-click / de-clip expose the
+  v0.7.1 method pickers (AR/cubic; SPADE/social/OMP/NMF/neural/cubic). Status
+  bar with spectrogram **t × f** cursor readout. Undo history capped at 40
+  states. Linux CI installs eframe/rodio system deps; release archives ship both
+  `cathar` and `Cathar` when present. ROADMAP treats the desktop GUI as an
+  optional workspace member (no longer “out of scope”).
+
+### Changed
+
+- **Biquad EQ** — transposed direct form II + `graphic_eq` for the GUI live EQ
+  path (library improvement shared with the CLI surface).
+
 ## [0.7.3] - 2026-09-01
 
 ### Added

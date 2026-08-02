@@ -27,6 +27,16 @@ jobs:
           rustup update stable --no-self-update
           rustup target add ${{ matrix.target }}
 
+      - name: system deps (Linux GUI + audio)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libssl-dev \
+            libgtk-3-dev
+
       - name: Build
         run: cargo build --release --workspace --target ${{ matrix.target }}
 
@@ -34,20 +44,25 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          bin="${{ github.event.repository.name }}"
+          # CLI is `cathar`; GUI binary is `Cathar` (product name in Dock / menus).
+          repo="${{ github.event.repository.name }}"
           cd "target/${{ matrix.target }}/release"
-          archive="${bin}-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
-          tar czf "$archive" "$bin"
+          archive="${repo}-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
+          files=(cathar)
+          [[ -f Cathar ]] && files+=(Cathar)
+          tar czf "$archive" "${files[@]}"
           echo "archive=$archive" >> "$GITHUB_ENV"
 
       - name: Archive (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          bin="${{ github.event.repository.name }}"
+          repo="${{ github.event.repository.name }}"
           cd "target/${{ matrix.target }}/release"
-          archive="${bin}-${{ github.ref_name }}-${{ matrix.target }}.zip"
-          7z a "$archive" "${bin}.exe"
+          archive="${repo}-${{ github.ref_name }}-${{ matrix.target }}.zip"
+          files=(cathar.exe)
+          [[ -f Cathar.exe ]] && files+=(Cathar.exe)
+          7z a "$archive" "${files[@]}"
           echo "archive=$archive" >> "$GITHUB_ENV"
 
       - name: Upload artifact
