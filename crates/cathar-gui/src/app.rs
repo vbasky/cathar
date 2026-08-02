@@ -4,7 +4,7 @@ use crate::axes::{self, FREQ_AXIS_W, TIME_AXIS_H};
 use crate::engine::{Engine, Monitor};
 use crate::histogram::LevelHistogram;
 use crate::icons::{
-    self, channel_chip, rich, toolbar_button, toolbar_toggle, transport_play_button,
+    self, channel_chip, rich, status_chip, toolbar_button, toolbar_toggle, transport_play_button,
 };
 use crate::native_menu::{self, NativeMenu};
 use crate::panel::{
@@ -2189,42 +2189,6 @@ impl CatharGui {
                         self.playlist_next(ctx);
                     }
 
-                    // Loop file · play selection · A–B from selection
-                    if ui
-                        .add(toolbar_toggle(self.loop_file, icons::LOOP))
-                        .on_hover_text(if self.loop_file {
-                            "Loop file off (L)"
-                        } else {
-                            "Loop file on (L) — with selection: loop selection"
-                        })
-                        .clicked()
-                    {
-                        self.toggle_loop_file();
-                    }
-                    if ui
-                        .add_enabled(has && self.selection.is_some(), toolbar_button(icons::PLAY))
-                        .on_hover_text("Play selection (P) — loops if Loop is on")
-                        .clicked()
-                    {
-                        self.play_selection();
-                    }
-                    let ab_on = self.ab_loop.is_some();
-                    if ui
-                        .add_enabled(has, toolbar_toggle(ab_on, icons::ARROWS_OUT_LINE_HORIZONTAL))
-                        .on_hover_text(if ab_on {
-                            "Clear A–B loop (⇧L)"
-                        } else {
-                            "A–B from selection (⇧A) · set A/B at playhead (A / B)"
-                        })
-                        .clicked()
-                    {
-                        if ab_on {
-                            self.clear_ab_loop();
-                        } else {
-                            self.ab_from_selection();
-                        }
-                    }
-
                     ui.separator();
 
                     // ── Time: "MM:SS.s / MM:SS.s" fixed slot ───────────────
@@ -2261,9 +2225,9 @@ impl CatharGui {
                     ui.separator();
 
                     // ── Scrub (middle): leave room for the full right cluster ─
-                    // chips(~200) + meters(~125) + volume(200) + seps(~32) + slack
-                    const RIGHT_RESERVE: f32 = 200.0 + 125.0 + 200.0 + 32.0 + 16.0; // 573
-                    let scrub_w = (ui.available_width() - RIGHT_RESERVE).clamp(80.0, 900.0);
+                    // chips(~190) + meters(~125) + volume(~200) + seps(~32) + slack
+                    const RIGHT_RESERVE: f32 = 190.0 + 125.0 + 200.0 + 32.0 + 12.0; // 559
+                    let scrub_w = (ui.available_width() - RIGHT_RESERVE).clamp(100.0, 1000.0);
                     self.player_scrubber(ui, scrub_w, pos, dur, has);
 
                     ui.separator();
@@ -2308,10 +2272,50 @@ impl CatharGui {
                     self.player_volume_control(ui);
                 });
 
-                // Status + cursor readout (numeric grid values for spectro hover).
+                // Status row: listen tools (Loop / Sel / A–B) + message + cursor.
+                // Kept off the transport strip so the primary bar stays uncrowded.
                 ui.add_space(2.0);
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 10.0;
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    ui.set_min_height(22.0);
+
+                    if ui
+                        .add(status_chip(self.loop_file, "Loop"))
+                        .on_hover_text(if self.loop_file {
+                            "Loop file off (L)"
+                        } else {
+                            "Loop file on (L) — with Sel: loop selection"
+                        })
+                        .clicked()
+                    {
+                        self.toggle_loop_file();
+                    }
+                    if ui
+                        .add_enabled(has && self.selection.is_some(), status_chip(false, "Sel"))
+                        .on_hover_text("Play selection (P) — loops if Loop is on")
+                        .clicked()
+                    {
+                        self.play_selection();
+                    }
+                    let ab_on = self.ab_loop.is_some();
+                    if ui
+                        .add_enabled(has, status_chip(ab_on, "A–B"))
+                        .on_hover_text(if ab_on {
+                            "Clear A–B loop (⇧L)"
+                        } else {
+                            "A–B from selection (⇧A) · set at playhead (A / B)"
+                        })
+                        .clicked()
+                    {
+                        if ab_on {
+                            self.clear_ab_loop();
+                        } else {
+                            self.ab_from_selection();
+                        }
+                    }
+
+                    ui.separator();
+
                     let status =
                         if self.status.is_empty() { "Ready" } else { self.status.as_str() };
                     ui.label(
@@ -2319,7 +2323,9 @@ impl CatharGui {
                             .size(theme::FONT_CAPTION)
                             .color(theme::text_muted()),
                     );
+
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
                         if let Some((t, f)) = self.cursor_tf {
                             let t_s = fmt_time_player(t);
                             let f_s = if f >= 1000.0 {

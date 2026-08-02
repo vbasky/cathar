@@ -5,7 +5,8 @@ use std::sync::Arc;
 use egui::{Button, Color32, FontFamily, RichText, Vec2, Widget, WidgetText};
 
 use crate::theme::{
-    CHIP_H, FONT_LABEL, RADIUS_LG, RADIUS_MD, TOOLBAR_BTN, TRANSPORT_PLAY, on_accent,
+    CHIP_H, FONT_CAPTION, FONT_LABEL, RADIUS_LG, RADIUS_MD, RADIUS_SM, TOOLBAR_BTN, TRANSPORT_PLAY,
+    on_accent,
 };
 
 pub(crate) use egui_phosphor::regular::{
@@ -16,8 +17,7 @@ pub(crate) use egui_phosphor::regular::{
     STOP, SWAP, TRASH_SIMPLE, WAVEFORM, WIND, WRENCH,
 };
 
-// Aliases for transport extras (Phosphor names vary by version).
-pub(crate) const LOOP: &str = ARROWS_CLOCKWISE;
+// Mute icon alias (Phosphor name is SPEAKER_SLASH).
 pub(crate) const MUTE: &str = SPEAKER_SLASH;
 
 pub(crate) const TOOLBAR_ICON: f32 = 18.0;
@@ -70,6 +70,24 @@ pub(crate) fn channel_chip(selected: bool, label: &str) -> Button<'static> {
             egui::Stroke::new(1.0, crate::theme::hairline())
         },
     );
+    if selected {
+        b = b.fill(crate::theme::accent());
+    } else {
+        b = b.fill(crate::theme::surface());
+    }
+    b
+}
+
+/// Compact caption chip for the player status row (Loop / Sel / A–B).
+pub(crate) fn status_chip(selected: bool, label: &str) -> Button<'static> {
+    let color = if selected { on_accent() } else { Color32::PLACEHOLDER };
+    let text = RichText::new(label.to_string()).size(FONT_CAPTION).strong().color(color);
+    let mut b =
+        Button::new(text).min_size(Vec2::new(40.0, 22.0)).rounding(RADIUS_SM).stroke(if selected {
+            egui::Stroke::NONE
+        } else {
+            egui::Stroke::new(1.0, crate::theme::hairline())
+        });
     if selected {
         b = b.fill(crate::theme::accent());
     } else {
