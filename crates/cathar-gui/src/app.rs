@@ -1875,18 +1875,18 @@ impl CatharGui {
 
     /// Bottom transport strip.
     ///
-    /// Layout is intentionally dumb and fixed so it cannot reflow:
-    /// `[transport][time][scrub grows][🎧 chips][meters][volume]`
-    /// All LTR, all fixed widths except scrub (min/max clamped).
+    /// Layout: `[transport][time][scrub grows][🎧 chips][meters][volume]`.
+    /// The right cluster is laid out **right-to-left** so volume (rightmost) is
+    /// allocated first and never clipped by the scrubber or window edge.
     fn player_bar(&mut self, ctx: &egui::Context) {
-        // Content ≈ 36px + 6+6 margin = 48; use 52 for hairline breathing room.
         egui::TopBottomPanel::bottom("player")
             .exact_height(72.0)
             .frame(
                 egui::Frame::none()
                     .fill(theme::player_bar())
                     .stroke(Stroke::new(1.0, theme::hairline()))
-                    .inner_margin(egui::Margin::symmetric(10.0, 4.0)),
+                    // Extra right margin — window rounded corners used to eat the volume thumb.
+                    .inner_margin(egui::Margin { left: 10.0, right: 16.0, top: 4.0, bottom: 4.0 }),
             )
             .show(ctx, |ui| {
                 let eng_pos = self.engine.as_ref().map(|e| e.pos()).unwrap_or(0.0);
@@ -1992,52 +1992,58 @@ impl CatharGui {
 
                     ui.separator();
 
-                    // ── Scrub: take remaining space after fixed right block ─
-                    // Right block ≈ headphones+chips(190) + meters(120) + vol(140) + gaps
-                    const RIGHT_FIXED: f32 = 190.0 + 120.0 + 140.0 + 24.0;
-                    let scrub_w = (ui.available_width() - RIGHT_FIXED).clamp(96.0, 720.0);
+                    // Reserve a real-world right cluster width so scrub cannot
+                    // starve volume. Measured:
+                    //   volume ≈ 168 · meters ≈ 125 · chips ≈ 200 · seps ≈ 24
+                    const RIGHT_RESERVE: f32 = 168.0 + 125.0 + 200.0 + 24.0; // 517
+                    let mid_w = ui.available_width();
+                    let scrub_w = (mid_w - RIGHT_RESERVE).clamp(64.0, 720.0);
+                    let right_w = (mid_w - scrub_w).max(0.0);
+
+                    // Scrub in the middle band.
                     self.player_scrubber(ui, scrub_w, pos, dur, has);
 
-                    ui.separator();
-
-                    // ── Listen (headphones) + routing chips ──
-                    ui.label(rich(icons::HEADPHONES, 15.0).color(theme::text_muted()))
-                        .on_hover_text("Listen — what you hear (independent of Display)");
-                    for (m, label) in [
-                        (Monitor::Stereo, "LR"),
-                        (Monitor::Left, "L"),
-                        (Monitor::Right, "R"),
-                        (Monitor::Mid, "M"),
-                    ] {
-                        let sel = self.monitor == m;
-                        let en = has && (m != Monitor::Right || stereo);
-                        if ui
-                            .add_enabled(en, channel_chip(sel, label))
-                            .on_hover_text(match m {
-                                Monitor::Stereo => "Listen: stereo",
-                                Monitor::Left => "Listen: left only",
-                                Monitor::Right => "Listen: right only",
-                                Monitor::Mid => "Listen: mid mono",
-                            })
-                            .clicked()
-                        {
-                            self.set_monitor(m);
-                        }
-                    }
-
-                    ui.separator();
-
-                    // ── Meters (fixed dB width inside vu_meter_h) ──────────
-                    ui.vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 2.0;
-                        vu_meter_h(ui, "L", self.meter_l, 72.0);
-                        vu_meter_h(ui, "R", self.meter_r, 72.0);
-                    });
-
-                    ui.separator();
-
-                    // ── Volume ─────────────────────────────────────────────
-                    self.player_volume_control(ui);
+                    // Right cluster hugs the trailing edge; RTL → volume rightmost.
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(right_w, 36.0),
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            ui.spacing_mut().item_spacing.x = 8.0;
+                            // First in RTL = right edge of the bar.
+                            self.player_volume_control(ui);
+                            ui.separator();
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 2.0;
+                                vu_meter_h(ui, "L", self.meter_l, 72.0);
+                                vu_meter_h(ui, "R", self.meter_r, 72.0);
+                            });
+                            ui.separator();
+                            // Chips: place Mid…LR so visual order stays LR L R M left-to-right.
+                            for (m, label) in [
+                                (Monitor::Mid, "M"),
+                                (Monitor::Right, "R"),
+                                (Monitor::Left, "L"),
+                                (Monitor::Stereo, "LR"),
+                            ] {
+                                let sel = self.monitor == m;
+                                let en = has && (m != Monitor::Right || stereo);
+                                if ui
+                                    .add_enabled(en, channel_chip(sel, label))
+                                    .on_hover_text(match m {
+                                        Monitor::Stereo => "Listen: stereo",
+                                        Monitor::Left => "Listen: left only",
+                                        Monitor::Right => "Listen: right only",
+                                        Monitor::Mid => "Listen: mid mono",
+                                    })
+                                    .clicked()
+                                {
+                                    self.set_monitor(m);
+                                }
+                            }
+                            ui.label(rich(icons::HEADPHONES, 15.0).color(theme::text_muted()))
+                                .on_hover_text("Listen — what you hear (independent of Display)");
+                        },
+                    );
                 });
 
                 // Status + cursor readout (numeric grid values for spectro hover).
@@ -2158,54 +2164,68 @@ impl CatharGui {
         const RAIL_H: f32 = 5.0;
         const THUMB_R: f32 = 6.5;
         const VOL_MAX: f32 = 1.5;
+        // Fixed strip so RTL parent never shrinks icon / rail / percent independently.
+        // icon(~18) + gap(5) + rail(93) + gap(5) + pct(36) ≈ 157.
+        const TOTAL_W: f32 = 168.0;
 
-        ui.spacing_mut().item_spacing.x = 5.0;
-        ui.label(rich(icons::SPEAKER_HIGH, 14.0).color(theme::text_muted()));
+        ui.allocate_ui_with_layout(
+            egui::vec2(TOTAL_W, 28.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.spacing_mut().item_spacing.x = 5.0;
+                ui.label(rich(icons::SPEAKER_HIGH, 14.0).color(theme::text_muted()));
 
-        let (rect, _) =
-            ui.allocate_exact_size(egui::vec2(RAIL_W + THUMB_R * 2.0, 28.0), Sense::hover());
-        let resp =
-            ui.interact(rect, ui.make_persistent_id("player_volume"), Sense::click_and_drag());
+                let (rect, _) = ui
+                    .allocate_exact_size(egui::vec2(RAIL_W + THUMB_R * 2.0, 28.0), Sense::hover());
+                let resp = ui.interact(
+                    rect,
+                    ui.make_persistent_id("player_volume"),
+                    Sense::click_and_drag(),
+                );
 
-        let rail = Rect::from_center_size(rect.center(), egui::vec2(RAIL_W, RAIL_H));
-        ui.painter().rect_filled(rail, 2.0, theme::well_bg());
-        ui.painter().rect_stroke(rail, 2.0, Stroke::new(1.0, theme::hairline()));
+                let rail = Rect::from_center_size(rect.center(), egui::vec2(RAIL_W, RAIL_H));
+                ui.painter().rect_filled(rail, 2.0, theme::well_bg());
+                ui.painter().rect_stroke(rail, 2.0, Stroke::new(1.0, theme::hairline()));
 
-        let t = (self.volume / VOL_MAX).clamp(0.0, 1.0);
-        let filled_w = (rail.width() * t).max(if t > 0.0 { 2.0 } else { 0.0 });
-        if filled_w > 0.0 {
-            ui.painter().rect_filled(
-                Rect::from_min_size(rail.min, egui::vec2(filled_w, rail.height())),
-                2.0,
-                theme::accent(),
-            );
-        }
-        let thumb_x = (rail.left() + filled_w).clamp(rail.left() + 4.0, rail.right() - 4.0);
-        let thumb = pos2(thumb_x, rail.center().y);
-        ui.painter().circle_filled(thumb, THUMB_R, theme::surface());
-        ui.painter().circle_stroke(thumb, THUMB_R, Stroke::new(1.5, theme::accent()));
-
-        if resp.dragged() || resp.clicked() {
-            if let Some(p) = ui.ctx().pointer_interact_pos().or_else(|| resp.interact_pointer_pos())
-            {
-                let u = ((p.x - rail.left()) / rail.width().max(1.0)).clamp(0.0, 1.0);
-                self.volume = u * VOL_MAX;
-                if let Some(eng) = self.engine.as_mut() {
-                    eng.set_volume(self.volume);
+                let t = (self.volume / VOL_MAX).clamp(0.0, 1.0);
+                let filled_w = (rail.width() * t).max(if t > 0.0 { 2.0 } else { 0.0 });
+                if filled_w > 0.0 {
+                    ui.painter().rect_filled(
+                        Rect::from_min_size(rail.min, egui::vec2(filled_w, rail.height())),
+                        2.0,
+                        theme::accent(),
+                    );
                 }
-                ui.ctx().request_repaint();
-            }
-        }
-        resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Volume");
+                let thumb_x = (rail.left() + filled_w).clamp(rail.left() + 4.0, rail.right() - 4.0);
+                let thumb = pos2(thumb_x, rail.center().y);
+                ui.painter().circle_filled(thumb, THUMB_R, theme::surface());
+                ui.painter().circle_stroke(thumb, THUMB_R, Stroke::new(1.5, theme::accent()));
 
-        ui.add_sized(
-            [34.0, 14.0],
-            egui::Label::new(
-                egui::RichText::new(format!("{:>3.0}%", self.volume * 100.0))
-                    .monospace()
-                    .size(11.0)
-                    .color(theme::text_muted()),
-            ),
+                if resp.dragged() || resp.clicked() {
+                    if let Some(p) =
+                        ui.ctx().pointer_interact_pos().or_else(|| resp.interact_pointer_pos())
+                    {
+                        let u = ((p.x - rail.left()) / rail.width().max(1.0)).clamp(0.0, 1.0);
+                        self.volume = u * VOL_MAX;
+                        if let Some(eng) = self.engine.as_mut() {
+                            eng.set_volume(self.volume);
+                        }
+                        ui.ctx().request_repaint();
+                    }
+                }
+                resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Volume");
+
+                // 0…150% (VOL_MAX = 1.5) — fixed width so digits never reflow the bar.
+                ui.add_sized(
+                    [36.0, 14.0],
+                    egui::Label::new(
+                        egui::RichText::new(format!("{:>3.0}%", self.volume * 100.0))
+                            .monospace()
+                            .size(11.0)
+                            .color(theme::text_muted()),
+                    ),
+                );
+            },
         );
     }
 
