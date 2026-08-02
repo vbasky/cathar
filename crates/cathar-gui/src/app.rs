@@ -4,7 +4,7 @@ use crate::axes::{self, FREQ_AXIS_W, TIME_AXIS_H};
 use crate::engine::{Engine, Monitor};
 use crate::histogram::LevelHistogram;
 use crate::icons::{
-    self, channel_chip, rich, status_chip, toolbar_button, toolbar_toggle, transport_play_button,
+    self, channel_chip, rich, toolbar_button, toolbar_toggle, transport_play_button,
 };
 use crate::native_menu::{self, NativeMenu};
 use crate::panel::{
@@ -1505,6 +1505,14 @@ impl CatharGui {
                     self.zoom_x = 1.0;
                     self.zoom_y = 1.0;
                 }
+                native_menu::id::LOOP_FILE => self.toggle_loop_file(),
+                native_menu::id::PLAY_SELECTION => self.play_selection(),
+                native_menu::id::AB_FROM_SEL => self.ab_from_selection(),
+                native_menu::id::AB_CLEAR => self.clear_ab_loop(),
+                native_menu::id::LISTEN_STEREO => self.set_monitor(Monitor::Stereo),
+                native_menu::id::LISTEN_LEFT => self.set_monitor(Monitor::Left),
+                native_menu::id::LISTEN_RIGHT => self.set_monitor(Monitor::Right),
+                native_menu::id::LISTEN_MID => self.set_monitor(Monitor::Mid),
                 _ => {}
             }
         }
@@ -2108,18 +2116,17 @@ impl CatharGui {
 
     /// Bottom transport strip.
     ///
-    /// Strict LTR: `[transport][time][scrub grows][🎧 chips][meters][volume]`.
-    /// Scrub takes leftover after a measured right-side reserve so volume (fixed
-    /// strip) is never clipped; no RTL — that left a dead gap and collapsed scrub.
+    /// Strict LTR: `[transport][time][scrub grows][meters][mute/volume]`.
+    /// Loop / selection play / A–B / listen routing live in the **Playback**
+    /// menu (+ keyboard) so this strip stays a pure transport.
     fn player_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("player")
-            .exact_height(72.0)
+            .exact_height(58.0)
             .frame(
                 egui::Frame::none()
                     .fill(theme::player_bar())
                     .stroke(Stroke::new(1.0, theme::hairline()))
-                    // Extra right margin so the window corner doesn't eat the volume thumb.
-                    .inner_margin(egui::Margin { left: 10.0, right: 16.0, top: 4.0, bottom: 4.0 }),
+                    .inner_margin(egui::Margin { left: 10.0, right: 16.0, top: 6.0, bottom: 6.0 }),
             )
             .show(ctx, |ui| {
                 let eng_pos = self.engine.as_ref().map(|e| e.pos()).unwrap_or(0.0);
@@ -2127,7 +2134,6 @@ impl CatharGui {
                 let dur = self.duration.max(0.0);
                 let playing = self.engine.as_ref().map(|e| e.is_playing()).unwrap_or(false);
                 let has = self.has_audio();
-                let stereo = self.stereo_file();
                 let has_queue = self.playlist.len() > 1;
 
                 ui.horizontal(|ui| {
@@ -2224,38 +2230,11 @@ impl CatharGui {
 
                     ui.separator();
 
-                    // ── Scrub (middle): leave room for the full right cluster ─
-                    // chips(~190) + meters(~125) + volume(~200) + seps(~32) + slack
-                    const RIGHT_RESERVE: f32 = 190.0 + 125.0 + 200.0 + 32.0 + 12.0; // 559
-                    let scrub_w = (ui.available_width() - RIGHT_RESERVE).clamp(100.0, 1000.0);
+                    // ── Scrub: meters + volume only on the right ───────────
+                    // meters(~125) + volume(~200) + seps(~24) + slack
+                    const RIGHT_RESERVE: f32 = 125.0 + 200.0 + 24.0 + 12.0; // 361
+                    let scrub_w = (ui.available_width() - RIGHT_RESERVE).clamp(120.0, 1200.0);
                     self.player_scrubber(ui, scrub_w, pos, dur, has);
-
-                    ui.separator();
-
-                    // ── Listen (headphones) + routing chips ─────────────────
-                    ui.label(rich(icons::HEADPHONES, 15.0).color(theme::text_muted()))
-                        .on_hover_text("Listen — what you hear (independent of Display)");
-                    for (m, label) in [
-                        (Monitor::Stereo, "LR"),
-                        (Monitor::Left, "L"),
-                        (Monitor::Right, "R"),
-                        (Monitor::Mid, "M"),
-                    ] {
-                        let sel = self.monitor == m;
-                        let en = has && (m != Monitor::Right || stereo);
-                        if ui
-                            .add_enabled(en, channel_chip(sel, label))
-                            .on_hover_text(match m {
-                                Monitor::Stereo => "Listen: stereo",
-                                Monitor::Left => "Listen: left only",
-                                Monitor::Right => "Listen: right only",
-                                Monitor::Mid => "Listen: mid mono",
-                            })
-                            .clicked()
-                        {
-                            self.set_monitor(m);
-                        }
-                    }
 
                     ui.separator();
 
@@ -2268,60 +2247,48 @@ impl CatharGui {
 
                     ui.separator();
 
-                    // ── Volume (fixed-width strip — last, fully visible) ───
+                    // ── Volume ─────────────────────────────────────────────
                     self.player_volume_control(ui);
                 });
 
-                // Status row: listen tools (Loop / Sel / A–B) + message + cursor.
-                // Kept off the transport strip so the primary bar stays uncrowded.
-                ui.add_space(2.0);
+                // Thin status: message + optional loop/A–B flag + cursor readout.
+                ui.add_space(1.0);
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
-                    ui.set_min_height(22.0);
-
-                    if ui
-                        .add(status_chip(self.loop_file, "Loop"))
-                        .on_hover_text(if self.loop_file {
-                            "Loop file off (L)"
-                        } else {
-                            "Loop file on (L) — with Sel: loop selection"
-                        })
-                        .clicked()
-                    {
-                        self.toggle_loop_file();
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    let mut flags = String::new();
+                    if self.loop_file {
+                        flags.push_str("Loop");
                     }
-                    if ui
-                        .add_enabled(has && self.selection.is_some(), status_chip(false, "Sel"))
-                        .on_hover_text("Play selection (P) — loops if Loop is on")
-                        .clicked()
-                    {
-                        self.play_selection();
-                    }
-                    let ab_on = self.ab_loop.is_some();
-                    if ui
-                        .add_enabled(has, status_chip(ab_on, "A–B"))
-                        .on_hover_text(if ab_on {
-                            "Clear A–B loop (⇧L)"
-                        } else {
-                            "A–B from selection (⇧A) · set at playhead (A / B)"
-                        })
-                        .clicked()
-                    {
-                        if ab_on {
-                            self.clear_ab_loop();
-                        } else {
-                            self.ab_from_selection();
+                    if let Some((a, b)) = self.ab_loop {
+                        if !flags.is_empty() {
+                            flags.push_str(" · ");
                         }
+                        flags.push_str(&format!("A–B {a:.1}–{b:.1}s"));
                     }
-
-                    ui.separator();
-
+                    if self.muted {
+                        if !flags.is_empty() {
+                            flags.push_str(" · ");
+                        }
+                        flags.push_str("Mute");
+                    }
+                    if !flags.is_empty() {
+                        ui.label(
+                            egui::RichText::new(flags)
+                                .size(theme::FONT_CAPTION)
+                                .strong()
+                                .color(theme::accent()),
+                        );
+                        ui.separator();
+                    }
                     let status =
                         if self.status.is_empty() { "Ready" } else { self.status.as_str() };
                     ui.label(
                         egui::RichText::new(status)
                             .size(theme::FONT_CAPTION)
                             .color(theme::text_muted()),
+                    )
+                    .on_hover_text(
+                        "Playback → Loop / Play Selection / A–B / Listen  ·  keys L P ⇧A A B ⇧L M",
                     );
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

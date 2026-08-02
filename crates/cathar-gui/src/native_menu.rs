@@ -23,6 +23,15 @@ pub(crate) mod id {
     pub(crate) const VIEW_PLAYLIST: &str = "cathar.view_playlist";
     pub(crate) const VIEW_VIZ: &str = "cathar.view_viz";
     pub(crate) const OPEN_EQ: &str = "cathar.open_eq";
+    // Playback — loop / selection / A–B / listen routing (not on the transport strip).
+    pub(crate) const LOOP_FILE: &str = "cathar.loop_file";
+    pub(crate) const PLAY_SELECTION: &str = "cathar.play_selection";
+    pub(crate) const AB_FROM_SEL: &str = "cathar.ab_from_sel";
+    pub(crate) const AB_CLEAR: &str = "cathar.ab_clear";
+    pub(crate) const LISTEN_STEREO: &str = "cathar.listen_stereo";
+    pub(crate) const LISTEN_LEFT: &str = "cathar.listen_left";
+    pub(crate) const LISTEN_RIGHT: &str = "cathar.listen_right";
+    pub(crate) const LISTEN_MID: &str = "cathar.listen_mid";
 }
 
 /// Owns the native menu graph for the process lifetime.
@@ -178,6 +187,53 @@ impl NativeMenu {
             ],
         )?;
         menu.append(&view)?;
+
+        // Playback tools live in the menu — keeps the player strip uncluttered.
+        let loop_file = MenuItem::with_id(
+            id::LOOP_FILE,
+            "Loop File",
+            true,
+            Some(Accelerator::new(None, Code::KeyL)),
+        );
+        let play_sel = MenuItem::with_id(
+            id::PLAY_SELECTION,
+            "Play Selection",
+            true,
+            Some(Accelerator::new(None, Code::KeyP)),
+        );
+        let ab_from = MenuItem::with_id(
+            id::AB_FROM_SEL,
+            "A–B Loop from Selection",
+            true,
+            Some(Accelerator::new(Some(Modifiers::SHIFT), Code::KeyA)),
+        );
+        let ab_clear = MenuItem::with_id(
+            id::AB_CLEAR,
+            "Clear A–B Loop",
+            true,
+            Some(Accelerator::new(Some(Modifiers::SHIFT), Code::KeyL)),
+        );
+        let listen_stereo = MenuItem::with_id(id::LISTEN_STEREO, "Listen: Stereo", true, None);
+        let listen_left = MenuItem::with_id(id::LISTEN_LEFT, "Listen: Left", true, None);
+        let listen_right = MenuItem::with_id(id::LISTEN_RIGHT, "Listen: Right", true, None);
+        let listen_mid = MenuItem::with_id(id::LISTEN_MID, "Listen: Mid (Mono)", true, None);
+        let playback = Submenu::with_items(
+            "Playback",
+            true,
+            &[
+                &loop_file,
+                &play_sel,
+                &PredefinedMenuItem::separator(),
+                &ab_from,
+                &ab_clear,
+                &PredefinedMenuItem::separator(),
+                &listen_stereo,
+                &listen_left,
+                &listen_right,
+                &listen_mid,
+            ],
+        )?;
+        menu.append(&playback)?;
 
         Ok(Self { _menu: menu, save, undo, redo, installed: false })
     }
