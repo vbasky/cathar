@@ -175,8 +175,14 @@ impl Engine {
     /// Always feeds a **stereo** interleaved buffer so L/R monitoring is
     /// predictable. Volume is applied by the player (dezippered), not baked in.
     pub(crate) fn load(&mut self, audio: &AudioData) -> Result<()> {
-        // New buffer — never inherit a stuck scrub mute from the previous player.
-        self.scrubbing = false;
+        // Keep an in-progress scrub mute across buffer swaps (silent scrub seek).
+        // Non-scrub loads must not inherit a stuck mute from a previous gesture.
+        let keep_scrub = self.scrubbing;
+        if !keep_scrub {
+            self.scrubbing = false;
+        } else {
+            self.volume_actual = 0.0;
+        }
 
         // Swap in a fresh Player on the shared mixer.
         // Replacing avoids rodio `stop`+`append` which can `sleep_until_end` and hang.
@@ -184,7 +190,9 @@ impl Engine {
         // Pause *before* any samples are appended so the default unpaused
         // Player state cannot leak audio during the swap.
         new_player.pause();
-        new_player.set_volume(self.volume_actual);
+        // Fresh amplify factor starts at 1.0 until the first periodic_access;
+        // seed the mutex at the gain we actually want (0 while scrubbing).
+        new_player.set_volume(if keep_scrub { 0.0 } else { self.volume_actual });
 
         let old = std::mem::replace(&mut self.player, new_player);
         Self::retire_player(old);
@@ -347,7 +355,18 @@ impl Engine {
             return false;
         }
         let t = t.clamp(0.0, self.duration.max(0.0));
-        // Force silence around the handshake even if begin_scrub was skipped.
+        // rodio only pushes volume/pause into the amplify/pausable filters inside
+        // periodic_access (~5 ms). A bare play()+try_seek races that and leaks
+        // full-gain samples (spectrogram click / scrub screech).
+        //
+        // Flush controls first: set mute+pause, then try_seek to the *current*
+        // position while still paused. That blocks until periodic_access runs
+        // (still outputting zeros), so the amplify factor is 0 before we unpause
+        // for the real seek handshake.
+        self.player.set_volume(0.0);
+        self.player.pause();
+        let cur = self.player.get_pos();
+        let _ = self.player.try_seek(cur);
         self.player.set_volume(0.0);
         self.seek_internal(Duration::from_secs_f32(t), false);
         self.player.set_volume(0.0);
@@ -364,18 +383,32 @@ impl Engine {
     ) -> Result<()> {
         // Capture intent before load (load does not clear want_playing unless empty).
         self.want_playing = was_playing;
+        let scrub = self.scrubbing;
+        if scrub {
+            self.volume_actual = 0.0;
+            self.player.set_volume(0.0);
+            self.player.pause();
+        }
         self.load(audio)?;
         if !self.loaded {
             self.want_playing = false;
             return Ok(());
         }
         if resume_pos > 0.05 {
+            // While scrubbing: muted handshake only — do not resume yet.
             self.seek_internal(
                 Duration::from_secs_f32(resume_pos.clamp(0.0, self.duration.max(0.0))),
-                true,
+                !scrub,
             );
         }
-        self.apply_transport();
+        if scrub {
+            self.volume_actual = 0.0;
+            self.player.set_volume(0.0);
+            self.player.pause();
+            // Leave scrubbing set; caller ends the gesture and fades in.
+        } else {
+            self.apply_transport();
+        }
         Ok(())
     }
 

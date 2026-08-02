@@ -871,7 +871,8 @@ impl CatharGui {
         }
     }
 
-    /// Re-append the monitor buffer and land at `t` (used when the source is drained).
+    /// Re-append the monitor buffer and land at `t` (used when the source is drained,
+    /// and for silent scrub seeks that must not race rodio's delayed volume apply).
     fn seek_via_reload(&mut self, t: f32) {
         let Some(audio) = self.audio_for_engine() else {
             return;
@@ -884,6 +885,7 @@ impl CatharGui {
             return;
         };
         eng.set_monitor(monitor);
+        // Keep the target volume; while scrubbing, actual gain stays 0 until end_scrub.
         eng.set_volume(vol);
         // Preserve play intent across the buffer swap (`is_paused` = !want_playing).
         let was_playing = !eng.is_paused();
@@ -893,10 +895,14 @@ impl CatharGui {
 
     /// Final seek for a scrub gesture (click or drag-release).
     ///
-    /// Falls back to a full buffer reload when the source is drained so we never
-    /// call rodio `try_seek` on a finished stream (hang / no-op → stuck mute).
+    /// Hard-mutes, waits for rodio to apply the mute (~5 ms periodic_access),
+    /// then seeks. Falls back to a full buffer reload when the source is drained
+    /// so we never call `try_seek` on a finished stream (hang / stuck mute).
     fn finish_scrub_seek(&mut self, t: f32) {
         let t = t.clamp(0.0, self.duration.max(0.0));
+        // Arm mute even if the caller forgot begin_scrub (spectrogram click,
+        // pointer-up safety net, etc.).
+        self.begin_scrub();
         let need_reload = self.engine.as_ref().is_some_and(|e| e.at_end());
         if need_reload {
             self.seek_via_reload(t);
