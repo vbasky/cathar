@@ -1857,7 +1857,7 @@ impl CatharGui {
 
 impl CatharGui {
     /// Spectrogram channel (Display) + history/A-B.
-    /// File name lives only in the window title. Listen lives on the player bar.
+    /// File name lives only in the window title. Listen lives under Playback.
     fn toolbar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("toolbar")
             .exact_height(44.0)
