@@ -29,6 +29,8 @@ pub struct Stats {
     pub channel_peaks: Vec<f32>,
     /// Per-channel RMS in dBFS.
     pub channel_rms: Vec<f32>,
+    /// Zero-lag L/R phase correlation in `[-1, +1]` (stereo only; `None` for mono).
+    pub phase_correlation: Option<f32>,
 }
 
 /// Compute comprehensive statistics for an audio buffer. Returns `None` if the
@@ -79,6 +81,12 @@ pub fn compute_stats(channels: &[Vec<f32>], sample_rate: u32) -> Option<Stats> {
     let integrated_lufs = integrated_loudness(channels, sample_rate);
     let true_peak_dbtp = true_peak_dbtp(channels, sample_rate);
 
+    let phase_correlation = if channels.len() >= 2 {
+        Some(crate::stereo::phase_correlation(&channels[0], &channels[1]))
+    } else {
+        None
+    };
+
     Some(Stats {
         sample_rate,
         channels: channels.len(),
@@ -92,6 +100,7 @@ pub fn compute_stats(channels: &[Vec<f32>], sample_rate: u32) -> Option<Stats> {
         dc_offset,
         channel_peaks,
         channel_rms,
+        phase_correlation,
     })
 }
 

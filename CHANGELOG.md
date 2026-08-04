@@ -9,6 +9,20 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+### Added
+
+- **`stereo` command / mid-side toolkit** — exact M/S encode–decode, `--width`
+  (scale Side), `--mono-below` (mono-maker via elliptical crossover), `--upmix`
+  (Haas mono→stereo), `--haas-ms`, and `--ms` / `--from-ms`. Library:
+  `ms_encode`, `ms_decode`, `stereo_width`, `mono_below`, `upmix_mono`,
+  `haas_delay`, `phase_correlation`.
+- **GCC-PHAT alignment** — `align` / `azimuth` accept
+  `--method correlation|gcc-phat` for lag estimation on level-mismatched or
+  mildly reverberant pairs. Library: `LagMethod`, `estimate_lag_with_method`,
+  `align_with_method`, `azimuth_correct_with_method`.
+- **`stats` phase correlation** — stereo files report zero-lag L/R correlation
+  in `[-1, +1]` (mono compatibility / out-of-phase check).
+
 ## [0.7.1] - 2026-08-02
 
 De-click / de-clip method selection and survey-family reconstruction algorithms

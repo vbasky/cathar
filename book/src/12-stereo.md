@@ -64,6 +64,35 @@ image stops wandering.
   technique for exactly the reason above: it lets you process the shared centre
   and the stereo width separately and coherently.
 
+## What cathar gives you for stereo
+
+Beyond coherent denoise, cathar ships an explicit **mid-side toolkit** and a
+**phase-correlation** reading so you can *see* and *fix* channel agreement:
+
+```bash
+# How mono-compatible is this file? (+1 = solid mono, −1 = L/R cancel)
+cathar stats stereo.wav          # look for "Phase corr"
+
+# Collapse width to mono (width 0) or widen slightly
+cathar stereo song.wav --width 0.0 --out monoish.wav
+cathar stereo song.wav --width 1.3 --out wider.wav
+
+# Mono-maker: sum bass to mono below 120 Hz (same idea as vinyl elliptical mono)
+cathar stereo transfer.wav --mono-below 120 --out tight-bass.wav
+
+# Encode to mid/side (ch0=mid, ch1=side), process, then decode
+cathar stereo song.wav --ms --out ms.wav
+# …edit mid or side…
+cathar stereo ms.wav --from-ms --out lr.wav
+
+# Mono source → simple Haas pseudo-stereo
+cathar stereo mono.wav --upmix --out wide.wav
+```
+
+If left and right are *time-skewed* rather than just too wide — vinyl azimuth or
+multi-mic delay — use **`azimuth`** or **`align`** (optionally
+`--method gcc-phat` when levels differ or the room is a bit wet).
+
 Stereo handling is one of those quiet quality markers that separates a tool that
 "works" from one that's *trustworthy* on real material. The concepts — width lives
 in the *difference*, and processing should keep the channels *agreeing* — are the

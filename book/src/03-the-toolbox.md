@@ -29,6 +29,8 @@ means "take away."
 | Boomy, dull digitized vinyl | **RIAA curve** — playback de-emphasis not applied | riaa |
 | Dull FM or early-CD capture | **Broadcast/CD pre-emphasis** — wrong playback curve | deemphasis |
 | Gritty "stair-step" quiet passages | **Quantization grain** — too few stored levels | dequantize |
+| Stereo too wide / bass not mono-safe | **Stereo image** — mid/side width and mono-maker | stereo |
+| Phase / mono check | **Phase correlation** — L/R agreement meter | stats |
 | Too fast / slow / chipmunk | **Time & pitch** — duration vs pitch edits | tempo / pitch / speed |
 
 ## Two big families

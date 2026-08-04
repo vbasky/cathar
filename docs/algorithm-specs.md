@@ -59,6 +59,13 @@ Migrate `denoise.rs` / `enhance.rs` / `spectrum.rs` onto it opportunistically
 
 ## Tier 1 — Restoration depth
 
+### Alignment — GCC-PHAT (shipped)
+
+**Status.** Shipped on `align` / `azimuth` as `--method gcc-phat`
+(`LagMethod::GccPhat`). Default remains time-domain correlation.
+
+---
+
 ### 1. Audio inpainting / gap interpolation — `inpaint.rs`
 
 **Purpose.** Reconstruct dropouts, tape splices, digital mutes — arbitrary
@@ -307,6 +314,9 @@ pub fn synthesize_sms(model: &SinusoidalModel, sample_rate: u32) -> Vec<f32>;
 ## Tier 3 — Spatial & measurement
 
 ### 9. Mid-side / stereo toolkit — `stereo.rs`
+
+**Status.** Shipped (`Unreleased` / post-`0.7.1`): `stereo` CLI + library APIs
+listed below; `stats` exposes `phase_correlation`.
 
 **Purpose.** Everyday stereo utilities; cheap, high-utility.
 

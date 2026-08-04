@@ -43,12 +43,16 @@ mod resample;
 mod restore;
 mod sms;
 mod spectrum;
+mod stereo;
 mod timestretch;
 mod util;
 mod wpe;
 
 pub use adehum::dehum_adaptive;
-pub use align::{align, azimuth_correct, estimate_lag};
+pub use align::{
+    LagMethod, align, align_with_method, azimuth_correct, azimuth_correct_with_method,
+    estimate_lag, estimate_lag_with_method,
+};
 pub use analysis::{Stats, compute_stats};
 pub use audio::AudioData;
 pub use cqt::{CqtSpec, cqt};
@@ -81,6 +85,9 @@ pub use restore::{
 };
 pub use sms::{SinusoidalModel, analyze_sms, synthesize_sms};
 pub use spectrum::{Spectrogram, spectrogram};
+pub use stereo::{
+    haas_delay, mono_below, ms_decode, ms_encode, phase_correlation, stereo_width, upmix_mono,
+};
 pub use timestretch::{StretchMode, pitch_shift, time_stretch};
 pub use util::{generate_wave, variance};
 pub use wpe::wpe;
