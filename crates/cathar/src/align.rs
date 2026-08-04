@@ -5,15 +5,56 @@
 //! - [`align`] time-aligns a separate recording to a reference (multi-mic /
 //!   reference-track workflows).
 //!
-//! Both estimate a sub-sample lag from the normalised cross-correlation (peak
-//! with parabolic interpolation) and apply a fractional shift. Deterministic.
+//! Both estimate a sub-sample lag from either plain normalised cross-correlation
+//! or **GCC-PHAT** (generalised cross-correlation with phase transform) and
+//! apply a fractional shift. Deterministic.
 
-/// Analysis window cap — bounds the O(window × max_lag) correlation cost.
+use realfft::num_complex::Complex;
+use rustfft::FftPlanner;
+
+/// Analysis window cap — bounds correlation cost.
 const WINDOW_CAP: usize = 1 << 17;
+
+/// How lag is estimated between two signals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LagMethod {
+    /// Time-domain normalised cross-correlation (default; cheap, robust on
+    /// similar signals).
+    #[default]
+    Correlation,
+    /// Generalised cross-correlation with phase transform — better on
+    /// dissimilar levels or mild reverb (multi-mic, reference tracks).
+    GccPhat,
+}
 
 /// Estimate the lag (in samples, sub-sample precision) by which `signal` must be
 /// advanced to best align with `reference`, searching within `±max_ms`.
+///
+/// Uses plain cross-correlation ([`LagMethod::Correlation`]).
 pub fn estimate_lag(reference: &[f32], signal: &[f32], sample_rate: u32, max_ms: f32) -> f32 {
+    estimate_lag_with_method(reference, signal, sample_rate, max_ms, LagMethod::Correlation)
+}
+
+/// Like [`estimate_lag`] but with an explicit [`LagMethod`].
+pub fn estimate_lag_with_method(
+    reference: &[f32],
+    signal: &[f32],
+    sample_rate: u32,
+    max_ms: f32,
+    method: LagMethod,
+) -> f32 {
+    match method {
+        LagMethod::Correlation => estimate_lag_correlation(reference, signal, sample_rate, max_ms),
+        LagMethod::GccPhat => estimate_lag_gcc_phat(reference, signal, sample_rate, max_ms),
+    }
+}
+
+fn estimate_lag_correlation(
+    reference: &[f32],
+    signal: &[f32],
+    sample_rate: u32,
+    max_ms: f32,
+) -> f32 {
     let n = reference.len().min(signal.len());
     if n < 16 || sample_rate == 0 {
         return 0.0;
@@ -34,6 +75,61 @@ pub fn estimate_lag(reference: &[f32], signal: &[f32], sample_rate: u32, max_ms:
         if cnt > 0 { s / cnt as f32 } else { f32::MIN }
     };
 
+    peak_lag(max_lag, corr)
+}
+
+/// GCC-PHAT: `IFFT( X·conj(Y) / |X·conj(Y)| )` peak within `±max_ms`.
+fn estimate_lag_gcc_phat(reference: &[f32], signal: &[f32], sample_rate: u32, max_ms: f32) -> f32 {
+    let n = reference.len().min(signal.len());
+    if n < 16 || sample_rate == 0 {
+        return 0.0;
+    }
+    let max_lag = (((max_ms / 1000.0) * sample_rate as f32) as isize).max(1);
+    let win = n.min(WINDOW_CAP);
+
+    // Zero-padded FFT long enough for linear (non-circular) correlation.
+    let mut n_fft = 1usize;
+    while n_fft < 2 * win {
+        n_fft <<= 1;
+    }
+
+    let mut planner = FftPlanner::<f32>::new();
+    let fft = planner.plan_fft_forward(n_fft);
+    let ifft = planner.plan_fft_inverse(n_fft);
+
+    let mut x = vec![Complex::new(0.0, 0.0); n_fft];
+    let mut y = vec![Complex::new(0.0, 0.0); n_fft];
+    // Hann window reduces spectral leakage so PHAT peaks stay sharp.
+    for i in 0..win {
+        let w = 0.5
+            - 0.5
+                * (2.0 * std::f32::consts::PI * i as f32 / (win.saturating_sub(1).max(1) as f32))
+                    .cos();
+        x[i] = Complex::new(reference[i] * w, 0.0);
+        y[i] = Complex::new(signal[i] * w, 0.0);
+    }
+    fft.process(&mut x);
+    fft.process(&mut y);
+
+    // PHAT weighting: unit-magnitude cross-spectrum.
+    for i in 0..n_fft {
+        let mut r = y[i] * x[i].conj(); // peak lag matches time-domain sum r[i]·s[i+lag]
+        let mag = r.norm();
+        r = if mag > 1e-12 { r / mag } else { Complex::new(0.0, 0.0) };
+        x[i] = r;
+    }
+    ifft.process(&mut x);
+
+    // rustfft is unnormalised; relative peak location is all we need.
+    let corr = |lag: isize| -> f32 {
+        let idx = if lag >= 0 { lag as usize } else { (n_fft as isize + lag) as usize };
+        x[idx % n_fft].re
+    };
+
+    peak_lag(max_lag, corr)
+}
+
+fn peak_lag(max_lag: isize, corr: impl Fn(isize) -> f32) -> f32 {
     let mut best = 0isize;
     let mut best_v = f32::MIN;
     for lag in -max_lag..=max_lag {
@@ -68,7 +164,18 @@ fn shift_fractional(signal: &[f32], lag: f32) -> Vec<f32> {
 
 /// Align `signal` to `reference`, returning the shifted `signal` (same length).
 pub fn align(reference: &[f32], signal: &[f32], sample_rate: u32, max_ms: f32) -> Vec<f32> {
-    let lag = estimate_lag(reference, signal, sample_rate, max_ms);
+    align_with_method(reference, signal, sample_rate, max_ms, LagMethod::Correlation)
+}
+
+/// Like [`align`] with an explicit [`LagMethod`].
+pub fn align_with_method(
+    reference: &[f32],
+    signal: &[f32],
+    sample_rate: u32,
+    max_ms: f32,
+    method: LagMethod,
+) -> Vec<f32> {
+    let lag = estimate_lag_with_method(reference, signal, sample_rate, max_ms, method);
     shift_fractional(signal, lag)
 }
 
@@ -80,7 +187,18 @@ pub fn azimuth_correct(
     sample_rate: u32,
     max_ms: f32,
 ) -> (Vec<f32>, Vec<f32>) {
-    let corrected = align(left, right, sample_rate, max_ms);
+    azimuth_correct_with_method(left, right, sample_rate, max_ms, LagMethod::Correlation)
+}
+
+/// Like [`azimuth_correct`] with an explicit [`LagMethod`].
+pub fn azimuth_correct_with_method(
+    left: &[f32],
+    right: &[f32],
+    sample_rate: u32,
+    max_ms: f32,
+    method: LagMethod,
+) -> (Vec<f32>, Vec<f32>) {
+    let corrected = align_with_method(left, right, sample_rate, max_ms, method);
     (left.to_vec(), corrected)
 }
 
@@ -89,7 +207,6 @@ mod tests {
     use super::*;
 
     fn signal(sr: u32, n: usize) -> Vec<f32> {
-        // A non-periodic-ish mix so the correlation peak is unambiguous.
         (0..n)
             .map(|i| {
                 let t = i as f32 / sr as f32;
@@ -105,17 +222,45 @@ mod tests {
         let n = 40_000usize;
         let reference = signal(sr, n);
         let delay = 17usize;
-        // `delayed[i] = reference[i - delay]` → signal lags reference by `delay`.
         let mut delayed = vec![0.0f32; n];
         delayed[delay..].copy_from_slice(&reference[..n - delay]);
         let lag = estimate_lag(&reference, &delayed, sr, 5.0);
         assert!((lag - delay as f32).abs() < 0.5, "estimated lag {lag}, want {delay}");
 
-        // Aligning should bring it back onto the reference.
         let aligned = align(&reference, &delayed, sr, 5.0);
         let err: f32 =
             (5_000..35_000).map(|i| (aligned[i] - reference[i]).abs()).sum::<f32>() / 30_000.0;
         assert!(err < 0.05, "alignment residual {err}");
+    }
+
+    #[test]
+    fn gcc_phat_recovers_known_delay() {
+        let sr = 48_000u32;
+        let n = 40_000usize;
+        // Broadband-ish content (PHAT is for impulsive / multi-mic pairs, not pure tones).
+        let reference: Vec<f32> = (0..n)
+            .map(|i| {
+                let t = i as f32 / sr as f32;
+                let mut s = 0.0f32;
+                for k in 1..40 {
+                    let f = 80.0 * k as f32;
+                    s += (2.0 * std::f32::consts::PI * f * t).sin() / k as f32;
+                }
+                // Mild deterministic "noise" for spectral fill.
+                s + 0.05
+                    * ((i as u32).wrapping_mul(1103515245).wrapping_add(12345) as f32
+                        / u32::MAX as f32
+                        * 2.0
+                        - 1.0)
+            })
+            .collect();
+        let delay = 23usize;
+        let mut delayed = vec![0.0f32; n];
+        delayed[delay..].copy_from_slice(&reference[..n - delay]);
+        // Level mismatch — PHAT should still find the delay.
+        let delayed: Vec<f32> = delayed.iter().map(|s| s * 0.15).collect();
+        let lag = estimate_lag_with_method(&reference, &delayed, sr, 5.0, LagMethod::GccPhat);
+        assert!((lag - delay as f32).abs() < 0.75, "GCC-PHAT lag {lag}, want {delay}");
     }
 
     #[test]

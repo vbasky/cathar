@@ -47,6 +47,24 @@ impl From<StretchModeArg> for cathar::StretchMode {
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
+enum LagMethodArg {
+    /// Time-domain cross-correlation (default).
+    Correlation,
+    /// GCC-PHAT — better on level-mismatched / mildly reverberant pairs.
+    #[value(name = "gcc-phat")]
+    GccPhat,
+}
+
+impl From<LagMethodArg> for cathar::LagMethod {
+    fn from(m: LagMethodArg) -> Self {
+        match m {
+            LagMethodArg::Correlation => cathar::LagMethod::Correlation,
+            LagMethodArg::GccPhat => cathar::LagMethod::GccPhat,
+        }
+    }
+}
+
+#[derive(Debug, Clone, clap::ValueEnum)]
 enum EmphasisArg {
     /// FM broadcast, 50 µs (Europe/ITU-R).
     Fm50,
@@ -296,6 +314,9 @@ enum Command {
         /// Max correction search (ms)
         #[arg(long, default_value_t = 5.0)]
         max_ms: f32,
+        /// Lag estimator: `correlation` (default) or `gcc-phat`
+        #[arg(long, default_value = "correlation")]
+        method: LagMethodArg,
     },
     /// Time-align a recording to a reference track (multi-mic).
     Align {
@@ -310,6 +331,35 @@ enum Command {
         /// Max alignment search (ms)
         #[arg(long, default_value_t = 50.0)]
         max_ms: f32,
+        /// Lag estimator: `correlation` (default) or `gcc-phat`
+        #[arg(long, default_value = "correlation")]
+        method: LagMethodArg,
+    },
+    /// Mid-side / stereo toolkit: width, mono-maker, M/S encode, mono upmix.
+    Stereo {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "stereo.wav")]
+        out: String,
+        /// Scale stereo width via mid/side (`0` = mono, `1` = original, `>1` wider)
+        #[arg(long)]
+        width: Option<f32>,
+        /// Sum to mono below this frequency (Hz); highs stay stereo
+        #[arg(long)]
+        mono_below: Option<f32>,
+        /// Encode L/R → M/S (ch0=mid, ch1=side)
+        #[arg(long)]
+        ms: bool,
+        /// Decode M/S → L/R (input ch0=mid, ch1=side)
+        #[arg(long)]
+        from_ms: bool,
+        /// Mono → pseudo-stereo (Haas delay on right)
+        #[arg(long)]
+        upmix: bool,
+        /// Optional Haas inter-channel delay in ms (positive delays right)
+        #[arg(long)]
+        haas_ms: Option<f32>,
     },
     /// Reconstruct dropouts/mutes by AR interpolation (audio inpainting).
     Inpaint {
@@ -971,12 +1021,26 @@ fn main() -> Result<()> {
             cleaned.to_file(&out)?;
             eprintln!("SMS tonal purify  →  {out}");
         }
-        Command::Azimuth { input, out, max_ms } => {
+        Command::Azimuth { input, out, max_ms, method } => {
             let audio = cathar::AudioData::from_file(&input)?;
             let sr = audio.sample_rate;
+            let method = cathar::LagMethod::from(method);
             let channels = if audio.channels.len() >= 2 {
-                let (l, r) =
-                    cathar::azimuth_correct(&audio.channels[0], &audio.channels[1], sr, max_ms);
+                let (l, r) = cathar::azimuth_correct_with_method(
+                    &audio.channels[0],
+                    &audio.channels[1],
+                    sr,
+                    max_ms,
+                    method,
+                );
+                let lag = cathar::estimate_lag_with_method(
+                    &audio.channels[0],
+                    &audio.channels[1],
+                    sr,
+                    max_ms,
+                    method,
+                );
+                eprintln!("azimuth lag  {lag:.2} samples  ({:.3} ms)", lag * 1000.0 / sr as f32);
                 vec![l, r]
             } else {
                 audio.channels.clone()
@@ -984,10 +1048,11 @@ fn main() -> Result<()> {
             cathar::AudioData { sample_rate: sr, channels }.to_file(&out)?;
             eprintln!("azimuth-corrected  →  {out}");
         }
-        Command::Align { input, reference, out, max_ms } => {
+        Command::Align { input, reference, out, max_ms, method } => {
             let audio = cathar::AudioData::from_file(&input)?;
             let refr = cathar::AudioData::from_file(&reference)?;
             let sr = audio.sample_rate;
+            let method = cathar::LagMethod::from(method);
             let mono = |a: &cathar::AudioData| -> Vec<f32> {
                 let nch = a.channels.len().max(1);
                 let n = a.channels.iter().map(Vec::len).max().unwrap_or(0);
@@ -1000,10 +1065,65 @@ fn main() -> Result<()> {
                 m
             };
             let ref_mono = mono(&refr);
-            let channels: Vec<Vec<f32>> =
-                audio.channels.iter().map(|c| cathar::align(&ref_mono, c, sr, max_ms)).collect();
+            let sig_mono = mono(&audio);
+            let lag = cathar::estimate_lag_with_method(&ref_mono, &sig_mono, sr, max_ms, method);
+            eprintln!("align lag  {lag:.2} samples  ({:.3} ms)", lag * 1000.0 / sr as f32);
+            let channels: Vec<Vec<f32>> = audio
+                .channels
+                .iter()
+                .map(|c| cathar::align_with_method(&ref_mono, c, sr, max_ms, method))
+                .collect();
             cathar::AudioData { sample_rate: sr, channels }.to_file(&out)?;
             eprintln!("aligned to {reference}  →  {out}");
+        }
+        Command::Stereo { input, out, width, mono_below, ms, from_ms, upmix, haas_ms } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let sr = audio.sample_rate;
+            let ops =
+                [width.is_some(), mono_below.is_some(), ms, from_ms, upmix, haas_ms.is_some()]
+                    .iter()
+                    .filter(|&&b| b)
+                    .count();
+            if ops == 0 {
+                anyhow::bail!(
+                    "stereo: specify at least one of --width, --mono-below, --ms, --from-ms, --upmix, --haas-ms"
+                );
+            }
+            if ms && from_ms {
+                anyhow::bail!("stereo: --ms and --from-ms are mutually exclusive");
+            }
+            if upmix && audio.channels.len() != 1 {
+                anyhow::bail!("stereo --upmix expects a mono input");
+            }
+            if (ms || from_ms || width.is_some() || mono_below.is_some() || haas_ms.is_some())
+                && audio.channels.len() < 2
+                && !upmix
+            {
+                anyhow::bail!("stereo: need stereo (2ch) input for this mode");
+            }
+
+            let (l, r) = if upmix {
+                cathar::upmix_mono(&audio.channels[0], sr)
+            } else if from_ms {
+                cathar::ms_decode(&audio.channels[0], &audio.channels[1])
+            } else if ms {
+                cathar::ms_encode(&audio.channels[0], &audio.channels[1])
+            } else {
+                (audio.channels[0].clone(), audio.channels[1].clone())
+            };
+
+            let (l, r) =
+                if let Some(hz) = mono_below { cathar::mono_below(&l, &r, sr, hz) } else { (l, r) };
+            let (l, r) = if let Some(w) = width { cathar::stereo_width(&l, &r, w) } else { (l, r) };
+            let (l, r) = if let Some(ms_delay) = haas_ms {
+                cathar::haas_delay(&l, &r, sr, ms_delay)
+            } else {
+                (l, r)
+            };
+
+            let corr = cathar::phase_correlation(&l, &r);
+            cathar::AudioData { sample_rate: sr, channels: vec![l, r] }.to_file(&out)?;
+            eprintln!("stereo  phase-corr={corr:+.3}  →  {out}");
         }
         Command::Inpaint { input, out, start_ms, len_ms, iterations, max_gap_ms } => {
             let audio = cathar::AudioData::from_file(&input)?;
@@ -1363,6 +1483,9 @@ fn main() -> Result<()> {
                         print!("ch{i}={p:.1}  ");
                     }
                     println!();
+                    if let Some(pc) = stats.phase_correlation {
+                        println!("  Phase corr   {pc:>+8.3}  (−1 out-of-phase … +1 mono)");
+                    }
                 }
             } else {
                 eprintln!("{input}: empty or unreadable");

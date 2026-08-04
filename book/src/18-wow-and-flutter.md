@@ -62,6 +62,8 @@ against the other until they line up best) and nudges the right channel back int
 alignment — down to a fraction of a sample.
 
 The same trick aligns *separate* recordings of the same moment — two mics, or a
-reference track — with `cathar align --reference good-take.wav`. Line up the
-takes first, and everything you do afterwards (mixing, comparing, noise
-profiling) gets easier.
+reference track — with `cathar align --reference good-take.wav`. When the takes
+differ a lot in level or room sound, try `--method gcc-phat` (generalised
+cross-correlation); the default time-domain correlation is fine on clean,
+similar signals. Line up the takes first, and everything you do afterwards
+(mixing, comparing, noise profiling) gets easier.

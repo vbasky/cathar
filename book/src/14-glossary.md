@@ -78,6 +78,14 @@ half the sample rate. Go above it and you get aliasing.
 **Overlap-add** — The careful blending technique that glues the processed short
 slices of audio back into one seamless waveform.
 
+**Phase correlation** — A single number from −1 to +1 that says how much the
+left and right channels agree at the same instant. Near +1 means mono-safe; near
+−1 means they cancel when summed. Cathar: `stats` (Phase corr line).
+
+**Mid-side (M/S)** — A way to rewrite stereo as a shared centre (mid) and a
+difference (side). Scaling the side changes width without moving the centre.
+Cathar: `stereo --width`, `--ms` / `--from-ms`.
+
 **Phase coherence** — Keeping a stereo file's two channels "agreeing" when you
 process them, so the stereo image stays stable instead of wandering.
 

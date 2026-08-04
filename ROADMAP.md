@@ -233,8 +233,9 @@ here repeats it.
   residual noise sits under the signal rather than at a fixed gate.
 - ⬜ **ML dialogue isolation** — optional `ml` feature: learned mask estimation
   with classical `voiceisolate` fallback (DNS-Challenge / Demucs-class recipe).
-- ⬜ **Alignment depth** — GCC-PHAT weighting for `align` on dissimilar or
-  reverberant reference pairs.
+- ✅ **Alignment depth — GCC-PHAT** (`Unreleased`) — `align` / `azimuth`
+  `--method gcc-phat` (generalised cross-correlation with phase transform) for
+  dissimilar levels or mild reverb; default remains time-domain correlation.
 - ⬜ **Measured-IR deconvolution / room correction** — inverse-filter from a
   supplied impulse response; complements blind `dereverb` / WPE.
 - ⬜ **SoX `compand` + `contrast`** — multi-band compander and contrast effect.
@@ -244,8 +245,10 @@ here repeats it.
 - ⬜ **Creative effects** — `reverb`, `echo`/`delay`, `chorus`, `flanger`,
   `phaser`, `tremolo`, `overdrive`. (Restoration removes these; a swiss-army
   tool also adds them.)
-- ⬜ **Mid-side / stereo toolkit** — M/S encode-decode, Haas widening,
-  mono-maker below a cutoff, mono→stereo decorrelation upmix.
+- ✅ **Mid-side / stereo toolkit** (`Unreleased`) — `stereo` command:
+  M/S encode-decode, width, mono-maker (`--mono-below`), Haas delay, mono→stereo
+  upmix; `stats` phase-correlation meter. (Creative width FX already covered;
+  remaining `0.9` work is creative effects only.)
 
 ### `0.10` — Pipelines, reference tools & HR fidelity
 

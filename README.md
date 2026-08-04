@@ -126,8 +126,9 @@ grouped here by what they fix; run them in any order, or chain them.
 | Command | What it does | Key flags |
 | --- | --- | --- |
 | `dewow` | Correct wow & flutter — track a dominant tone's instantaneous frequency and time-warp to flatten pitch | — |
-| `azimuth` | Correct stereo azimuth skew by aligning the right channel to the left (sub-sample cross-correlation) | `--max-ms` 5 |
-| `align` | Time-align a recording to a reference track (multi-mic / reference-track workflows) | `--reference <f>`, `--max-ms` 50 |
+| `azimuth` | Correct stereo azimuth skew by aligning the right channel to the left (sub-sample cross-correlation or GCC-PHAT) | `--max-ms` 5, `--method correlation\|gcc-phat` |
+| `align` | Time-align a recording to a reference track (multi-mic / reference-track workflows) | `--reference <f>`, `--max-ms` 50, `--method correlation\|gcc-phat` |
+| `stereo` | Mid-side toolkit: width, mono-maker, M/S encode/decode, Haas delay, mono→stereo upmix | `--width`, `--mono-below`, `--ms`, `--from-ms`, `--upmix`, `--haas-ms` |
 
 ### Transform — time, pitch & separation
 
@@ -253,7 +254,8 @@ Every stage is classic, inspectable DSP — no black boxes.
 | `dehum --adaptive` | Locate the precise fundamental from a spectral peak, then cancel each harmonic with an I/Q heterodyne canceller (demodulate → zero-phase low-pass → subtract) that tracks amplitude and small frequency drift |
 | `deemphasis` | Exact first-order bilinear de-emphasis: FM 50/75 µs single-pole roll-off, CD/IEC 50/15 µs shelf; unity gain at DC |
 | `dewow` | Track a dominant tone's instantaneous frequency by I/Q heterodyne demodulation, form a mean-normalised speed curve, then time-warp (resample at φ⁻¹, φ = ∫speed) to flatten pitch |
-| `azimuth` / `align` | Sub-sample lag from the normalised cross-correlation (parabolic-interpolated peak) + a fractional-delay shift |
+| `azimuth` / `align` | Sub-sample lag from normalised cross-correlation or **GCC-PHAT** (parabolic-interpolated peak) + fractional-delay shift |
+| `stereo` | Exact M/S encode–decode; width = scale Side; mono-below reuses elliptical crossover; upmix = Haas delay on R; `stats` reports L/R phase correlation |
 | `dereverb --wpe` | Per-frequency-bin Weighted Prediction Error: weighted (inverse-power) linear prediction of the current STFT frame from K frames past a delay, subtracted and refined over iterations (complex Hermitian solve) |
 | `hpss` | Fitzgerald median filtering on the STFT magnitude — horizontal median → harmonic, vertical → percussive — with a soft Wiener mask; percussive derived by subtraction for exact reconstruction |
 | `tempo` / `pitch` / `speed` | WSOLA waveform-similarity overlap-add (default) or a phase vocoder with instantaneous-frequency phase propagation; `pitch` = time-stretch ∘ resample; `speed` = resample only |
