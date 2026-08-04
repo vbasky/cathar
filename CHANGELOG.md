@@ -9,6 +9,11 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-08-05
+
+Stereo toolkit and phase-aware alignment / diagnostics
+([#19](https://github.com/vbasky/cathar/issues/19)).
+
 ### Added
 
 - **`stereo` command / mid-side toolkit** — exact M/S encode–decode, `--width`
