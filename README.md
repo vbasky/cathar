@@ -55,9 +55,11 @@ just setup        # one-time: enable pre-commit hook (fmt + clippy)
 just build        # build the workspace
 just test         # run all tests
 
-# Optional spectral-editor GUI (workspace crate; not on crates.io yet):
+# Optional spectral-editor GUI (workspace crate; WIP — not on crates.io yet):
 cargo run -p cathar-gui --release            # launches the `Cathar` binary
 ```
+
+See [Desktop GUI (WIP)](#desktop-gui-wip) for a preview.
 
 ```bash
 # A noisy interview straight off a camera → clean dialogue:
@@ -84,6 +86,21 @@ cathar wave --out test.wav --duration 3 --freq 440 --noise 0.15
 > FFmpeg). Browse it on GitHub starting from the [cover](book/), read it rendered
 > at <https://vbasky.github.io/cathar/> (once Pages is enabled), or build it with
 > `mdbook serve book`.
+
+
+## Desktop GUI (WIP)
+
+> **Work in progress** — the `cathar-gui` crate (`Cathar` binary) is an in-tree
+> spectral editor: spectrogram + selection heal, restoration toolbox, playlist,
+> live graphic EQ, and transport. It is a **workspace member only** (not on
+> crates.io yet). Layout and features still move quickly on the `feat/cathar-gui`
+> branch.
+
+![Cathar desktop GUI (work in progress)](docs/cathar-gui-wip.png)
+
+```bash
+cargo run -p cathar-gui --release    # product name in Dock / menus: Cathar
+```
 
 ## The toolkit
 
@@ -333,7 +350,7 @@ cathar/
 ├─ crates/
 │  ├─ cathar/        # the engine: decode (symphonia) · DSP · encode (hound)
 │  └─ cathar-cli/    # the `cathar` binary — clap subcommands over the engine
-└─ docs/             # banner + assets
+└─ docs/             # banner, GUI WIP screenshot, assets
 ```
 
 | Dependency | Role |
