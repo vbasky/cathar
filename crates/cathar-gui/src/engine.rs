@@ -1,8 +1,20 @@
 //! System audio playback — rodio player with seek, dezippered volume, and L/R monitor.
+//!
+//! # Seeking (no UI freezes)
+//! rodio [`Player::try_seek`] blocks the calling thread until the audio device
+//! callback processes the order. That handshake can stall forever — we never
+//! call it.
+//!
+//! Instead we keep one interleaved stereo cache ([`Arc<[f32]>`]) and on each
+//! seek attach a new [`CachedSamples`] source that **starts** at the target
+//! sample index. Long files stay snappy: interleave once per load/EQ/monitor
+//! change; seeks only swap the player and set an offset (O(1) work).
 
 use anyhow::{Result, anyhow};
 use cathar::AudioData;
+use rodio::Source;
 use std::num::NonZero;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// How the engine routes channels to the stereo output.
@@ -23,18 +35,90 @@ pub(crate) enum Monitor {
 /// when the UI slider jumps, short enough to still feel responsive.
 const VOLUME_TAU_SEC: f32 = 0.035;
 
+/// In-memory interleaved stereo source starting at an arbitrary sample offset.
+///
+/// Holds a shared cache so seeks never re-copy the full buffer.
+#[derive(Clone)]
+struct CachedSamples {
+    data: Arc<[f32]>,
+    /// Next sample index into `data` (interleaved).
+    pos: usize,
+    channels: u16,
+    sample_rate: u32,
+}
+
+impl CachedSamples {
+    fn new(data: Arc<[f32]>, start_frame: usize, channels: u16, sample_rate: u32) -> Self {
+        let ch = channels.max(1) as usize;
+        let start = (start_frame * ch).min(data.len());
+        // Frame-align.
+        let start = start - (start % ch);
+        Self { data, pos: start, channels: channels.max(1), sample_rate: sample_rate.max(1) }
+    }
+}
+
+impl Iterator for CachedSamples {
+    type Item = f32;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos >= self.data.len() {
+            return None;
+        }
+        let s = self.data[self.pos];
+        self.pos += 1;
+        Some(s)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let left = self.data.len().saturating_sub(self.pos);
+        (left, Some(left))
+    }
+}
+
+impl Source for CachedSamples {
+    #[inline]
+    fn current_span_len(&self) -> Option<usize> {
+        let left = self.data.len().saturating_sub(self.pos);
+        Some(left)
+    }
+
+    #[inline]
+    fn channels(&self) -> rodio::ChannelCount {
+        NonZero::new(self.channels).unwrap_or(NonZero::new(1).unwrap())
+    }
+
+    #[inline]
+    fn sample_rate(&self) -> rodio::SampleRate {
+        NonZero::new(self.sample_rate).unwrap_or(NonZero::new(44_100).unwrap())
+    }
+
+    #[inline]
+    fn total_duration(&self) -> Option<Duration> {
+        let frames = self.data.len() as u64 / self.channels.max(1) as u64;
+        let nanos = frames.saturating_mul(1_000_000_000) / self.sample_rate.max(1) as u64;
+        Some(Duration::from_nanos(nanos))
+    }
+}
+
 /// Owns the output device and the current player.
 pub(crate) struct Engine {
     stream: rodio::MixerDeviceSink,
     player: rodio::Player,
     monitor: Monitor,
+    /// Interleaved stereo cache for the current monitor/EQ rendering.
+    /// Built once per load; seeks reuse it via [`CachedSamples`].
+    cache: Option<Arc<[f32]>>,
     /// User-requested gain (1.0 = unity).
     volume_target: f32,
     /// Gain currently sent to rodio (smoothed toward target).
     volume_actual: f32,
     last_volume_tick: Instant,
-    /// Duration of the currently loaded buffer (seconds).
+    /// Full-file duration (seconds) — scrubber / UI range.
     duration: f32,
+    /// Absolute time (seconds) where the current source starts.
+    pos_base: f32,
     /// Sample rate of the loaded buffer.
     sample_rate: u32,
     /// True after a successful load with samples.
@@ -46,6 +130,8 @@ pub(crate) struct Engine {
     /// True while the UI is dragging the playhead. Output is hard-muted and
     /// seeks must not resume audible playback (avoids scrub screech).
     scrubbing: bool,
+    /// Wall-clock of last play/pause/seek — used to re-attach after long idle.
+    last_transport_at: Instant,
 }
 
 impl Engine {
@@ -61,14 +147,17 @@ impl Engine {
             stream,
             player,
             monitor: Monitor::Stereo,
+            cache: None,
             volume_target: 1.0,
             volume_actual: 1.0,
             last_volume_tick: Instant::now(),
             duration: 0.0,
+            pos_base: 0.0,
             sample_rate: 0,
             loaded: false,
             want_playing: false,
             scrubbing: false,
+            last_transport_at: Instant::now(),
         })
     }
 
@@ -134,6 +223,11 @@ impl Engine {
         self.loaded
     }
 
+    /// True when a cached interleaved buffer is ready for O(1) seeks.
+    pub(crate) fn has_cache(&self) -> bool {
+        self.cache.is_some() && self.loaded
+    }
+
     /// Hard-stop the previous player so it cannot keep emitting on the mixer.
     fn retire_player(old: rodio::Player) {
         // Mute + pause + stop before drop. Never `detach()` — that leaves the
@@ -167,38 +261,20 @@ impl Engine {
         }
     }
 
-    /// Replace the currently-loaded audio, paused at position 0.
-    ///
-    /// Does **not** change [`Self::want_playing`] — callers that should stop
-    /// transport (new file) clear it; live-EQ reload restores via [`Self::reload`].
-    ///
-    /// Always feeds a **stereo** interleaved buffer so L/R monitoring is
-    /// predictable. Volume is applied by the player (dezippered), not baked in.
-    pub(crate) fn load(&mut self, audio: &AudioData) -> Result<()> {
-        // Keep an in-progress scrub mute across buffer swaps (silent scrub seek).
-        // Non-scrub loads must not inherit a stuck mute from a previous gesture.
-        let keep_scrub = self.scrubbing;
-        if !keep_scrub {
-            self.scrubbing = false;
-        } else {
-            self.volume_actual = 0.0;
-        }
-
-        // Swap in a fresh Player on the shared mixer.
-        // Replacing avoids rodio `stop`+`append` which can `sleep_until_end` and hang.
+    /// Swap in a fresh Player and attach `source` from the current cache offset.
+    fn attach_source(&mut self, source: CachedSamples) {
         let new_player = rodio::Player::connect_new(self.stream.mixer());
-        // Pause *before* any samples are appended so the default unpaused
-        // Player state cannot leak audio during the swap.
         new_player.pause();
-        // Fresh amplify factor starts at 1.0 until the first periodic_access;
-        // seed the mutex at the gain we actually want (0 while scrubbing).
-        new_player.set_volume(if keep_scrub { 0.0 } else { self.volume_actual });
-
+        new_player.set_volume(if self.scrubbing { 0.0 } else { self.volume_actual });
         let old = std::mem::replace(&mut self.player, new_player);
         Self::retire_player(old);
+        self.player.append(source);
+        self.player.pause();
+        self.last_transport_at = Instant::now();
+    }
 
-        self.last_volume_tick = Instant::now();
-
+    /// Build interleaved stereo cache from `audio` with current monitor routing.
+    fn rebuild_cache(&mut self, audio: &AudioData) {
         let sr = audio.sample_rate;
         let n = audio.channels.iter().map(Vec::len).max().unwrap_or(0);
         self.sample_rate = sr;
@@ -206,8 +282,10 @@ impl Engine {
         self.loaded = n > 0 && sr > 0;
 
         if !self.loaded {
+            self.cache = None;
             self.want_playing = false;
-            return Ok(());
+            self.pos_base = 0.0;
+            return;
         }
 
         let left = audio.channels.first().map(Vec::as_slice).unwrap_or(&[]);
@@ -229,63 +307,75 @@ impl Engine {
             interleaved[i * 2] = ol;
             interleaved[i * 2 + 1] = or;
         }
+        self.cache = Some(Arc::from(interleaved));
+    }
 
-        let ch = NonZero::new(2u16).ok_or_else(|| anyhow!("zero channels"))?;
-        let rate = NonZero::new(sr).ok_or_else(|| anyhow!("zero sample rate"))?;
-        // Fresh SamplesBuffer starts at t=0 — do **not** try_seek here.
-        self.player.append(rodio::buffer::SamplesBuffer::new(ch, rate, interleaved));
-        // Append builds a source that starts unpaused until periodic_access;
-        // re-assert pause. Transport is applied by play()/reload().
-        self.player.pause();
+    /// Attach the cache starting at absolute `start_sec` (must have cache).
+    fn attach_from_time(&mut self, start_sec: f32) {
+        let Some(data) = self.cache.clone() else {
+            return;
+        };
+        let sr = self.sample_rate.max(1);
+        let n_frames = data.len() / 2;
+        let start_sec = start_sec.clamp(0.0, self.duration.max(0.0));
+        let start_i = ((start_sec * sr as f32).floor() as usize).min(n_frames.saturating_sub(1));
+        self.pos_base = start_i as f32 / sr as f32;
+        let source = CachedSamples::new(data, start_i, 2, sr);
+        self.attach_source(source);
+    }
+
+    /// Replace the currently-loaded audio, paused at position 0.
+    pub(crate) fn load(&mut self, audio: &AudioData) -> Result<()> {
+        self.load_from(audio, 0.0)
+    }
+
+    /// Load audio starting at `start_sec` (absolute timeline).
+    ///
+    /// Rebuilds the interleaved cache once, then attaches from `start_sec`.
+    pub(crate) fn load_from(&mut self, audio: &AudioData, start_sec: f32) -> Result<()> {
+        let keep_scrub = self.scrubbing;
+        if !keep_scrub {
+            self.scrubbing = false;
+        } else {
+            self.volume_actual = 0.0;
+        }
+
+        self.last_volume_tick = Instant::now();
+        self.rebuild_cache(audio);
+
+        if !self.loaded {
+            // Still swap player to silence any previous sound.
+            let new_player = rodio::Player::connect_new(self.stream.mixer());
+            new_player.pause();
+            let old = std::mem::replace(&mut self.player, new_player);
+            Self::retire_player(old);
+            return Ok(());
+        }
+
+        self.attach_from_time(start_sec);
         Ok(())
     }
 
-    /// Seek without permanently changing [`Self::want_playing`].
-    ///
-    /// rodio `try_seek` needs the audio thread to run; we may briefly unpause
-    /// for the handshake. When [`Self::scrubbing`], volume is forced to 0 so
-    /// that handshake never becomes audible.
-    fn seek_internal(&self, pos: Duration, resume: bool) {
-        if !self.loaded {
-            return;
+    /// Seek using the existing cache only (O(1)). Returns `false` if no cache —
+    /// caller must supply audio via [`Self::reload`].
+    pub(crate) fn seek_cached(&mut self, t: f32) -> bool {
+        if !self.has_cache() {
+            return false;
         }
-        let target = pos.as_secs_f32().clamp(0.0, self.duration.max(0.0));
-        let cur = self.player.get_pos().as_secs_f32();
-        // Already there — skip (also avoids seek-to-end at EOS hangs).
-        if (cur - target).abs() < 0.03 {
-            if resume && !self.scrubbing {
-                self.apply_transport();
-            } else {
-                self.player.pause();
-            }
-            return;
+        let t = t.clamp(0.0, self.duration.max(0.0));
+        // Already there — avoid player churn for tiny moves.
+        if (self.pos() - t).abs() < 0.02 && !self.at_end() {
+            return true;
         }
-        // Source has finished draining: try_seek can block forever. Caller must
-        // re-load the buffer (see `transport_play_pause` / `reload`).
-        if self.at_end() && target > 0.05 {
-            if resume && !self.scrubbing {
-                self.apply_transport();
-            } else {
-                self.player.pause();
-            }
-            return;
-        }
-
-        // Handshake: stream must pull samples. Volume is 0 while scrubbing.
-        if self.scrubbing {
+        let was_scrub = self.scrubbing;
+        self.attach_from_time(t);
+        if was_scrub {
             self.player.set_volume(0.0);
-        }
-        self.player.play();
-        let _ = self.player.try_seek(Duration::from_secs_f32(target));
-        if resume && !self.scrubbing {
-            self.apply_transport();
-            self.player.set_volume(self.volume_actual);
-        } else {
             self.player.pause();
-            if self.scrubbing {
-                self.player.set_volume(0.0);
-            }
+        } else {
+            self.apply_transport();
         }
+        true
     }
 
     /// Enter scrub mode: hard-mute + pause. Does not clear play intent.
@@ -295,6 +385,7 @@ impl Engine {
         self.last_volume_tick = Instant::now();
         self.player.set_volume(0.0);
         self.player.pause();
+        self.last_transport_at = Instant::now();
     }
 
     /// Leave scrub mode after the final seek.
@@ -308,6 +399,7 @@ impl Engine {
         self.last_volume_tick = Instant::now();
         self.player.set_volume(0.0);
         self.apply_transport();
+        self.last_transport_at = Instant::now();
         // Keep actual at 0 so the dezipper fades in over ~35ms instead of
         // slamming the new position at full volume.
     }
@@ -341,47 +433,13 @@ impl Engine {
         self.player.set_volume(0.0);
     }
 
-    /// One seek at scrub release (must be called while still muted / scrubbing).
-    ///
-    /// Returns `false` when the source is drained and `try_seek` would hang or
-    /// no-op — caller must re-append the buffer via [`Self::reload`] instead.
-    pub(crate) fn seek_scrub(&self, t: f32) -> bool {
-        if !self.loaded {
-            return true;
-        }
-        // Drained source: try_seek can hang; at_end path in seek_internal also
-        // refuses non-zero seeks. Force a full reload from the UI.
-        if self.at_end() {
-            return false;
-        }
-        let t = t.clamp(0.0, self.duration.max(0.0));
-        // rodio only pushes volume/pause into the amplify/pausable filters inside
-        // periodic_access (~5 ms). A bare play()+try_seek races that and leaks
-        // full-gain samples (spectrogram click / scrub screech).
-        //
-        // Flush controls first: set mute+pause, then try_seek to the *current*
-        // position while still paused. That blocks until periodic_access runs
-        // (still outputting zeros), so the amplify factor is 0 before we unpause
-        // for the real seek handshake.
-        self.player.set_volume(0.0);
-        self.player.pause();
-        let cur = self.player.get_pos();
-        let _ = self.player.try_seek(cur);
-        self.player.set_volume(0.0);
-        self.seek_internal(Duration::from_secs_f32(t), false);
-        self.player.set_volume(0.0);
-        self.player.pause();
-        true
-    }
-
-    /// Reload buffer, keep playhead, restore transport intent.
+    /// Rebuild cache from `audio` and attach at `resume_pos`.
     pub(crate) fn reload(
         &mut self,
         audio: &AudioData,
         resume_pos: f32,
         was_playing: bool,
     ) -> Result<()> {
-        // Capture intent before load (load does not clear want_playing unless empty).
         self.want_playing = was_playing;
         let scrub = self.scrubbing;
         if scrub {
@@ -389,23 +447,15 @@ impl Engine {
             self.player.set_volume(0.0);
             self.player.pause();
         }
-        self.load(audio)?;
+        self.load_from(audio, resume_pos)?;
         if !self.loaded {
             self.want_playing = false;
             return Ok(());
-        }
-        if resume_pos > 0.05 {
-            // While scrubbing: muted handshake only — do not resume yet.
-            self.seek_internal(
-                Duration::from_secs_f32(resume_pos.clamp(0.0, self.duration.max(0.0))),
-                !scrub,
-            );
         }
         if scrub {
             self.volume_actual = 0.0;
             self.player.set_volume(0.0);
             self.player.pause();
-            // Leave scrubbing set; caller ends the gesture and fades in.
         } else {
             self.apply_transport();
         }
@@ -424,13 +474,17 @@ impl Engine {
             self.player.set_volume(0.0);
         }
         self.want_playing = true;
-        // Restart from 0 only if the buffer is still seekable (not drained).
-        if self.at_end() {
-            // Need a full reload — seek on drained source hangs. Caller uses
-            // needs_reload_to_restart; still try soft seek for partial cases.
-            self.seek_internal(Duration::ZERO, true);
+
+        // After a long pause the device/source can go stale. Re-attach from the
+        // current playhead using the cache so resume is reliable and still O(1).
+        let idle = self.last_transport_at.elapsed() > Duration::from_secs(30);
+        if idle && self.has_cache() && !self.at_end() {
+            let t = self.pos();
+            self.attach_from_time(t);
         }
+
         self.apply_transport();
+        self.last_transport_at = Instant::now();
     }
 
     pub(crate) fn pause(&mut self) {
@@ -442,6 +496,7 @@ impl Engine {
         }
         self.want_playing = false;
         self.player.pause();
+        self.last_transport_at = Instant::now();
     }
 
     /// Toggle play/pause.
@@ -453,7 +508,7 @@ impl Engine {
         }
     }
 
-    /// Pause and return to the start (no-op seek if already finished — reload instead).
+    /// Pause. Does not reseek — use app `seek_to(0)` to return to start.
     pub(crate) fn stop(&mut self) {
         if self.scrubbing {
             self.scrubbing = false;
@@ -462,10 +517,7 @@ impl Engine {
         }
         self.want_playing = false;
         self.player.pause();
-        if !self.at_end() {
-            self.seek_internal(Duration::ZERO, false);
-        }
-        self.apply_transport();
+        self.last_transport_at = Instant::now();
     }
 
     /// True when a restart needs a full buffer reload (source finished).
@@ -487,29 +539,15 @@ impl Engine {
         if !self.loaded {
             return 0.0;
         }
-        self.player.get_pos().as_secs_f32().clamp(0.0, self.duration.max(0.0))
+        let rel = self.player.get_pos().as_secs_f32();
+        (self.pos_base + rel).clamp(0.0, self.duration.max(0.0))
     }
 
-    /// True when the playhead is at (or past) the end of the buffer.
+    /// True when the playhead is at (or past) the end of the file.
     pub(crate) fn at_end(&self) -> bool {
         if !self.loaded || self.duration <= 0.0 {
             return false;
         }
-        self.player.get_pos().as_secs_f32() >= self.duration - 0.02
-    }
-
-    /// Seek to `t` seconds (clamped). Resumes if transport wants to play.
-    pub(crate) fn seek(&self, t: f32) -> f32 {
-        if !self.loaded {
-            return 0.0;
-        }
-        let t = t.clamp(0.0, self.duration.max(0.0));
-        self.seek_internal(Duration::from_secs_f32(t), true);
-        t
-    }
-
-    /// Skip by `delta` seconds (negative = rewind).
-    pub(crate) fn skip(&self, delta: f32) -> f32 {
-        self.seek(self.pos() + delta)
+        self.pos() >= self.duration - 0.02
     }
 }

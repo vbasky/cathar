@@ -12,6 +12,7 @@ mod histogram;
 mod icons;
 mod native_menu;
 mod panel;
+mod prefs;
 mod spectral_edit;
 mod spectro;
 mod theme;
@@ -57,8 +58,11 @@ fn main() -> eframe::Result<()> {
     install_ctrl_c_handler();
 
     let mut viewport = egui::ViewportBuilder::default()
+        // Restore size if the user un-maximizes; min keeps the layout usable.
         .with_inner_size([1280.0, 800.0])
         .with_min_inner_size([900.0, 560.0])
+        .with_maximized(true)
+        .with_drag_and_drop(true)
         .with_title(APP_NAME);
     if let Some(icon) = app_icon() {
         viewport = viewport.with_icon(Arc::new(icon));

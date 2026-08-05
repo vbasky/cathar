@@ -24,6 +24,9 @@ workspace = true
 cathar = { workspace = true }
 anyhow.workspace = true
 realfft.workspace = true
+# Session prefs (recent files, player defaults).
+serde = { workspace = true }
+serde_json = { workspace = true }
 # Decode the bundled logo PNG for the empty-state splash.
 image.workspace = true
 # Immediate-mode GUI (pure Rust; winit + wgpu, no C/FFI, no pkg-config).

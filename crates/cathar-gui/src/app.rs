@@ -9,10 +9,11 @@ use crate::icons::{
 use crate::native_menu::{self, NativeMenu};
 use crate::panel::{
     self, ValueFmt, action_row, check_row, compact_row, compare_render_row, hint, param_f32,
-    param_u32, param_usize, prepare_module, render_button, render_button_enabled, secondary_button,
-    section, side_section, square_checkbox, stem_chips, tool_group, tool_tile, vertical_fader,
-    vu_meter_h,
+    param_u32, param_usize, prepare_module, primary_button, render_button, render_button_enabled,
+    secondary_button, section, side_section, square_checkbox, stem_chips, tool_group, tool_tile,
+    vertical_fader, vu_meter_h,
 };
+use crate::prefs::{self, AppPrefs};
 use crate::spectral_edit::{Selection, SpectralOp, apply_spectral};
 use crate::spectro::{
     ChannelView, channel_samples, colorize, compute_spectrogram, is_stereo, stack_vertical,
@@ -585,6 +586,12 @@ pub(crate) struct CatharGui {
     playlist_sel: Option<usize>,
     /// When true, end-of-track advances to the next playlist item and plays.
     playlist_auto_advance: bool,
+    /// When auto-advance reaches the end of the queue, wrap to the first track.
+    playlist_wrap: bool,
+    /// Pick a random next track (instead of sequential order).
+    shuffle: bool,
+    /// Durable recent files + player defaults.
+    prefs: AppPrefs,
     /// Classic spectrum-bar visualizer state.
     visualizer: SpectrumViz,
     /// Debounce live EQ reloads while dragging faders.
@@ -593,23 +600,40 @@ pub(crate) struct CatharGui {
     spectro_tex_gen: u64,
     /// Live spectrogram cursor in physical units `(seconds, Hz)` when hovering.
     cursor_tf: Option<(f32, f32)>,
+    /// One-shot: force-maximize after the window exists (macOS often ignores the builder flag).
+    startup_maximized: bool,
+    /// Dirty flag — flush prefs to disk once per frame when set.
+    prefs_dirty: bool,
+    /// One-shot: try opening the last recent file after the first frame (PRODUCT open-last-on-launch).
+    startup_open_last_pending: bool,
 }
 
 impl CatharGui {
     /// Build the app; opens the audio device if one is available.
     pub(crate) fn new(cc: &eframe::CreationContext<'_>) -> Self {
         crate::fonts::install(&cc.egui_ctx);
-        let appearance = Appearance::Dark;
+        let prefs = AppPrefs::load();
+        let appearance = Appearance::from(prefs.appearance);
         theme::apply(&cc.egui_ctx, appearance);
         let resolved_theme = theme::resolved(&cc.egui_ctx, appearance);
         let logo = load_logo(&cc.egui_ctx, resolved_theme == Theme::Light);
-        let engine = Engine::new().ok();
+        let mut engine = Engine::new().ok();
+        if let Some(eng) = engine.as_mut() {
+            eng.set_volume(if prefs.muted { 0.0 } else { prefs.volume });
+        }
         let status = match &engine {
             Some(_) => "Open an audio file to begin (File → Open, or ⌘O / Ctrl+O).".to_string(),
             None => "No audio output device — editing works, playback is disabled.".to_string(),
         };
         let native_menu =
             NativeMenu::new().map_err(|e| eprintln!("native menu unavailable: {e}")).ok();
+        let volume = prefs.volume;
+        let muted = prefs.muted;
+        let loop_file = prefs.loop_file;
+        let playlist_auto_advance = prefs.playlist_auto_advance;
+        let playlist_wrap = prefs.playlist_wrap;
+        let shuffle = prefs.shuffle;
+        let startup_open_last_pending = prefs.open_last_on_launch && !prefs.recent.is_empty();
         Self {
             engine,
             original: None,
@@ -625,9 +649,9 @@ impl CatharGui {
             waveform_r: Vec::new(),
             channel_view: ChannelView::Mid,
             monitor: Monitor::Stereo,
-            volume: 1.0,
-            muted: false,
-            loop_file: false,
+            volume,
+            muted,
+            loop_file,
             ab_loop: None,
             play_until: None,
             selection: None,
@@ -657,11 +681,93 @@ impl CatharGui {
             viewer_mode: ViewerMode::Spectrogram,
             playlist: Vec::new(),
             playlist_sel: None,
-            playlist_auto_advance: true,
+            playlist_auto_advance,
+            playlist_wrap,
+            shuffle,
+            prefs,
             visualizer: SpectrumViz::new(),
             eq_needs_reload: false,
             spectro_tex_gen: 0,
             cursor_tf: None,
+            startup_maximized: false,
+            prefs_dirty: false,
+            startup_open_last_pending,
+        }
+    }
+
+    /// PRODUCT open-last-on-launch: one-shot restore of most recent existing file.
+    fn try_startup_open_last(&mut self, ctx: &egui::Context) {
+        if !self.startup_open_last_pending {
+            return;
+        }
+        self.startup_open_last_pending = false;
+        if !self.prefs.open_last_on_launch {
+            return;
+        }
+
+        // Prefer first path that still exists (Recent order = most recent first).
+        let candidate = self.prefs.recent.iter().find(|p| p.is_file()).cloned();
+        let Some(path) = candidate else {
+            // Drop missing entries so Open Recent stays honest.
+            let before = self.prefs.recent.len();
+            self.prefs.recent.retain(|p| p.is_file());
+            if self.prefs.recent.len() != before {
+                self.prefs_dirty = true;
+            }
+            self.status = "Last track missing — open a file to begin".into();
+            return;
+        };
+
+        let name = path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string());
+        if self.open(ctx, &path) {
+            // open() already pauses; reinforce no autoplay.
+            if let Some(eng) = self.engine.as_mut() {
+                eng.pause();
+            }
+            self.status = format!("Restored {name} (paused)");
+        } else {
+            // open() set a failure status; prune this path if gone.
+            if !path.is_file() {
+                self.prefs.recent.retain(|p| p != &path);
+                self.prefs_dirty = true;
+            }
+        }
+    }
+
+    /// Expand to the work area once the viewport reports metrics. Builder
+    /// `.with_maximized(true)` alone is unreliable on macOS (winit zoom), so we
+    /// re-assert via commands and, if still small, size to the monitor explicitly.
+    fn ensure_startup_maximized(&mut self, ctx: &egui::Context) {
+        if self.startup_maximized {
+            return;
+        }
+
+        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+
+        let (monitor, outer) = ctx.input(|i| {
+            let v = i.viewport();
+            (v.monitor_size, v.outer_rect.map(|r| r.size()))
+        });
+
+        let Some(mon) = monitor.filter(|m| m.x > 1.0 && m.y > 1.0) else {
+            // Metrics not ready yet — try again next frame.
+            ctx.request_repaint();
+            return;
+        };
+
+        self.startup_maximized = true;
+
+        // Fallback when maximize/zoom is a no-op: grow toward the monitor size.
+        let still_small = outer.is_none_or(|cur| cur.x < mon.x * 0.9 || cur.y < mon.y * 0.9);
+        if still_small {
+            // Slightly under full size so OS chrome (menu bar / Dock) still fits.
+            let fill = egui::vec2((mon.x * 0.98).max(900.0), (mon.y * 0.94).max(560.0));
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(fill));
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(0.0, 0.0)));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
         }
     }
 
@@ -682,6 +788,26 @@ impl CatharGui {
         theme::apply(ctx, appearance);
         self.resolved_theme = theme::resolved(ctx, appearance);
         self.logo = load_logo(ctx, self.resolved_theme == Theme::Light);
+        self.prefs.appearance = appearance.into();
+        self.prefs_dirty = true;
+    }
+
+    fn mark_player_prefs_dirty(&mut self) {
+        self.prefs.volume = self.volume;
+        self.prefs.muted = self.muted;
+        self.prefs.loop_file = self.loop_file;
+        self.prefs.playlist_auto_advance = self.playlist_auto_advance;
+        self.prefs.playlist_wrap = self.playlist_wrap;
+        self.prefs.shuffle = self.shuffle;
+        // open_last_on_launch is toggled on prefs directly.
+        self.prefs_dirty = true;
+    }
+
+    fn flush_prefs_if_dirty(&mut self) {
+        if self.prefs_dirty {
+            self.prefs.save();
+            self.prefs_dirty = false;
+        }
     }
 
     fn has_audio(&self) -> bool {
@@ -753,6 +879,7 @@ impl CatharGui {
                 .unwrap_or_else(|| pbuf.display().to_string()),
         );
         self.file_path = Some(pbuf.clone());
+        self.prefs.push_recent(pbuf.clone());
         // Reflect in playlist selection if this path is queued.
         if let Some(i) = self.playlist.iter().position(|e| e.path == pbuf) {
             self.playlist_sel = Some(i);
@@ -861,18 +988,24 @@ impl CatharGui {
 
     fn seek_to(&mut self, t: f32) {
         let t = t.clamp(0.0, self.duration.max(0.0));
-        // Drained source cannot try_seek — re-append buffer at the target.
-        if self.engine.as_ref().is_some_and(|e| e.at_end()) {
-            self.seek_via_reload(t);
-            return;
+        // Prefer O(1) cached seek (long files); fall back to rebuild if needed.
+        if let Some(eng) = self.engine.as_mut() {
+            if eng.seek_cached(t) {
+                return;
+            }
         }
-        if let Some(eng) = &self.engine {
-            eng.seek(t);
-        }
+        self.seek_via_reload(t);
     }
 
-    /// Re-append the monitor buffer and land at `t` (used when the source is drained,
-    /// and for silent scrub seeks that must not race rodio's delayed volume apply).
+    /// Skip by `delta` seconds (cached seek when possible).
+    fn skip_by(&mut self, delta: f32) {
+        let pos = self.engine.as_ref().map(|e| e.pos()).unwrap_or(0.0);
+        self.seek_to((pos + delta).clamp(0.0, self.duration.max(0.0)));
+    }
+
+    /// Rebuild interleaved cache from the current buffer and attach at `t`.
+    ///
+    /// Used on open / EQ / monitor changes — not on every scrub.
     fn seek_via_reload(&mut self, t: f32) {
         let Some(audio) = self.audio_for_engine() else {
             return;
@@ -895,21 +1028,17 @@ impl CatharGui {
 
     /// Final seek for a scrub gesture (click or drag-release).
     ///
-    /// Hard-mutes, waits for rodio to apply the mute (~5 ms periodic_access),
-    /// then seeks. Falls back to a full buffer reload when the source is drained
-    /// so we never call `try_seek` on a finished stream (hang / stuck mute).
+    /// Uses the interleaved cache (O(1)) — never rodio `try_seek`, never
+    /// re-copies a long file on every scrub release.
     fn finish_scrub_seek(&mut self, t: f32) {
         let t = t.clamp(0.0, self.duration.max(0.0));
         // Arm mute even if the caller forgot begin_scrub (spectrogram click,
         // pointer-up safety net, etc.).
         self.begin_scrub();
-        let need_reload = self.engine.as_ref().is_some_and(|e| e.at_end());
-        if need_reload {
+        let cached = self.engine.as_mut().is_some_and(|e| e.seek_cached(t));
+        if !cached {
+            // No cache yet (first load race) — rebuild once.
             self.seek_via_reload(t);
-        } else if let Some(eng) = &self.engine {
-            if !eng.seek_scrub(t) {
-                self.seek_via_reload(t);
-            }
         }
         self.end_scrub();
     }
@@ -957,16 +1086,44 @@ impl CatharGui {
     fn toggle_mute(&mut self) {
         self.muted = !self.muted;
         self.apply_volume_to_engine();
+        self.mark_player_prefs_dirty();
         self.status = if self.muted { "Muted".into() } else { "Unmuted".into() };
+    }
+
+    fn toggle_shuffle(&mut self) {
+        self.shuffle = !self.shuffle;
+        self.mark_player_prefs_dirty();
+        self.status = if self.shuffle { "Shuffle on".into() } else { "Shuffle off".into() };
+    }
+
+    fn toggle_playlist_auto(&mut self) {
+        self.playlist_auto_advance = !self.playlist_auto_advance;
+        self.mark_player_prefs_dirty();
+        self.status = if self.playlist_auto_advance {
+            "Auto-advance on".into()
+        } else {
+            "Auto-advance off".into()
+        };
+    }
+
+    fn toggle_playlist_wrap(&mut self) {
+        self.playlist_wrap = !self.playlist_wrap;
+        self.mark_player_prefs_dirty();
+        self.status = if self.playlist_wrap {
+            "Repeat playlist on".into()
+        } else {
+            "Repeat playlist off".into()
+        };
     }
 
     fn toggle_loop_file(&mut self) {
         self.loop_file = !self.loop_file;
+        self.mark_player_prefs_dirty();
         if self.loop_file {
             self.play_until = None; // whole-file loop, not one-shot
-            self.status = "Loop file on".into();
+            self.status = "Loop track on".into();
         } else {
-            self.status = "Loop file off".into();
+            self.status = "Loop track off".into();
         }
     }
 
@@ -1036,12 +1193,9 @@ impl CatharGui {
         if let Some(eng) = self.engine.as_mut() {
             eng.clear_scrub_flag();
         }
-        // Seek to start of region then play.
-        if self.engine.as_ref().is_some_and(|e| e.at_end() || e.needs_reload_to_restart()) {
-            self.reload_engine(true);
-        }
+        // Seek to start of region then play (cached O(1) seek).
+        self.seek_to(a);
         if let Some(eng) = self.engine.as_mut() {
-            eng.seek(a);
             eng.play();
         }
     }
@@ -1058,13 +1212,10 @@ impl CatharGui {
         }
         let need_reload = self.engine.as_ref().is_some_and(|e| e.needs_reload_to_restart());
         if need_reload {
-            // Source fully finished — re-append buffer from t=0, then play.
+            // Source fully finished — re-attach cache from start, then play.
             let start = self.ab_loop.map(|(a, _)| a).unwrap_or(0.0);
-            self.reload_engine(true);
+            self.seek_to(start);
             if let Some(eng) = self.engine.as_mut() {
-                if start > 0.02 {
-                    eng.seek(start);
-                }
                 eng.play();
             }
             return;
@@ -1080,13 +1231,11 @@ impl CatharGui {
         if let Some(eng) = self.engine.as_mut() {
             eng.clear_scrub_flag();
         }
-        let at_end = self.engine.as_ref().is_some_and(|e| e.at_end());
-        if at_end {
-            // Finished source: reload at start instead of a dead seek.
-            self.reload_engine(true);
-        } else if let Some(eng) = self.engine.as_mut() {
+        // Pause + return to start via cached seek.
+        if let Some(eng) = self.engine.as_mut() {
             eng.stop();
         }
+        self.seek_to(0.0);
         self.meter_l = 0.0;
         self.meter_r = 0.0;
     }
@@ -1106,8 +1255,11 @@ impl CatharGui {
                 self.play_until = None;
                 if let Some(eng) = self.engine.as_mut() {
                     eng.pause();
-                    if !at_end {
-                        eng.seek(until);
+                }
+                if !at_end {
+                    self.seek_to(until);
+                    if let Some(eng) = self.engine.as_mut() {
+                        eng.pause();
                     }
                 }
                 self.status = "Selection end".into();
@@ -1118,14 +1270,9 @@ impl CatharGui {
         // A–B loop: wrap before draining the source.
         if let Some((a, b)) = self.ab_loop {
             if pos >= b - 0.03 || (at_end && b >= self.duration - 0.05) {
-                if at_end {
-                    self.reload_engine(true);
-                    if let Some(eng) = self.engine.as_mut() {
-                        eng.seek(a);
-                        eng.play();
-                    }
-                } else if let Some(eng) = self.engine.as_mut() {
-                    eng.seek(a);
+                self.seek_to(a);
+                if let Some(eng) = self.engine.as_mut() {
+                    eng.play();
                 }
                 return;
             }
@@ -1135,9 +1282,9 @@ impl CatharGui {
             return;
         }
 
-        // Whole-file loop.
+        // Whole-file loop (cached re-attach at t=0).
         if self.loop_file {
-            self.reload_engine(true);
+            self.seek_to(0.0);
             if let Some(eng) = self.engine.as_mut() {
                 eng.play();
             }
@@ -1382,6 +1529,9 @@ impl CatharGui {
 
 impl eframe::App for CatharGui {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.ensure_startup_maximized(ctx);
+        self.try_startup_open_last(ctx);
+
         // Window close (title-bar X / Alt+F4): release audio without hanging.
         if ctx.input(|i| i.viewport().close_requested()) {
             self.shutdown_audio();
@@ -1390,9 +1540,11 @@ impl eframe::App for CatharGui {
         if let Some(menu) = self.native_menu.as_mut() {
             menu.ensure_installed(frame);
         }
+        self.handle_dropped_files(ctx);
         self.handle_native_menu(ctx);
         self.sync_native_menu_enabled();
         self.handle_player_keys(ctx);
+        self.flush_prefs_if_dirty();
 
         // Loop / A–B / play-selection / end-of-track handling.
         // Never seek-to-end on a drained source — rodio try_seek can hang.
@@ -1454,6 +1606,8 @@ impl eframe::App for CatharGui {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.mark_player_prefs_dirty();
+        self.flush_prefs_if_dirty();
         self.shutdown_audio();
     }
 }
@@ -1483,11 +1637,31 @@ impl CatharGui {
             self.selection.is_some() && self.has_audio(),
             self.original.is_some() && self.has_audio(),
             self.ab_loop.is_some(),
+            self.file_path.is_some(),
+            !self.playlist.is_empty(),
         );
+        menu.set_playback_checks(
+            self.loop_file,
+            self.shuffle,
+            self.playlist_auto_advance,
+            self.playlist_wrap,
+            self.prefs.open_last_on_launch,
+        );
+        let recent: Vec<(String, bool)> = self
+            .prefs
+            .recent_menu_entries()
+            .into_iter()
+            .map(|(name, _path, exists)| (name, exists))
+            .collect();
+        menu.set_recent(&recent);
     }
 
     fn handle_native_menu(&mut self, ctx: &egui::Context) {
         for action in native_menu::poll_events() {
+            if let Some(i) = native_menu::parse_recent_id(&action) {
+                self.open_recent_index(ctx, i);
+                continue;
+            }
             match action.as_str() {
                 native_menu::id::OPEN => self.pick_open(ctx),
                 native_menu::id::OPEN_PLAYLIST => {
@@ -1495,6 +1669,21 @@ impl CatharGui {
                     self.viewer_mode = ViewerMode::Playlist;
                 }
                 native_menu::id::IMPORT_M3U => self.pick_import_m3u(ctx),
+                native_menu::id::EXPORT_M3U => self.pick_export_m3u(),
+                native_menu::id::REVEAL => self.reveal_current_file(),
+                native_menu::id::CLEAR_RECENT => {
+                    self.prefs.clear_recent();
+                    self.status = "Recent files cleared".into();
+                }
+                native_menu::id::OPEN_LAST_ON_LAUNCH => {
+                    self.prefs.open_last_on_launch = !self.prefs.open_last_on_launch;
+                    self.prefs_dirty = true;
+                    self.status = if self.prefs.open_last_on_launch {
+                        "Open last track on launch: on".into()
+                    } else {
+                        "Open last track on launch: off".into()
+                    };
+                }
                 native_menu::id::SAVE => self.pick_save(),
                 native_menu::id::UNDO => self.undo(ctx),
                 native_menu::id::REDO => self.redo(ctx),
@@ -1535,6 +1724,11 @@ impl CatharGui {
                     self.zoom_y = 1.0;
                 }
                 native_menu::id::LOOP_FILE => self.toggle_loop_file(),
+                native_menu::id::SHUFFLE => self.toggle_shuffle(),
+                native_menu::id::PLAYLIST_AUTO => self.toggle_playlist_auto(),
+                native_menu::id::PLAYLIST_WRAP => self.toggle_playlist_wrap(),
+                native_menu::id::PREV_TRACK => self.playlist_prev(ctx),
+                native_menu::id::NEXT_TRACK => self.playlist_next(ctx),
                 native_menu::id::PLAY_SELECTION => self.play_selection(),
                 native_menu::id::AB_FROM_SEL => self.ab_from_selection(),
                 native_menu::id::AB_CLEAR => self.clear_ab_loop(),
@@ -1544,6 +1738,155 @@ impl CatharGui {
                 native_menu::id::LISTEN_MID => self.set_monitor(Monitor::Mid),
                 _ => {}
             }
+        }
+    }
+
+    fn open_recent_index(&mut self, ctx: &egui::Context, i: usize) {
+        let Some((_, path, exists)) = self.prefs.recent_menu_entries().into_iter().nth(i) else {
+            return;
+        };
+        if !exists {
+            self.status = format!("Missing: {}", path.display());
+            // Drop dead entry from the list.
+            self.prefs.recent.retain(|p| p != &path);
+            self.prefs.save();
+            return;
+        }
+        let _ = self.open(ctx, path);
+    }
+
+    fn reveal_current_file(&mut self) {
+        let Some(path) = self.file_path.clone() else {
+            self.status = "No file to reveal".into();
+            return;
+        };
+        if !path.exists() {
+            self.status = format!("Missing: {}", path.display());
+            return;
+        }
+        let result = {
+            #[cfg(target_os = "macos")]
+            {
+                std::process::Command::new("open").args(["-R"]).arg(&path).spawn()
+            }
+            #[cfg(target_os = "windows")]
+            {
+                std::process::Command::new("explorer")
+                    .arg(format!("/select,{}", path.display()))
+                    .spawn()
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            {
+                let parent = path.parent().unwrap_or(path.as_path());
+                std::process::Command::new("xdg-open").arg(parent).spawn()
+            }
+        };
+        match result {
+            Ok(_) => self.status = format!("Revealed {}", path.display()),
+            Err(e) => self.status = format!("Reveal failed: {e}"),
+        }
+    }
+
+    fn pick_export_m3u(&mut self) {
+        if self.playlist.is_empty() {
+            self.status = "Playlist is empty".into();
+            return;
+        }
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Playlist", &["m3u", "m3u8"])
+            .set_file_name("playlist.m3u")
+            .save_file()
+        else {
+            return;
+        };
+        let mut body = String::from("#EXTM3U\n");
+        for entry in &self.playlist {
+            body.push_str(&format!("#EXTINF:-1,{}\n", entry.name));
+            body.push_str(&entry.path.display().to_string());
+            body.push('\n');
+        }
+        match std::fs::write(&path, body) {
+            Ok(()) => self.status = format!("Exported playlist → {}", path.display()),
+            Err(e) => self.status = format!("Export failed: {e}"),
+        }
+    }
+
+    /// Handle files / M3U playlists dropped onto the window.
+    fn handle_dropped_files(&mut self, ctx: &egui::Context) {
+        let dropped: Vec<std::path::PathBuf> =
+            ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
+        if dropped.is_empty() {
+            return;
+        }
+
+        let mut audio: Vec<std::path::PathBuf> = Vec::new();
+        let mut playlists: Vec<std::path::PathBuf> = Vec::new();
+        for p in dropped {
+            if prefs::is_playlist_path(&p) {
+                playlists.push(p);
+            } else if prefs::is_audio_path(&p) || p.is_file() {
+                // Accept known audio extensions; also try any dropped file path
+                // that exists (AudioData will reject non-audio cleanly).
+                if prefs::is_audio_path(&p) {
+                    audio.push(p);
+                }
+            }
+        }
+
+        let had_playlists = !playlists.is_empty();
+        for pl in playlists {
+            match parse_m3u(&pl) {
+                Ok(paths) if paths.is_empty() => {
+                    self.status = format!("M3U had no local audio: {}", pl.display());
+                }
+                Ok(paths) => {
+                    let mut added = 0usize;
+                    for p in paths {
+                        if self.playlist.iter().any(|e| e.path == p) {
+                            continue;
+                        }
+                        let name = p
+                            .file_name()
+                            .map(|s| s.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| p.display().to_string());
+                        self.playlist.push(PlaylistEntry { path: p, name });
+                        added += 1;
+                    }
+                    self.viewer_mode = ViewerMode::Playlist;
+                    self.status = format!("Dropped M3U — added {added} track(s)");
+                }
+                Err(e) => self.status = format!("M3U drop failed: {e}"),
+            }
+        }
+
+        if audio.is_empty() {
+            return;
+        }
+
+        if audio.len() == 1 && !had_playlists {
+            // Single file → open immediately (same as File → Open).
+            let _ = self.open(ctx, &audio[0]);
+            return;
+        }
+
+        // Multiple files → enqueue; open the first if nothing is loaded.
+        let load_first = !self.has_audio();
+        let mut added = 0usize;
+        for p in audio {
+            if self.playlist.iter().any(|e| e.path == p) {
+                continue;
+            }
+            let name = p
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| p.display().to_string());
+            self.playlist.push(PlaylistEntry { path: p, name });
+            added += 1;
+        }
+        self.viewer_mode = ViewerMode::Playlist;
+        self.status = format!("Dropped {added} track(s) into playlist");
+        if load_first && !self.playlist.is_empty() {
+            self.load_playlist_index_play(ctx, 0, false);
         }
     }
 
@@ -1614,11 +1957,13 @@ impl CatharGui {
     }
 
     /// Step playlist by `delta` (−1 / +1). Returns true if a new track was loaded.
+    ///
+    /// Honours shuffle (random next ≠ current) and playlist wrap when enabled.
     fn playlist_advance(&mut self, ctx: &egui::Context, delta: i32, autoplay: bool) -> bool {
         if self.playlist.is_empty() {
             return false;
         }
-        let n = self.playlist.len() as i32;
+        let n = self.playlist.len();
         let cur = self
             .playlist_sel
             .or_else(|| {
@@ -1626,12 +1971,40 @@ impl CatharGui {
                     .as_ref()
                     .and_then(|p| self.playlist.iter().position(|e| &e.path == p))
             })
-            .unwrap_or(0) as i32;
-        let next = cur + delta;
-        if next < 0 || next >= n {
-            return false;
+            .unwrap_or(0);
+
+        let next = if self.shuffle && n > 1 && delta > 0 {
+            // Deterministic-enough pick without a rand dependency.
+            let seed = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as usize)
+                .unwrap_or(0);
+            let mut idx = seed % n;
+            if idx == cur {
+                idx = (idx + 1) % n;
+            }
+            idx
+        } else {
+            let n_i = n as i32;
+            let cur_i = cur as i32;
+            let mut next_i = cur_i + delta;
+            if next_i < 0 || next_i >= n_i {
+                if self.playlist_wrap && n > 0 {
+                    next_i = if next_i >= n_i { 0 } else { n_i - 1 };
+                } else {
+                    return false;
+                }
+            }
+            next_i as usize
+        };
+
+        if next == cur && n == 1 {
+            // Single-track queue: re-load only when wrap wants another pass.
+            if !self.playlist_wrap {
+                return false;
+            }
         }
-        self.load_playlist_index_play(ctx, next as usize, autoplay);
+        self.load_playlist_index_play(ctx, next, autoplay);
         true
     }
 
@@ -1745,6 +2118,15 @@ impl CatharGui {
                 i.key_pressed(egui::Key::P) && !cmd,
                 i.key_pressed(egui::Key::C) && !cmd,
                 shift,
+                // Volume: ↑/↓  ·  Track: [ / ] or ⌘←/⌘→  ·  Shuffle: ⇧S
+                i.key_pressed(egui::Key::ArrowUp),
+                i.key_pressed(egui::Key::ArrowDown),
+                i.key_pressed(egui::Key::OpenBracket),
+                i.key_pressed(egui::Key::CloseBracket),
+                cmd && i.key_pressed(egui::Key::ArrowLeft),
+                cmd && i.key_pressed(egui::Key::ArrowRight),
+                shift && i.key_pressed(egui::Key::S) && !cmd,
+                cmd && shift && i.key_pressed(egui::Key::R),
             )
         });
         let (
@@ -1774,6 +2156,14 @@ impl CatharGui {
             key_p,
             key_c,
             shift,
+            vol_up,
+            vol_down,
+            key_bracket_l,
+            key_bracket_r,
+            cmd_left,
+            cmd_right,
+            key_shift_s,
+            cmd_shift_r,
         ) = keys;
 
         if cmd_o {
@@ -1826,21 +2216,52 @@ impl CatharGui {
         if space && self.has_audio() {
             self.transport_play_pause();
         }
-        // Shift+←/→ = ±1s, plain = ±5s.
-        if left && self.has_audio() {
-            let dt = if shift { -1.0 } else { -5.0 };
-            if let Some(eng) = &self.engine {
-                eng.skip(dt);
-            }
+        // ⌘← / ⌘→ — previous / next track (also [ / ]).
+        if cmd_left || key_bracket_l {
+            self.playlist_prev(ctx);
+            return;
         }
-        if right && self.has_audio() {
+        if cmd_right || key_bracket_r {
+            self.playlist_next(ctx);
+            return;
+        }
+        // Shift+←/→ = ±1s, plain = ±5s (not when ⌘ is held — that's track skip).
+        if left && !cmd_left && self.has_audio() {
+            let dt = if shift { -1.0 } else { -5.0 };
+            self.skip_by(dt);
+        }
+        if right && !cmd_right && self.has_audio() {
             let dt = if shift { 1.0 } else { 5.0 };
-            if let Some(eng) = &self.engine {
-                eng.skip(dt);
-            }
+            self.skip_by(dt);
         }
         if home && self.has_audio() {
             self.seek_to(0.0);
+        }
+        // Volume ±5% (↑ / ↓).
+        if vol_up {
+            self.volume = (self.volume + 0.05).min(1.5);
+            if self.muted {
+                self.muted = false;
+            }
+            self.apply_volume_to_engine();
+            self.mark_player_prefs_dirty();
+            self.status = format!("Volume {:.0}%", self.volume * 100.0);
+            return;
+        }
+        if vol_down {
+            self.volume = (self.volume - 0.05).max(0.0);
+            self.apply_volume_to_engine();
+            self.mark_player_prefs_dirty();
+            self.status = format!("Volume {:.0}%", self.volume * 100.0);
+            return;
+        }
+        if key_shift_s {
+            self.toggle_shuffle();
+            return;
+        }
+        if cmd_shift_r {
+            self.reveal_current_file();
+            return;
         }
         if key_m {
             self.toggle_mute();
@@ -2008,16 +2429,20 @@ impl CatharGui {
                         ui.separator();
                         if let Some((t, f)) = self.cursor_tf {
                             let f_s = if f >= 1000.0 {
-                                format!("{:.1}k", f / 1000.0)
+                                format!("{:.1} kHz", f / 1000.0)
                             } else {
-                                format!("{f:.0}")
+                                format!("{f:.0} Hz")
                             };
                             ui.label(
-                                egui::RichText::new(format!("{f_s}Hz · {}", fmt_time_player(t)))
-                                    .monospace()
-                                    .size(theme::FONT_CAPTION)
-                                    .color(theme::text_muted()),
-                            );
+                                egui::RichText::new(format!(
+                                    "t = {} · f = {f_s}",
+                                    fmt_time_player(t)
+                                ))
+                                .monospace()
+                                .size(theme::FONT_CAPTION)
+                                .color(theme::text_muted()),
+                            )
+                            .on_hover_text("Spectrogram cursor (time × frequency)");
                         }
                         let mut flags = String::new();
                         if self.loop_file {
@@ -2073,14 +2498,42 @@ impl CatharGui {
                 let rect = resp.rect;
                 painter.rect_filled(rect, 0.0, theme::well_bg());
 
-                // Played region fill (progress under the overview).
-                let pos = self.engine.as_ref().map(|e| e.pos()).unwrap_or(0.0);
+                // Selection / A–B / played region (selection first so playhead stays legible).
+                let pos = self
+                    .scrubbing
+                    .unwrap_or_else(|| self.engine.as_ref().map(|e| e.pos()).unwrap_or(0.0));
                 if self.duration > 0.0 {
+                    if let Some(sel) = self.selection {
+                        let x0 =
+                            rect.left() + (sel.t0 / self.duration).clamp(0.0, 1.0) * rect.width();
+                        let x1 =
+                            rect.left() + (sel.t1 / self.duration).clamp(0.0, 1.0) * rect.width();
+                        painter.rect_filled(
+                            Rect::from_min_max(
+                                pos2(x0.min(x1), rect.top()),
+                                pos2(x0.max(x1), rect.bottom()),
+                            ),
+                            0.0,
+                            theme::selection_fill(),
+                        );
+                    }
+                    if let Some((a, b)) = self.ab_loop {
+                        let x0 = rect.left() + (a / self.duration).clamp(0.0, 1.0) * rect.width();
+                        let x1 = rect.left() + (b / self.duration).clamp(0.0, 1.0) * rect.width();
+                        painter.rect_filled(
+                            Rect::from_min_max(
+                                pos2(x0.min(x1), rect.top()),
+                                pos2(x0.max(x1), rect.bottom()),
+                            ),
+                            0.0,
+                            theme::accent().gamma_multiply(0.22),
+                        );
+                    }
                     let px = rect.left() + (pos / self.duration).clamp(0.0, 1.0) * rect.width();
                     painter.rect_filled(
                         Rect::from_min_max(rect.min, pos2(px, rect.bottom())),
                         0.0,
-                        theme::selection_fill(),
+                        theme::selection_fill().gamma_multiply(0.55),
                     );
                 }
 
@@ -2262,9 +2715,7 @@ impl CatharGui {
                         .on_hover_text("Back 5s")
                         .clicked()
                     {
-                        if let Some(eng) = &self.engine {
-                            eng.skip(-5.0);
-                        }
+                        self.skip_by(-5.0);
                     }
                     let play_icon = if playing { icons::PAUSE } else { icons::PLAY };
                     if ui
@@ -2286,9 +2737,7 @@ impl CatharGui {
                         .on_hover_text("Forward 5s")
                         .clicked()
                     {
-                        if let Some(eng) = &self.engine {
-                            eng.skip(5.0);
-                        }
+                        self.skip_by(5.0);
                     }
                     if ui
                         .add_enabled(has_queue, toolbar_button(icons::SKIP_FORWARD))
@@ -2330,6 +2779,23 @@ impl CatharGui {
                     if time_r.clicked() {
                         self.show_time_remaining = !self.show_time_remaining;
                     }
+                    // Selection length (from mock player strip — keeps canvas-first IA).
+                    if let Some(sel) = self.selection {
+                        let len = (sel.t1 - sel.t0).abs();
+                        if len > 0.001 {
+                            ui.label(
+                                egui::RichText::new(format!("sel {len:.2}s"))
+                                    .monospace()
+                                    .size(theme::FONT_CAPTION)
+                                    .color(theme::accent()),
+                            )
+                            .on_hover_text(format!(
+                                "Spectrogram selection  {a:.2}s → {b:.2}s",
+                                a = sel.t0.min(sel.t1),
+                                b = sel.t0.max(sel.t1)
+                            ));
+                        }
+                    }
 
                     ui.separator();
 
@@ -2368,15 +2834,30 @@ impl CatharGui {
         ui.painter().rect_filled(rail, 2.0, theme::surface());
         ui.painter().rect_stroke(rail, 2.0, Stroke::new(1.0, theme::hairline()));
 
-        // A–B loop region tint on the rail.
-        if let Some((a, b)) = self.ab_loop {
-            if dur > 0.0 {
+        // Spectrogram selection + A–B loop tint on the rail (mock → product crossover).
+        if dur > 0.0 {
+            if let Some(sel) = self.selection {
+                let x0 = rail.left() + (sel.t0 / dur).clamp(0.0, 1.0) * rail.width();
+                let x1 = rail.left() + (sel.t1 / dur).clamp(0.0, 1.0) * rail.width();
+                ui.painter().rect_filled(
+                    Rect::from_min_max(
+                        pos2(x0.min(x1), rail.top()),
+                        pos2(x0.max(x1), rail.bottom()),
+                    ),
+                    2.0,
+                    theme::selection_fill(),
+                );
+            }
+            if let Some((a, b)) = self.ab_loop {
                 let x0 = rail.left() + (a / dur).clamp(0.0, 1.0) * rail.width();
                 let x1 = rail.left() + (b / dur).clamp(0.0, 1.0) * rail.width();
                 ui.painter().rect_filled(
-                    Rect::from_min_max(pos2(x0, rail.top()), pos2(x1, rail.bottom())),
+                    Rect::from_min_max(
+                        pos2(x0.min(x1), rail.top()),
+                        pos2(x0.max(x1), rail.bottom()),
+                    ),
                     2.0,
-                    theme::selection_fill(),
+                    theme::accent().gamma_multiply(0.35),
                 );
             }
         }
@@ -2494,6 +2975,7 @@ impl CatharGui {
                             self.muted = false;
                         }
                         self.apply_volume_to_engine();
+                        self.mark_player_prefs_dirty();
                         ui.ctx().request_repaint();
                     }
                 }
@@ -2569,6 +3051,42 @@ impl CatharGui {
                     );
                 });
                 ui.add_space(10.0);
+
+                // Active-tool strip (mock “Run Denoise” energy without flipping rail IA).
+                if let Some(m) = self.active_module {
+                    theme::card_frame().show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(m.icon())
+                                    .family(icons::family())
+                                    .size(14.0)
+                                    .color(theme::accent()),
+                            );
+                            ui.vertical(|ui| {
+                                ui.label(
+                                    egui::RichText::new(m.title())
+                                        .size(theme::FONT_BODY)
+                                        .strong()
+                                        .color(theme::text()),
+                                );
+                                ui.label(
+                                    egui::RichText::new(m.blurb())
+                                        .size(theme::FONT_CAPTION)
+                                        .color(theme::text_muted()),
+                                );
+                            });
+                        });
+                        ui.add_space(6.0);
+                        ui.label(
+                            egui::RichText::new(
+                                "Floating tool window is open — Preview / Render there.",
+                            )
+                            .size(theme::FONT_CAPTION)
+                            .color(theme::text_muted()),
+                        );
+                    });
+                    ui.add_space(10.0);
+                }
 
                 let enabled = self.has_audio();
                 let q = self.module_filter.to_ascii_lowercase();
@@ -2704,23 +3222,35 @@ impl CatharGui {
         } else {
             module.title().to_string()
         };
-        egui::Window::new(title)
-            .id(egui::Id::new("active_module"))
+        // EQ (and similar) fit on one screen — a ScrollArea + fixed height always
+        // leaves a useless 1-line scrollbar. Tall processors keep the scroller.
+        let needs_scroll = !matches!(module, Module::Equalizer | Module::Selection);
+        // Preamp + 10 vertical bands need more than the standard 360 tool width.
+        let default_w =
+            if matches!(module, Module::Equalizer) { 460.0 } else { panel::MODULE_WIN_W };
+
+        let mut win = egui::Window::new(title)
+            .id(egui::Id::new("active_module").with(module as u8))
             .open(&mut open)
             .resizable(true)
             .collapsible(false)
             .default_pos(pos2(80.0, 120.0))
-            .default_width(panel::MODULE_WIN_W)
-            .default_height(520.0)
+            .default_width(default_w)
             .frame(
                 egui::Frame::window(&ctx.style())
                     .fill(theme::window_bg())
                     .stroke(theme::stroke_hairline())
                     .rounding(theme::RADIUS_LG)
                     .inner_margin(12.0),
-            )
-            .show(ctx, |ui| {
-                prepare_module(ui);
+            );
+        if needs_scroll {
+            win = win.default_height(520.0);
+        }
+        // Compact panels size to content (no default_height → no artificial clip).
+
+        win.show(ctx, |ui| {
+            prepare_module(ui);
+            if needs_scroll {
                 egui::ScrollArea::vertical().max_height(560.0).id_salt("module_scroll").show(
                     ui,
                     |ui| {
@@ -2728,45 +3258,54 @@ impl CatharGui {
                         let content_w = (ui.available_width() - panel::SCROLL_GUTTER).max(200.0);
                         ui.set_width(content_w);
                         prepare_module(ui);
-                        // Mini histogram in every tool panel.
-                        section(ui, "Levels");
-                        if self.has_audio() {
-                            self.histogram.show(ui, 96.0);
-                        }
-                        ui.add_space(6.0);
-                        match module {
-                            Module::Denoise => self.fx_denoise(ui, ctx),
-                            Module::Dehum => self.fx_dehum(ui, ctx),
-                            Module::Declick => self.fx_declick(ui, ctx),
-                            Module::Decrackle => self.fx_decrackle(ui, ctx),
-                            Module::Declip => self.fx_declip(ui, ctx),
-                            Module::Deess => self.fx_deess(ui, ctx),
-                            Module::Dereverb => self.fx_dereverb(ui, ctx),
-                            Module::Dewind => self.fx_dewind(ui, ctx),
-                            Module::Deplosive => self.fx_deplosive(ui, ctx),
-                            Module::Derustle => self.fx_derustle(ui, ctx),
-                            Module::Repair => self.fx_repair(ui, ctx),
-                            Module::VoiceIsolate => self.fx_voice(ui, ctx),
-                            Module::Breath => self.fx_breath(ui, ctx),
-                            Module::Enhance => self.fx_enhance(ui, ctx),
-                            Module::Inpaint => self.fx_inpaint(ui, ctx),
-                            Module::Dewow => self.fx_dewow(ui, ctx),
-                            Module::Azimuth => self.fx_azimuth(ui, ctx),
-                            Module::Align => self.fx_align(ui, ctx),
-                            Module::Dequantize => self.fx_dequantize(ui, ctx),
-                            Module::Deemphasis => self.fx_deemphasis(ui, ctx),
-                            Module::RiaaNormalize => self.fx_riaa_normalize(ui, ctx),
-                            Module::Transform => self.fx_transform(ui, ctx),
-                            Module::Hpss => self.fx_hpss(ui, ctx),
-                            Module::Sms => self.fx_sms(ui, ctx),
-                            Module::Selection => self.fx_selection(ui, ctx),
-                            Module::Equalizer => self.fx_equalizer(ui, ctx),
-                        }
+                        self.module_body(ui, ctx, module);
                     },
                 );
-            });
+            } else {
+                // Full width — no gutter reserved for a bar that never appears.
+                ui.set_min_width((panel::MODULE_WIN_W - 24.0).max(200.0));
+                self.module_body(ui, ctx, module);
+            }
+        });
         if !open {
             self.active_module = None;
+        }
+    }
+
+    /// Shared body for floating module windows (levels strip + tool UI).
+    fn module_body(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, module: Module) {
+        section(ui, "Levels");
+        if self.has_audio() {
+            self.histogram.show(ui, 96.0);
+        }
+        ui.add_space(6.0);
+        match module {
+            Module::Denoise => self.fx_denoise(ui, ctx),
+            Module::Dehum => self.fx_dehum(ui, ctx),
+            Module::Declick => self.fx_declick(ui, ctx),
+            Module::Decrackle => self.fx_decrackle(ui, ctx),
+            Module::Declip => self.fx_declip(ui, ctx),
+            Module::Deess => self.fx_deess(ui, ctx),
+            Module::Dereverb => self.fx_dereverb(ui, ctx),
+            Module::Dewind => self.fx_dewind(ui, ctx),
+            Module::Deplosive => self.fx_deplosive(ui, ctx),
+            Module::Derustle => self.fx_derustle(ui, ctx),
+            Module::Repair => self.fx_repair(ui, ctx),
+            Module::VoiceIsolate => self.fx_voice(ui, ctx),
+            Module::Breath => self.fx_breath(ui, ctx),
+            Module::Enhance => self.fx_enhance(ui, ctx),
+            Module::Inpaint => self.fx_inpaint(ui, ctx),
+            Module::Dewow => self.fx_dewow(ui, ctx),
+            Module::Azimuth => self.fx_azimuth(ui, ctx),
+            Module::Align => self.fx_align(ui, ctx),
+            Module::Dequantize => self.fx_dequantize(ui, ctx),
+            Module::Deemphasis => self.fx_deemphasis(ui, ctx),
+            Module::RiaaNormalize => self.fx_riaa_normalize(ui, ctx),
+            Module::Transform => self.fx_transform(ui, ctx),
+            Module::Hpss => self.fx_hpss(ui, ctx),
+            Module::Sms => self.fx_sms(ui, ctx),
+            Module::Selection => self.fx_selection(ui, ctx),
+            Module::Equalizer => self.fx_equalizer(ui, ctx),
         }
     }
 
@@ -3774,39 +4313,7 @@ impl CatharGui {
             .frame(egui::Frame::none().fill(well_bg).inner_margin(0.0))
             .show(ctx, |ui| {
                 if !self.has_audio() {
-                    // Same empty splash as spectrogram (logo + open hint).
-                    let (resp, painter) = ui.allocate_painter(ui.available_size(), Sense::hover());
-                    let rect = resp.rect;
-                    painter.rect_filled(rect, 0.0, well_bg);
-                    if let Some(logo) = &self.logo {
-                        let [lw, lh] = logo.size();
-                        let aspect = lw as f32 / lh as f32;
-                        let target_h = (rect.height() * 0.35).min(220.0);
-                        let target_w = target_h * aspect;
-                        let logo_rect =
-                            Rect::from_center_size(rect.center(), egui::vec2(target_w, target_h));
-                        painter.image(
-                            logo.id(),
-                            logo_rect,
-                            Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
-                            Color32::WHITE,
-                        );
-                        painter.text(
-                            pos2(rect.center().x, logo_rect.bottom() + 20.0),
-                            egui::Align2::CENTER_CENTER,
-                            "Open an audio file  ·  File → Open",
-                            egui::FontId::proportional(13.0),
-                            theme::text_muted(),
-                        );
-                    } else {
-                        painter.text(
-                            rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            "Open an audio file  ·  File → Open",
-                            egui::FontId::proportional(15.0),
-                            theme::text_muted(),
-                        );
-                    }
+                    self.empty_splash_ui(ui, ctx);
                     return;
                 }
                 let title = self.file_name.as_deref().unwrap_or("Untitled");
@@ -3842,12 +4349,32 @@ impl CatharGui {
                         .changed()
                     {
                         self.playlist_auto_advance = auto;
+                        self.mark_player_prefs_dirty();
+                    }
+                    let mut wrap = self.playlist_wrap;
+                    if check_row(ui, &mut wrap, "Repeat")
+                        .on_hover_text("Wrap to the first track after the last")
+                        .changed()
+                    {
+                        self.playlist_wrap = wrap;
+                        self.mark_player_prefs_dirty();
+                    }
+                    let mut shuffle = self.shuffle;
+                    if check_row(ui, &mut shuffle, "Shuffle")
+                        .on_hover_text("Play the next track in random order")
+                        .changed()
+                    {
+                        self.shuffle = shuffle;
+                        self.mark_player_prefs_dirty();
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if secondary_button(ui, "Clear queue").clicked() {
                             self.playlist.clear();
                             self.playlist_sel = None;
                             self.status = "Playlist cleared".into();
+                        }
+                        if secondary_button(ui, "Export M3U…").clicked() {
+                            self.pick_export_m3u();
                         }
                         if secondary_button(ui, "Import M3U…").clicked() {
                             self.pick_import_m3u(ctx);
@@ -3860,7 +4387,7 @@ impl CatharGui {
                 ui.add_space(4.0);
                 hint(
                     ui,
-                    "Add files or import M3U. Click a row (or Open) to load it. Transport ⏮/⏭ steps the queue.",
+                    "Add files, drop audio onto the window, or import M3U. ⏮/⏭ · [ ] · ⌘←/⌘→ step the queue.",
                 );
                 ui.add_space(8.0);
 
@@ -4033,6 +4560,45 @@ impl CatharGui {
             });
     }
 
+    /// Empty-state splash: logo + primary Open (mock crossover: clear CTA).
+    fn empty_splash_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui.vertical_centered(|ui| {
+            let h = ui.available_height().max(120.0);
+            ui.add_space((h * 0.22).clamp(24.0, 120.0));
+            if let Some(logo) = &self.logo {
+                let [lw, lh] = logo.size();
+                let aspect = lw as f32 / lh as f32;
+                let target_h = (h * 0.28).clamp(96.0, 200.0);
+                let target_w = target_h * aspect;
+                ui.add(
+                    egui::Image::new(logo)
+                        .fit_to_exact_size(egui::vec2(target_w, target_h))
+                        .sense(egui::Sense::hover()),
+                );
+                ui.add_space(16.0);
+            }
+            ui.label(
+                egui::RichText::new("Open a recording to inspect and restore")
+                    .size(theme::FONT_BODY)
+                    .color(theme::text_muted()),
+            );
+            ui.add_space(12.0);
+            if ui
+                .add(primary_button("Open audio…"))
+                .on_hover_text("File → Open  ·  ⌘O / Ctrl+O")
+                .clicked()
+            {
+                self.pick_open(ctx);
+            }
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new("or drop a file / M3U here")
+                    .size(theme::FONT_CAPTION)
+                    .color(theme::text_muted()),
+            );
+        });
+    }
+
     fn central_spectrogram(&mut self, ctx: &egui::Context) {
         let well_bg = theme::well_bg();
         // Pinned outside the scroll area (RX-style): never scroll horizontally to find it.
@@ -4042,6 +4608,10 @@ impl CatharGui {
         let db_w = if show_db { DB_BAR_W } else { 0.0 };
 
         egui::CentralPanel::default().frame(egui::Frame::none().fill(well_bg)).show(ctx, |ui| {
+            if !self.has_audio() {
+                self.empty_splash_ui(ui, ctx);
+                return;
+            }
             let avail = ui.available_size();
             let spectro_h = avail.y.max(80.0);
             let view_w = (avail.x - db_w).max(64.0);
@@ -4250,8 +4820,7 @@ impl CatharGui {
             self.drag_anchor = None;
         }
         // Click (not a drag-select): silent seek — same mute handshake as the
-        // player scrubber. Raw `eng.seek` briefly unpauses rodio at full gain
-        // and makes a click/screech on the spectrogram.
+        // player scrubber (slice-reload, never rodio try_seek).
         if resp.clicked() {
             if let Some(p) = resp.interact_pointer_pos().filter(|p| rect.contains(*p)) {
                 let t = to_time(p.x);

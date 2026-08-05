@@ -4,14 +4,20 @@
 //! with the system chrome.
 
 use muda::accelerator::{Accelerator, CMD_OR_CTRL, Code, Modifiers};
-use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+use muda::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use raw_window_handle::HasWindowHandle;
+
+use crate::prefs::MAX_RECENT;
 
 /// Menu action identifiers (stable string ids for [`MenuEvent`]).
 pub(crate) mod id {
     pub(crate) const OPEN: &str = "cathar.open";
     pub(crate) const OPEN_PLAYLIST: &str = "cathar.open_playlist";
     pub(crate) const IMPORT_M3U: &str = "cathar.import_m3u";
+    pub(crate) const EXPORT_M3U: &str = "cathar.export_m3u";
+    pub(crate) const REVEAL: &str = "cathar.reveal";
+    pub(crate) const CLEAR_RECENT: &str = "cathar.clear_recent";
+    pub(crate) const OPEN_LAST_ON_LAUNCH: &str = "cathar.open_last_on_launch";
     pub(crate) const SAVE: &str = "cathar.save";
     pub(crate) const UNDO: &str = "cathar.undo";
     pub(crate) const REDO: &str = "cathar.redo";
@@ -27,8 +33,11 @@ pub(crate) mod id {
     pub(crate) const VIEW_PLAYLIST: &str = "cathar.view_playlist";
     pub(crate) const VIEW_VIZ: &str = "cathar.view_viz";
     pub(crate) const OPEN_EQ: &str = "cathar.open_eq";
-    // Playback — loop / selection / A–B / listen routing (not on the transport strip).
+    // Playback — loop / selection / A–B / listen routing / queue behaviour.
     pub(crate) const LOOP_FILE: &str = "cathar.loop_file";
+    pub(crate) const SHUFFLE: &str = "cathar.shuffle";
+    pub(crate) const PLAYLIST_AUTO: &str = "cathar.playlist_auto";
+    pub(crate) const PLAYLIST_WRAP: &str = "cathar.playlist_wrap";
     pub(crate) const PLAY_SELECTION: &str = "cathar.play_selection";
     pub(crate) const AB_FROM_SEL: &str = "cathar.ab_from_sel";
     pub(crate) const AB_CLEAR: &str = "cathar.ab_clear";
@@ -36,6 +45,13 @@ pub(crate) mod id {
     pub(crate) const LISTEN_LEFT: &str = "cathar.listen_left";
     pub(crate) const LISTEN_RIGHT: &str = "cathar.listen_right";
     pub(crate) const LISTEN_MID: &str = "cathar.listen_mid";
+    pub(crate) const PREV_TRACK: &str = "cathar.prev_track";
+    pub(crate) const NEXT_TRACK: &str = "cathar.next_track";
+
+    /// Stable id for Open Recent slot `i` (0-based).
+    pub(crate) fn recent(i: usize) -> String {
+        format!("cathar.recent.{i}")
+    }
 }
 
 /// Owns the native menu graph for the process lifetime.
@@ -51,6 +67,15 @@ pub(crate) struct NativeMenu {
     attenuate_selection: MenuItem,
     compare_original: MenuItem,
     clear_ab: MenuItem,
+    export_m3u: MenuItem,
+    reveal: MenuItem,
+    recent_items: Vec<MenuItem>,
+    clear_recent: MenuItem,
+    open_last_on_launch: CheckMenuItem,
+    loop_file: CheckMenuItem,
+    shuffle: CheckMenuItem,
+    playlist_auto: CheckMenuItem,
+    playlist_wrap: CheckMenuItem,
     installed: bool,
 }
 
@@ -89,6 +114,18 @@ impl NativeMenu {
             Some(Accelerator::new(Some(CMD_OR_CTRL | Modifiers::SHIFT), Code::KeyO)),
         );
         let import_m3u = MenuItem::with_id(id::IMPORT_M3U, "Import M3U Playlist…", true, None);
+        let export_m3u = MenuItem::with_id(id::EXPORT_M3U, "Export Playlist as M3U…", false, None);
+        let reveal = MenuItem::with_id(
+            id::REVEAL,
+            #[cfg(target_os = "macos")]
+            "Reveal in Finder",
+            #[cfg(target_os = "windows")]
+            "Show in Explorer",
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            "Show in File Manager",
+            false,
+            Some(Accelerator::new(Some(CMD_OR_CTRL | Modifiers::SHIFT), Code::KeyR)),
+        );
         let save = MenuItem::with_id(
             id::SAVE,
             "Save…",
@@ -96,16 +133,63 @@ impl NativeMenu {
             Some(Accelerator::new(Some(CMD_OR_CTRL), Code::KeyS)),
         );
 
+        // Open Recent — fixed slots updated each frame via set_text / set_enabled.
+        let mut recent_items = Vec::with_capacity(MAX_RECENT);
+        for i in 0..MAX_RECENT {
+            recent_items.push(MenuItem::with_id(
+                id::recent(i),
+                if i == 0 { "No Recent Files" } else { " " },
+                false,
+                None,
+            ));
+        }
+        let clear_recent = MenuItem::with_id(id::CLEAR_RECENT, "Clear Menu", false, None);
+        let open_recent = Submenu::new("Open Recent", true);
+        for item in &recent_items {
+            open_recent.append(item)?;
+        }
+        open_recent.append(&PredefinedMenuItem::separator())?;
+        open_recent.append(&clear_recent)?;
+
+        let open_last_on_launch = CheckMenuItem::with_id(
+            id::OPEN_LAST_ON_LAUNCH,
+            "Open Last Track on Launch",
+            true,
+            true, // default on; app syncs from prefs each frame
+            None,
+        );
+
         #[cfg(target_os = "macos")]
-        let file = Submenu::with_items("File", true, &[&open, &open_playlist, &import_m3u, &save])?;
+        let file = Submenu::with_items(
+            "File",
+            true,
+            &[
+                &open,
+                &open_recent,
+                &open_last_on_launch,
+                &PredefinedMenuItem::separator(),
+                &open_playlist,
+                &import_m3u,
+                &export_m3u,
+                &PredefinedMenuItem::separator(),
+                &reveal,
+                &save,
+            ],
+        )?;
         #[cfg(not(target_os = "macos"))]
         let file = Submenu::with_items(
             "File",
             true,
             &[
                 &open,
+                &open_recent,
+                &open_last_on_launch,
+                &PredefinedMenuItem::separator(),
                 &open_playlist,
                 &import_m3u,
+                &export_m3u,
+                &PredefinedMenuItem::separator(),
+                &reveal,
                 &save,
                 &PredefinedMenuItem::separator(),
                 &PredefinedMenuItem::quit(None),
@@ -250,13 +334,37 @@ impl NativeMenu {
         )?;
         menu.append(&view)?;
 
-        // Playback: loop + A–B set + listen (selection ops live under Edit).
-        let loop_file = MenuItem::with_id(
-            id::LOOP_FILE,
-            "Loop File",
+        // Playback: transport queue + loop / shuffle / A–B / listen.
+        let prev_track = MenuItem::with_id(
+            id::PREV_TRACK,
+            "Previous Track",
             true,
+            Some(Accelerator::new(Some(CMD_OR_CTRL), Code::ArrowLeft)),
+        );
+        let next_track = MenuItem::with_id(
+            id::NEXT_TRACK,
+            "Next Track",
+            true,
+            Some(Accelerator::new(Some(CMD_OR_CTRL), Code::ArrowRight)),
+        );
+        let loop_file = CheckMenuItem::with_id(
+            id::LOOP_FILE,
+            "Loop Track",
+            true,
+            false,
             Some(Accelerator::new(None, Code::KeyL)),
         );
+        let shuffle = CheckMenuItem::with_id(
+            id::SHUFFLE,
+            "Shuffle",
+            true,
+            false,
+            Some(Accelerator::new(Some(Modifiers::SHIFT), Code::KeyS)),
+        );
+        let playlist_auto =
+            CheckMenuItem::with_id(id::PLAYLIST_AUTO, "Auto-Advance Playlist", true, true, None);
+        let playlist_wrap =
+            CheckMenuItem::with_id(id::PLAYLIST_WRAP, "Repeat Playlist", true, true, None);
         let ab_from = MenuItem::with_id(
             id::AB_FROM_SEL,
             "A–B Loop from Selection",
@@ -271,7 +379,14 @@ impl NativeMenu {
             "Playback",
             true,
             &[
+                &prev_track,
+                &next_track,
+                &PredefinedMenuItem::separator(),
                 &loop_file,
+                &shuffle,
+                &playlist_auto,
+                &playlist_wrap,
+                &PredefinedMenuItem::separator(),
                 &ab_from,
                 &PredefinedMenuItem::separator(),
                 &listen_stereo,
@@ -293,6 +408,15 @@ impl NativeMenu {
             attenuate_selection,
             compare_original,
             clear_ab,
+            export_m3u,
+            reveal,
+            recent_items,
+            clear_recent,
+            open_last_on_launch,
+            loop_file,
+            shuffle,
+            playlist_auto,
+            playlist_wrap,
             installed: false,
         })
     }
@@ -339,6 +463,7 @@ impl NativeMenu {
     }
 
     /// Enable menu items from current app state.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn set_enabled(
         &self,
         can_save: bool,
@@ -347,6 +472,8 @@ impl NativeMenu {
         has_selection: bool,
         can_compare: bool,
         has_ab_loop: bool,
+        has_file: bool,
+        has_playlist: bool,
     ) {
         self.save.set_enabled(can_save);
         self.undo.set_enabled(can_undo);
@@ -357,6 +484,52 @@ impl NativeMenu {
         self.attenuate_selection.set_enabled(has_selection);
         self.compare_original.set_enabled(can_compare);
         self.clear_ab.set_enabled(has_ab_loop);
+        self.reveal.set_enabled(has_file);
+        self.export_m3u.set_enabled(has_playlist);
+    }
+
+    /// Sync checkmarks for loop / shuffle / queue behaviour.
+    pub(crate) fn set_playback_checks(
+        &self,
+        loop_file: bool,
+        shuffle: bool,
+        auto_advance: bool,
+        wrap: bool,
+        open_last_on_launch: bool,
+    ) {
+        self.loop_file.set_checked(loop_file);
+        self.shuffle.set_checked(shuffle);
+        self.playlist_auto.set_checked(auto_advance);
+        self.playlist_wrap.set_checked(wrap);
+        self.open_last_on_launch.set_checked(open_last_on_launch);
+    }
+
+    /// Refresh Open Recent labels from prefs (`(label, exists)` most-recent first).
+    pub(crate) fn set_recent(&self, entries: &[(String, bool)]) {
+        if entries.is_empty() {
+            for (i, item) in self.recent_items.iter().enumerate() {
+                if i == 0 {
+                    item.set_text("No Recent Files");
+                    item.set_enabled(false);
+                } else {
+                    item.set_text(" ");
+                    item.set_enabled(false);
+                }
+            }
+            self.clear_recent.set_enabled(false);
+            return;
+        }
+        for (i, item) in self.recent_items.iter().enumerate() {
+            if let Some((name, exists)) = entries.get(i) {
+                // Numbered like Finder / Safari for muscle memory.
+                item.set_text(format!("  {n}  {name}", n = i + 1, name = name));
+                item.set_enabled(*exists);
+            } else {
+                item.set_text(" ");
+                item.set_enabled(false);
+            }
+        }
+        self.clear_recent.set_enabled(true);
     }
 }
 
@@ -368,4 +541,9 @@ pub(crate) fn poll_events() -> Vec<String> {
         out.push(ev.id.0.clone());
     }
     out
+}
+
+/// Parse `cathar.recent.N` → slot index.
+pub(crate) fn parse_recent_id(id: &str) -> Option<usize> {
+    id.strip_prefix("cathar.recent.")?.parse().ok()
 }

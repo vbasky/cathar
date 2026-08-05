@@ -853,6 +853,8 @@ dependencies = [
  "realfft",
  "rfd",
  "rodio",
+ "serde",
+ "serde_json",
  "winit",
 ]
 
