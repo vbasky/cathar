@@ -96,7 +96,10 @@ cathar wave --out test.wav --duration 3 --freq 440 --noise 0.15
 > crates.io yet). Layout and features still move quickly on the `feat/cathar-gui`
 > branch.
 
-![Cathar desktop GUI (work in progress)](docs/cathar-gui-wip.png)
+![Cathar desktop GUI — real product screenshot (WIP)](docs/cathar-gui-wip.png)
+
+*Real UI capture: canvas-first spectrogram, top dual-channel overview, right-side
+toolbox. Still a work in progress (workspace crate, not on crates.io).*
 
 ```bash
 cargo run -p cathar-gui --release    # product name in Dock / menus: Cathar

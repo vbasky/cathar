@@ -25,6 +25,15 @@ just check-all
 This checks formatting, runs clippy with `-D warnings`, runs the tests, and
 builds the docs with `RUSTDOCFLAGS="-D warnings"`.
 
+## Spec-driven features
+
+Substantial user-facing work uses product/tech specs under `specs/<id>/`.
+See [`AGENTS.md`](AGENTS.md) and [`specs/README.md`](specs/README.md).
+
+- **OpenCode** drafts `PRODUCT.md` (behavior invariants).
+- **Grok** writes `TECH.md` and implements against approved specs.
+- Trivial fixes need no spec.
+
 ## Conventions
 
 - **Formatting** is enforced by `rustfmt` (see `rustfmt.toml`) and applied

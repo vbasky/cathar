@@ -371,7 +371,7 @@ pub(crate) fn hint(ui: &mut Ui, text: &str) {
     ui.add_space(2.0);
 }
 
-fn primary_button(label: &str) -> Button<'static> {
+pub(crate) fn primary_button(label: &str) -> Button<'static> {
     Button::new(RichText::new(label.to_string()).size(FONT_BUTTON).color(theme::on_accent()))
         .fill(theme::accent())
         .rounding(RADIUS_MD)
