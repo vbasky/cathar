@@ -30,6 +30,52 @@ impl From<EnhanceMethodArg> for cathar::EnhanceMethod {
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
+enum DeclickMethodArg {
+    /// Autoregressive Janssen interpolation (default, higher quality).
+    Ar,
+    /// Cubic-Hermite fill (legacy, fast).
+    Cubic,
+}
+
+impl From<DeclickMethodArg> for cathar::DeclickMethod {
+    fn from(m: DeclickMethodArg) -> Self {
+        match m {
+            DeclickMethodArg::Ar => cathar::DeclickMethod::Ar,
+            DeclickMethodArg::Cubic => cathar::DeclickMethod::Cubic,
+        }
+    }
+}
+
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum DeclipMethodArg {
+    /// A-SPADE sparse Gabor reconstruction (default, survey-preferred).
+    Spade,
+    /// Cubic-Hermite shoulder fill (legacy, fast).
+    Cubic,
+    /// Social sparsity (PEW neighbourhood shrink + consistency).
+    Social,
+    /// Constrained OMP on a per-frame DFT dictionary.
+    Omp,
+    /// Non-negative matrix factorization of the STFT magnitude.
+    Nmf,
+    /// Deep-unfolded soft-threshold ISTA (LISTA-style, no trained weights).
+    Neural,
+}
+
+impl From<DeclipMethodArg> for cathar::DeclipMethod {
+    fn from(m: DeclipMethodArg) -> Self {
+        match m {
+            DeclipMethodArg::Spade => cathar::DeclipMethod::Spade,
+            DeclipMethodArg::Cubic => cathar::DeclipMethod::Cubic,
+            DeclipMethodArg::Social => cathar::DeclipMethod::Social,
+            DeclipMethodArg::Omp => cathar::DeclipMethod::Omp,
+            DeclipMethodArg::Nmf => cathar::DeclipMethod::Nmf,
+            DeclipMethodArg::Neural => cathar::DeclipMethod::Neural,
+        }
+    }
+}
+
+#[derive(Debug, Clone, clap::ValueEnum)]
 enum StretchModeArg {
     /// Waveform-similarity overlap-add (robust default, no FFT).
     Wsola,
@@ -161,6 +207,9 @@ enum Command {
         /// Detection threshold (higher = less sensitive)
         #[arg(short, long, default_value_t = 10.0)]
         threshold: f32,
+        /// Reconstruction method: `ar` (Janssen, default) or `cubic` (legacy)
+        #[arg(long, value_enum, default_value_t = DeclickMethodArg::Ar)]
+        method: DeclickMethodArg,
     },
     /// Suppress dense low-level surface crackle (vinyl), distinct from de-click.
     Decrackle {
@@ -183,6 +232,9 @@ enum Command {
         /// Clipping threshold (0.0–1.0)
         #[arg(short, long, default_value_t = 0.95)]
         threshold: f32,
+        /// Reconstruction: spade|cubic|social|omp|nmf|neural (default spade)
+        #[arg(long, value_enum, default_value_t = DeclipMethodArg::Spade)]
+        method: DeclipMethodArg,
     },
     /// Remove room echo and reverb from recordings.
     Dereverb {
@@ -904,18 +956,33 @@ fn main() -> Result<()> {
             eprintln!("de-hummed{mode}  {freq} Hz + {harmonics} harmonics  →  {out}");
         }
 
-        Command::Declick { input, out, threshold } => {
+        Command::Declick { input, out, threshold, method } => {
             let audio = cathar::AudioData::from_file(&input)?;
-            let cleaned = audio.map_channels(|c| cathar::declick(c, threshold, 64));
+            let method: cathar::DeclickMethod = method.into();
+            let cleaned =
+                audio.map_channels(|c| cathar::declick_with_method(c, threshold, 64, method));
             cleaned.to_file(&out)?;
-            eprintln!("de-clicked  threshold={threshold}  →  {out}");
+            let m = match method {
+                cathar::DeclickMethod::Ar => "ar",
+                cathar::DeclickMethod::Cubic => "cubic",
+            };
+            eprintln!("de-clicked  threshold={threshold}  method={m}  →  {out}");
         }
 
-        Command::Declip { input, out, threshold } => {
+        Command::Declip { input, out, threshold, method } => {
             let audio = cathar::AudioData::from_file(&input)?;
-            let cleaned = audio.map_channels(|c| cathar::declip(c, threshold));
+            let method: cathar::DeclipMethod = method.into();
+            let cleaned = audio.map_channels(|c| cathar::declip_with_method(c, threshold, method));
             cleaned.to_file(&out)?;
-            eprintln!("de-clipped  threshold={threshold}  →  {out}");
+            let m = match method {
+                cathar::DeclipMethod::Spade => "spade",
+                cathar::DeclipMethod::Cubic => "cubic",
+                cathar::DeclipMethod::Social => "social",
+                cathar::DeclipMethod::Omp => "omp",
+                cathar::DeclipMethod::Nmf => "nmf",
+                cathar::DeclipMethod::Neural => "neural",
+            };
+            eprintln!("de-clipped  threshold={threshold}  method={m}  →  {out}");
         }
         Command::Decrackle { input, out, sensitivity } => {
             let audio = cathar::AudioData::from_file(&input)?;

@@ -22,6 +22,7 @@ mod align;
 mod analysis;
 mod audio;
 mod cqt;
+mod declip;
 mod decrackle;
 mod deemphasis;
 mod denoise;
@@ -55,6 +56,7 @@ pub use align::{
 pub use analysis::{Stats, compute_stats};
 pub use audio::AudioData;
 pub use cqt::{CqtSpec, cqt};
+pub use declip::{DeclipMethod, declip, declip_with_method};
 pub use decrackle::decrackle;
 pub use deemphasis::{Emphasis, deemphasis};
 pub use denoise::{Denoiser, NoisePrint, SpectralDenoiser, learn_noise_print, wiener_denoise};
@@ -79,7 +81,10 @@ pub use loudness::{integrated_loudness, normalize_peak, true_peak_dbtp};
 pub use ml::{NeuralConfig, NeuralDenoiser};
 pub use pitch::{detect_pitch, fundamental_hz};
 pub use resample::resample;
-pub use restore::{declick, declip, dehum, deplosive, dereverb, derustle, dewind, spectral_repair};
+pub use restore::{
+    DeclickMethod, declick, declick_with_method, dehum, deplosive, dereverb, derustle, dewind,
+    spectral_repair,
+};
 pub use sms::{SinusoidalModel, analyze_sms, synthesize_sms};
 pub use spectrum::{Spectrogram, spectrogram};
 pub use stereo::{
@@ -168,6 +173,16 @@ mod tests {
     }
 
     #[test]
+    fn declick_ar_and_cubic_both_remove_spike() {
+        let mut signal = vec![0.01f32; 1000];
+        signal[500] = 10.0;
+        let ar = declick_with_method(&signal, 5.0, 32, DeclickMethod::Ar);
+        let cubic = declick_with_method(&signal, 5.0, 32, DeclickMethod::Cubic);
+        assert!(ar[500].abs() < 5.0, "AR should remove click");
+        assert!(cubic[500].abs() < 5.0, "cubic should remove click");
+    }
+
+    #[test]
     fn declick_handles_short_signal() {
         // Regression: a signal shorter than the window used to underflow
         // `n - half` and panic. It should now pass through untouched.
@@ -187,6 +202,8 @@ mod tests {
             .collect();
         let out = declip(&signal, 0.95);
         assert_eq!(out, signal, "no clipped samples → no change");
+        let cubic = declip_with_method(&signal, 0.95, DeclipMethod::Cubic);
+        assert_eq!(cubic, signal, "cubic path: no clip → no change");
     }
 
     /// A-SPADE rebuilds a hard-clipped sine back toward its true peak and tracks
@@ -222,6 +239,42 @@ mod tests {
         let restored = declip(&clipped, 0.6);
         let min = (256..n - 256).map(|i| restored[i]).fold(0.0f32, f32::min);
         assert!(min < -0.85, "negative peak should be rebuilt toward -1.0, got {min}");
+    }
+
+    /// Alternate survey methods run and respect clipping consistency (reliable
+    /// samples stay exact; peaks may leave the plateau).
+    #[test]
+    fn declip_alternate_methods_run() {
+        let fs = 44_100.0;
+        let clip = 0.7f32;
+        let n = 4096;
+        let truth: Vec<f32> =
+            (0..n).map(|i| (2.0 * std::f32::consts::PI * 220.0 * i as f32 / fs).sin()).collect();
+        let clipped: Vec<f32> = truth.iter().map(|&v| v.clamp(-clip, clip)).collect();
+
+        for method in [
+            DeclipMethod::Social,
+            DeclipMethod::Omp,
+            DeclipMethod::Nmf,
+            DeclipMethod::Neural,
+            DeclipMethod::Cubic,
+        ] {
+            let out = declip_with_method(&clipped, clip, method);
+            assert_eq!(out.len(), n, "{method:?} length");
+            assert!(out.iter().all(|v| v.is_finite()), "{method:?} finite");
+            // Consistency-projecting methods keep reliable samples exact and
+            // rebuild peaks at or beyond the clip threshold. Cubic only
+            // redraws a Hermite curve (no Γ projection) so it is exempt.
+            if method != DeclipMethod::Cubic {
+                let peak = out.iter().fold(0.0f32, |a, &v| a.max(v.abs()));
+                assert!(peak >= clip - 1e-6, "{method:?} peak {peak} below threshold");
+                for i in 0..n {
+                    if clipped[i].abs() < clip {
+                        assert_eq!(out[i], clipped[i], "{method:?} reliable sample {i}");
+                    }
+                }
+            }
+        }
     }
 
     /// The spectrogram's loudest bin sits at the tone's frequency.

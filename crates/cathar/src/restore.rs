@@ -3,8 +3,6 @@
 
 use crate::util::hann_window;
 use realfft::RealFftPlanner;
-use realfft::num_complex::Complex;
-use rustfft::FftPlanner;
 
 /// Remove mains hum (50/60 Hz + harmonics) using cascaded notch filters.
 pub fn dehum(signal: &[f32], sample_rate: u32, base_freq: f32, num_harmonics: usize) -> Vec<f32> {
@@ -85,11 +83,42 @@ pub fn dewind(signal: &[f32], sample_rate: u32, cutoff_hz: f32) -> Vec<f32> {
 
 // ── De-click ─────────────────────────────────────────────────────────────────
 
-/// Detect and interpolate impulse clicks.
+/// How to redraw samples after a click is detected.
+///
+/// Detection is always sliding-window local RMS; methods differ only in the
+/// reconstruction across the excised span. See the Rajmic et al. survey
+/// discussion of reconstruction quality: AR / sparse methods beat smooth
+/// polynomial fills when the gap carries residual structure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DeclickMethod {
+    /// Autoregressive **Janssen / Godsill–Rayner** interpolation via
+    /// [`crate::inpaint_gap`] (default). Same family as `cathar inpaint` —
+    /// models the surrounding waveform and solves for the missing samples.
+    #[default]
+    Ar,
+    /// Cubic-Hermite curve across the gap (legacy, fast). Fine for
+    /// single-sample ticks; less natural on longer pops.
+    Cubic,
+}
+
+/// Detect and interpolate impulse clicks (default: AR reconstruction).
+///
+/// Threshold is the number of local-RMS multiples above which a sample is a click.
+/// Typical threshold: 8.0–15.0. See [`declick_with_method`] to pick the fill.
+pub fn declick(signal: &[f32], threshold: f32, window: usize) -> Vec<f32> {
+    declick_with_method(signal, threshold, window, DeclickMethod::default())
+}
+
+/// Detect and interpolate impulse clicks with an explicit [`DeclickMethod`].
 ///
 /// Threshold is the number of local-RMS multiples above which a sample is a click.
 /// Typical threshold: 8.0–15.0.
-pub fn declick(signal: &[f32], threshold: f32, window: usize) -> Vec<f32> {
+pub fn declick_with_method(
+    signal: &[f32],
+    threshold: f32,
+    window: usize,
+    method: DeclickMethod,
+) -> Vec<f32> {
     let n = signal.len();
     let half = window / 2;
     let mut output = signal.to_vec();
@@ -103,12 +132,36 @@ pub fn declick(signal: &[f32], threshold: f32, window: usize) -> Vec<f32> {
     let mut i = half;
     while i + half < n {
         if signal[i].abs() > threshold * rms[i] {
-            let start = i.saturating_sub(half);
-            let end = (i + half).min(n - 1);
-            if end > start + 2 {
-                cubic_interpolate(&mut output, start, end);
+            // Grow a contiguous run so multi-sample pops become one gap, then
+            // pad a few reliable shoulders for the interpolator.
+            let mut start = i;
+            while start > half && signal[start - 1].abs() > threshold * rms[start - 1] {
+                start -= 1;
             }
-            i += half;
+            let mut end = i + 1;
+            while end + half < n && signal[end].abs() > threshold * rms[end] {
+                end += 1;
+            }
+            // Shoulder pad: leave known samples at the edges for the solver.
+            let pad = half.clamp(2, 8);
+            let gap_start = start.saturating_sub(pad);
+            let gap_end = (end + pad).min(n);
+            let gap_len = gap_end.saturating_sub(gap_start);
+            if gap_len >= 2 && gap_start > 0 && gap_end < n {
+                match method {
+                    DeclickMethod::Ar => {
+                        output = crate::inpaint::inpaint_gap(&output, gap_start, gap_len, 3);
+                    }
+                    DeclickMethod::Cubic => {
+                        cubic_interpolate(&mut output, gap_start, gap_end - 1);
+                    }
+                }
+            } else if gap_end > gap_start + 2 {
+                // Edge of file or tiny hole — cubic is safe and always available.
+                cubic_interpolate(&mut output, gap_start, (gap_end - 1).min(n - 1));
+            }
+            i = end.max(i + 1) + half.saturating_sub(1);
+            continue;
         }
         i += 1;
     }
@@ -153,163 +206,6 @@ fn cubic_interpolate(signal: &mut [f32], start: usize, end: usize) {
         let t3 = t2 * t;
         *s = y0 * (1.0 - 3.0 * t2 + 2.0 * t3) + y1 * (3.0 * t2 - 2.0 * t3);
     }
-}
-
-// ── De-clip (A-SPADE sparse declipping) ──────────────────────────────────────
-//
-// A-SPADE over a Hann-windowed, 4x-overlapping Gabor tight frame. The earlier
-// per-block *rectangular* DFT diverged because spectral leakage left real audio
-// non-sparse (no small-k consistent solution); the windowed overlapping frame
-// fixes that, and the iteration now converges monotonically — a clipped tone
-// rebuilds to within ~0.02 RMS of the original with the peak restored.
-
-/// Keep the `k` largest-magnitude bins of `c` in place, zeroing the rest
-/// (the hard-thresholding / sparse-approximation step of A-SPADE).
-fn hard_threshold_k(c: &mut [Complex<f32>], k: usize) {
-    if k >= c.len() {
-        return;
-    }
-    let mut mags: Vec<f32> = c.iter().map(|v| v.norm_sqr()).collect();
-    let mut sorted = mags.clone();
-    sorted.sort_unstable_by(|a, b| b.partial_cmp(a).unwrap());
-    let cutoff = sorted[k.saturating_sub(1)];
-    for (cj, &m) in c.iter_mut().zip(mags.iter()) {
-        if m < cutoff {
-            *cj = Complex::new(0.0, 0.0);
-        }
-    }
-    mags.clear();
-}
-
-/// Reconstruct clipped samples with **A-SPADE** sparse declipping (Kitić, Bertin
-/// & Gribonval 2015) over a Hann-windowed, 4×-overlapping **Gabor tight frame**.
-///
-/// Clipping is detected as samples at or beyond `threshold`. Rather than guessing
-/// an interpolation curve, A-SPADE recovers the signal that is *sparsest in the
-/// Gabor (windowed-DFT) domain* while keeping every reliable sample exact and
-/// every clipped sample beyond the threshold with its original sign. The windowed
-/// overlapping frame (`AᴴA = diag(COLA)`, a Parseval frame once normalised) is
-/// what makes real audio sparse: a single rectangular-block DFT leaks energy
-/// across bins, so no sparse consistent solution exists and the iteration
-/// diverges. Signals shorter than one frame pass through unchanged.
-pub fn declip(signal: &[f32], threshold: f32) -> Vec<f32> {
-    const L: usize = 1024;
-    const HOP: usize = 256;
-    let n = signal.len();
-    if n < L || !signal.iter().any(|&v| v.abs() >= threshold) {
-        return signal.to_vec();
-    }
-    // A-SPADE k-relaxation: keep `RELAX_BY` more coefficients per frame each
-    // iteration until the sparse estimate and the consistency set agree. Tuned so
-    // a clipped tone converges in ~50 iterations with sub-0.02 RMS error.
-    const RELAX_BY: usize = 2;
-    const MAX_ITER: usize = 100;
-
-    let win = hann_window(L);
-    let scale = 1.0 / (L as f32).sqrt();
-
-    // Frame starts (4× overlap), with a final frame flush to the end.
-    let mut starts: Vec<usize> = (0..=n - L).step_by(HOP).collect();
-    if *starts.last().unwrap() != n - L {
-        starts.push(n - L);
-    }
-    let nf = starts.len();
-
-    // COLA divisor: AᴴA = diag(cola). The interior is fully covered; floor the
-    // thin edge coverage so synthesis there is attenuated rather than NaN.
-    let mut cola = vec![0.0f32; n];
-    for &s in &starts {
-        for j in 0..L {
-            cola[s + j] += win[j] * win[j];
-        }
-    }
-    for c in cola.iter_mut() {
-        *c = c.max(1e-3);
-    }
-
-    let mut planner = FftPlanner::<f32>::new();
-    let fft = planner.plan_fft_forward(L);
-    let ifft = planner.plan_fft_inverse(L);
-
-    // A: windowed analysis of every frame → per-frame (scaled) spectra.
-    let analyze = |x: &[f32]| -> Vec<Vec<Complex<f32>>> {
-        starts
-            .iter()
-            .map(|&s| {
-                let mut buf: Vec<Complex<f32>> =
-                    (0..L).map(|j| Complex::new(x[s + j] * win[j] * scale, 0.0)).collect();
-                fft.process(&mut buf);
-                buf
-            })
-            .collect()
-    };
-    // Aᴴ: window-weighted overlap-add of the inverse-transformed frames.
-    let synth = |z: &[Vec<Complex<f32>>]| -> Vec<f32> {
-        let mut y = vec![0.0f32; n];
-        for (m, &s) in starts.iter().enumerate() {
-            let mut buf = z[m].clone();
-            ifft.process(&mut buf);
-            for j in 0..L {
-                y[s + j] += win[j] * scale * buf[j].re;
-            }
-        }
-        y
-    };
-
-    let energy: f32 = signal.iter().map(|v| v * v).sum::<f32>().sqrt();
-    let eps = 1e-3 * energy.max(1e-9);
-
-    let mut x = signal.to_vec();
-    let mut u = vec![vec![Complex::new(0.0, 0.0); L]; nf]; // per-frame dual
-    let mut k = 1usize; // largest coefficients kept per frame
-
-    for _ in 0..MAX_ITER {
-        // z = H_k(A x + u) per frame
-        let ax = analyze(&x);
-        let mut z = ax;
-        for (zm, um) in z.iter_mut().zip(&u) {
-            for (zv, uv) in zm.iter_mut().zip(um) {
-                *zv += *uv;
-            }
-            hard_threshold_k(zm, k);
-        }
-        // x = proj_Γ( diag(1/cola) · Aᴴ(z - u) )
-        let zmu: Vec<Vec<Complex<f32>>> = z
-            .iter()
-            .zip(&u)
-            .map(|(zm, um)| zm.iter().zip(um).map(|(zv, uv)| zv - uv).collect())
-            .collect();
-        let ahw = synth(&zmu);
-        for (i, xi) in x.iter_mut().enumerate() {
-            let cand = ahw[i] / cola[i];
-            let obs = signal[i];
-            *xi = if obs.abs() < threshold {
-                obs
-            } else if obs >= threshold {
-                cand.max(threshold)
-            } else {
-                cand.min(-threshold)
-            };
-        }
-        // dual update u += A x - z, with consistency residual ||A x - z||
-        let ax2 = analyze(&x);
-        let mut resid = 0.0f32;
-        for ((zm, um), axm) in z.iter().zip(u.iter_mut()).zip(&ax2) {
-            for ((zv, uv), av) in zm.iter().zip(um.iter_mut()).zip(axm) {
-                let d = av - zv;
-                resid += d.norm_sqr();
-                *uv += d;
-            }
-        }
-        if resid.sqrt() <= eps {
-            break;
-        }
-        k += RELAX_BY;
-        if k >= L {
-            break;
-        }
-    }
-    x
 }
 
 /// Remove room reverb using spectral envelope decay gating.

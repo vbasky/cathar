@@ -9,24 +9,8 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
-## [0.7.2] - 2026-08-05
-
-Stereo toolkit and phase-aware alignment / diagnostics
-([#19](https://github.com/vbasky/cathar/issues/19)).
-
 ### Added
 
-- **`stereo` command / mid-side toolkit** — exact M/S encode–decode, `--width`
-  (scale Side), `--mono-below` (mono-maker via elliptical crossover), `--upmix`
-  (Haas mono→stereo), `--haas-ms`, and `--ms` / `--from-ms`. Library:
-  `ms_encode`, `ms_decode`, `stereo_width`, `mono_below`, `upmix_mono`,
-  `haas_delay`, `phase_correlation`.
-- **GCC-PHAT alignment** — `align` / `azimuth` accept
-  `--method correlation|gcc-phat` for lag estimation on level-mismatched or
-  mildly reverberant pairs. Library: `LagMethod`, `estimate_lag_with_method`,
-  `align_with_method`, `azimuth_correct_with_method`.
-- **`stats` phase correlation** — stereo files report zero-lag L/R correlation
-  in `[-1, +1]` (mono compatibility / out-of-phase check).
 - **`cathar-gui`** — optional spectral editor (`Cathar` binary): spectrogram +
   selection heal, toolbox FX covering the restoration chain, playlist/queue,
   bottom transport with live meters, graphic EQ (live monitor), undo/redo and
@@ -46,6 +30,25 @@ Stereo toolkit and phase-aware alignment / diagnostics
 
 - **Biquad EQ** — transposed direct form II + `graphic_eq` for the GUI live EQ
   path (library improvement shared with the CLI surface).
+
+## [0.7.2] - 2026-08-05
+
+Stereo toolkit and phase-aware alignment / diagnostics
+([#19](https://github.com/vbasky/cathar/issues/19)).
+
+### Added
+
+- **`stereo` command / mid-side toolkit** — exact M/S encode–decode, `--width`
+  (scale Side), `--mono-below` (mono-maker via elliptical crossover), `--upmix`
+  (Haas mono→stereo), `--haas-ms`, and `--ms` / `--from-ms`. Library:
+  `ms_encode`, `ms_decode`, `stereo_width`, `mono_below`, `upmix_mono`,
+  `haas_delay`, `phase_correlation`.
+- **GCC-PHAT alignment** — `align` / `azimuth` accept
+  `--method correlation|gcc-phat` for lag estimation on level-mismatched or
+  mildly reverberant pairs. Library: `LagMethod`, `estimate_lag_with_method`,
+  `align_with_method`, `azimuth_correct_with_method`.
+- **`stats` phase correlation** — stereo files report zero-lag L/R correlation
+  in `[-1, +1]` (mono compatibility / out-of-phase check).
 
 ## [0.7.1] - 2026-08-02
 
@@ -71,6 +74,12 @@ De-click / de-clip method selection and survey-family reconstruction algorithms
 
 ### Changed
 
+- **`declick` default reconstruction** — now AR (Janssen) instead of cubic-
+  Hermite; detection is unchanged (sliding-window local RMS).
+- **README** — algorithm table corrected: `declip` documents A-SPADE (was stale
+  cubic text), `declick` documents AR + method flags.
+- **Book** — chapter 6 (clicks/clipping) updated for AR de-click and method flags;
+  cites the Rajmic et al. de-clipping survey for A-SPADE.
 - **Book** — brought chapters in line with `v0.6.1`–`v0.7.0`: fixed stale vinyl
   workflow text; expanded toolbox table; added adaptive de-hum, WPE de-reverb,
   `enhance --method`, optional `ml-denoise`, and [broadcast/CD de-emphasis](book/src/20-playback-deemphasis.md);

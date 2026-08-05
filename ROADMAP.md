@@ -366,8 +366,8 @@ classical methods plateau. See also the
 
 | Area | Cathar today | Primary inspiration |
 | --- | --- | --- |
-| De-click | Cubic-Hermite interpolation | Classical declicker; Audacity/RX family |
-| De-clip | A-SPADE sparse Gabor frame | Kitić, Bertin & Gribonval; [SPADE](https://spade.inria.fr/) |
+| De-click | Local-RMS detect + AR Janssen (default) or cubic-Hermite | Classical declicker lineage; AR fill matches `inpaint` ([#17](https://github.com/vbasky/cathar/issues/17)) |
+| De-clip | A-SPADE (default); also social PEW, OMP, NMF, deep-unfolded ISTA, cubic | Kitić/Bertin/Gribonval SPADE; Siedenburg social sparsity; Adler OMP; Bilen NMF; Rajmic et al. 2020 ([#17](https://github.com/vbasky/cathar/issues/17)) |
 | De-noise | Spectral subtraction / Wiener; phase-coherent stereo | Boll (1979); Ephraim & Malah |
 | Learned de-noise | GRU spectral-gain (`ml` feature) | DNS Challenge / DeepFilterNet recipe |
 | De-reverb | Energy gating + **WPE** (`--wpe`, per-bin weighted linear prediction) | Nakatani et al. WPE |
