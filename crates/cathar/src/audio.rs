@@ -3,11 +3,13 @@
 use crate::{Error, integrated_loudness, resample, true_peak_dbtp};
 use hound::{WavSpec, WavWriter};
 use symphonia::core::codecs::CodecParameters;
-use symphonia::core::codecs::audio::AudioDecoderOptions;
+use symphonia::core::codecs::audio::well_known::CODEC_ID_AAC;
+use symphonia::core::codecs::audio::{AudioCodecParameters, AudioDecoderOptions};
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
+use symphonia_common::mpeg::audio::{AudioObjectType, AudioSpecificConfig};
 
 /// Decoded audio: a sample rate plus one `f32` PCM buffer per channel
 /// (de-interleaved, sample values in `[-1.0, 1.0]`).
@@ -29,59 +31,15 @@ impl AudioData {
         // Take `AsRef<Path>` so Windows paths from `rfd` / `PathBuf` are opened
         // without a lossy `display()` round-trip (which can break File Open).
         let path = path.as_ref();
-        let file = std::fs::File::open(path)?;
-        let mss = MediaSourceStream::new(Box::new(file), Default::default());
-        let mut hint = Hint::new();
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            hint.with_extension(ext);
-        }
-        let mut format = symphonia::default::get_probe()
-            .probe(&hint, mss, FormatOptions::default(), MetadataOptions::default())
-            .map_err(|e| Error::Decode(format!("{e}")))?;
-
-        // Pull the first audio track's parameters and build its decoder. The
-        // immutable borrow of `format` is scoped to this block so the decode
-        // loop below can borrow it mutably.
-        let (track_id, sample_rate, num_channels, mut decoder) = {
-            let track = format.default_track(TrackType::Audio).ok_or(Error::NoAudioTrack)?;
-            let Some(CodecParameters::Audio(params)) = &track.codec_params else {
-                return Err(Error::NoAudioTrack);
-            };
-            let sample_rate = params.sample_rate.ok_or(Error::UnsupportedFormat)?;
-            let num_channels = params.channels.as_ref().ok_or(Error::UnsupportedFormat)?.count();
-            let decoder = symphonia::default::get_codecs()
-                .make_audio_decoder(params, &AudioDecoderOptions::default())
-                .map_err(|e| Error::Decode(format!("{e}")))?;
-            (track.id, sample_rate, num_channels, decoder)
-        };
-
-        let mut channels = vec![Vec::new(); num_channels];
-        let mut interleaved: Vec<f32> = Vec::new();
-        loop {
-            // Some demuxers (notably FLAC) signal end-of-stream with an
-            // `UnexpectedEof` I/O error rather than `Ok(None)`; treat that as a
-            // clean end rather than a decode failure.
-            let packet = match format.next_packet() {
-                Ok(Some(packet)) => packet,
-                Ok(None) => break,
-                Err(symphonia::core::errors::Error::IoError(e))
-                    if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-                {
-                    break;
-                }
-                Err(e) => return Err(Error::Decode(format!("{e}"))),
-            };
-            if packet.track_id != track_id {
-                continue;
-            }
-            let decoded = decoder.decode(&packet).map_err(|e| Error::Decode(format!("{e}")))?;
-            interleaved.clear();
-            decoded.copy_to_vec_interleaved(&mut interleaved);
-            for (i, sample) in interleaved.iter().enumerate() {
-                channels[i % num_channels].push(*sample);
+        let mut last_err = None;
+        for (params, upsample_to) in decoder_attempts(path)? {
+            match decode_pcm(path, &params, upsample_to) {
+                Ok(audio) if audio.channels.iter().any(|c| !c.is_empty()) => return Ok(audio),
+                Ok(_) => last_err = Some(Error::Decode("no audio samples decoded".into())),
+                Err(e) => last_err = Some(e),
             }
         }
-        Ok(Self { sample_rate, channels })
+        Err(last_err.unwrap_or(Error::UnsupportedFormat))
     }
 
     /// Write to `path`, choosing the container from its extension: `.flac`
@@ -312,4 +270,210 @@ fn fix_mono_wav_channel_mask(path: &str) -> Result<(), Error> {
         f.write_all(&0x0000_0004u32.to_le_bytes())?; // SPEAKER_FRONT_CENTER
     }
     Ok(())
+}
+
+fn probe_format(
+    path: &std::path::Path,
+) -> Result<Box<dyn symphonia::core::formats::FormatReader>, Error> {
+    let file = std::fs::File::open(path)?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+    symphonia::default::get_probe()
+        .probe(&hint, mss, FormatOptions::default(), MetadataOptions::default())
+        .map_err(|e| Error::Decode(format!("{e}")))
+}
+
+fn decoder_attempts(
+    path: &std::path::Path,
+) -> Result<Vec<(AudioCodecParameters, Option<u32>)>, Error> {
+    let format = probe_format(path)?;
+    let track = format.default_track(TrackType::Audio).ok_or(Error::NoAudioTrack)?;
+    let Some(CodecParameters::Audio(params)) = &track.codec_params else {
+        return Err(Error::NoAudioTrack);
+    };
+    let mut attempts = vec![(params.clone(), None)];
+    if params.codec == CODEC_ID_AAC {
+        for (extra, core, out) in he_aac_lc_candidates(params.extra_data.as_deref().unwrap_or(&[]))
+        {
+            let mut lc = params.clone();
+            lc.with_extra_data(extra).with_sample_rate(core);
+            attempts.push((lc, Some(out)));
+        }
+    }
+    Ok(attempts)
+}
+
+fn decode_pcm(
+    path: &std::path::Path,
+    params: &AudioCodecParameters,
+    upsample_to: Option<u32>,
+) -> Result<AudioData, Error> {
+    let mut format = probe_format(path)?;
+    let track_id = format.default_track(TrackType::Audio).ok_or(Error::NoAudioTrack)?.id;
+    let mut decoder = match symphonia::default::get_codecs()
+        .make_audio_decoder(params, &AudioDecoderOptions::default())
+    {
+        Ok(d) => d,
+        Err(e) => {
+            let hint = if e.to_string().contains("too complex") {
+                " (HE-AAC/SBR and surround AAC need an AAC-LC transcode)"
+            } else {
+                ""
+            };
+            return Err(Error::Decode(format!("{e}{hint}")));
+        }
+    };
+    let mut sample_rate = decoder.codec_params().sample_rate.ok_or(Error::UnsupportedFormat)?;
+    let num_channels = decoder
+        .codec_params()
+        .channels
+        .as_ref()
+        .map(symphonia::core::audio::Channels::count)
+        .filter(|&n| n > 0)
+        .ok_or(Error::UnsupportedFormat)?;
+
+    let mut channels = vec![Vec::new(); num_channels];
+    let mut interleaved: Vec<f32> = Vec::new();
+    loop {
+        // Some demuxers (notably FLAC) signal end-of-stream with an
+        // `UnexpectedEof` I/O error rather than `Ok(None)`; treat that as a
+        // clean end rather than a decode failure.
+        let packet = match format.next_packet() {
+            Ok(Some(packet)) => packet,
+            Ok(None) => break,
+            Err(symphonia::core::errors::Error::IoError(e))
+                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
+                break;
+            }
+            Err(e) => return Err(Error::Decode(format!("{e}"))),
+        };
+        if packet.track_id != track_id {
+            continue;
+        }
+        // DecodeError: this packet is junk — skip it. ResetRequired: seek/gap.
+        let decoded = match decoder.decode(&packet) {
+            Ok(buf) => buf,
+            Err(symphonia::core::errors::Error::DecodeError(_)) => continue,
+            Err(symphonia::core::errors::Error::ResetRequired) => {
+                decoder.reset();
+                continue;
+            }
+            Err(e) => return Err(Error::Decode(format!("{e}"))),
+        };
+        interleaved.clear();
+        decoded.copy_to_vec_interleaved(&mut interleaved);
+        if interleaved.is_empty() {
+            continue;
+        }
+        for (i, sample) in interleaved.iter().enumerate() {
+            channels[i % num_channels].push(*sample);
+        }
+    }
+    if let Some(target) = upsample_to.filter(|&t| t != sample_rate && t > 0) {
+        channels = channels.into_iter().map(|ch| resample(&ch, sample_rate, target)).collect();
+        sample_rate = target;
+    }
+    Ok(AudioData { sample_rate, channels })
+}
+
+/// HE-AAC (AAC+ / SBR) is AAC-LC at half rate plus a high-band extension.
+/// Symphonia's AAC decoder only implements LC and rejects SBR as "too complex".
+/// Return LC extra_data candidates (core rate first, then swapped — extra_data
+/// layouts disagree on which frequency is the core).
+fn he_aac_lc_candidates(extra: &[u8]) -> Vec<(Box<[u8]>, u32, u32)> {
+    let Some(asc) = AudioSpecificConfig::read(extra).ok() else {
+        return Vec::new();
+    };
+    if !asc.sbr_present || asc.object_type != AudioObjectType::Lc {
+        return Vec::new();
+    }
+    let Some(ch) = asc.channels.as_ref().map(symphonia::core::audio::Channels::count) else {
+        return Vec::new();
+    };
+    if !(1..=2).contains(&ch) || asc.samples != 1024 {
+        return Vec::new();
+    }
+    let mut pairs = Vec::new();
+    match asc.sbr_ps_info {
+        Some((ext, _)) if ext > 0 && asc.sample_rate > 0 && ext != asc.sample_rate => {
+            pairs.push((ext, asc.sample_rate));
+            pairs.push((asc.sample_rate, ext));
+        }
+        _ => {
+            pairs.push((asc.sample_rate, asc.sample_rate.saturating_mul(2)));
+            if asc.sample_rate >= 2 {
+                pairs.push((asc.sample_rate / 2, asc.sample_rate));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for (core, dest) in pairs {
+        if core == 0 {
+            continue;
+        }
+        if let Some(cfg) = aac_lc_specific_config(core, ch) {
+            out.push((cfg, core, dest));
+        }
+    }
+    out
+}
+
+const MPEG4_AUDIO_RATES: [u32; 13] =
+    [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+
+fn aac_lc_specific_config(sample_rate: u32, channels: usize) -> Option<Box<[u8]>> {
+    let ch = u16::try_from(channels).ok().filter(|c| (1..=7).contains(c))?;
+    let sr_idx = MPEG4_AUDIO_RATES.iter().position(|&r| r == sample_rate);
+    // 5-bit AOT=LC (2), 4-bit rate index, 4-bit channel config, 3 flag bits = 0.
+    match sr_idx {
+        Some(idx) => {
+            let bits = (2u16 << 11) | ((idx as u16) << 7) | (ch << 3);
+            Some(Box::from(bits.to_be_bytes().as_slice()))
+        }
+        None => {
+            // Escape index 15 + 24-bit explicit rate.
+            let mut bits: u64 = 0;
+            bits |= 2u64 << 35; // AOT LC
+            bits |= 0xF << 31; // sample-rate escape
+            bits |= u64::from(sample_rate) << 7;
+            bits |= u64::from(ch) << 3;
+            Some(Box::from(bits.to_be_bytes()[3..8].to_vec()))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn aac_lc_asc_round_trips() {
+        let extra = aac_lc_specific_config(22050, 2).unwrap();
+        let asc = AudioSpecificConfig::read(&extra).unwrap();
+        assert_eq!(asc.object_type, AudioObjectType::Lc);
+        assert!(!asc.sbr_present);
+        assert_eq!(asc.sample_rate, 22050);
+        assert_eq!(asc.samples, 1024);
+        assert_eq!(asc.channels.unwrap().count(), 2);
+    }
+
+    #[test]
+    fn he_aac_explicit_sbr_falls_back_to_lc_core() {
+        // AOT=5 (SBR), 44.1 kHz out, stereo, 22.05 kHz core, nested AOT=LC, 1024-frame.
+        let extra = [0x2A, 0x13, 0x88, 0x00];
+        let cands = he_aac_lc_candidates(&extra);
+        assert!(cands.iter().any(|&(_, core, out)| core == 22050 && out == 44100));
+        assert!(cands.iter().any(|&(_, core, out)| core == 44100 && out == 22050));
+        let (lc, core, out) = &cands[0];
+        assert_eq!(*core, 22050);
+        assert_eq!(*out, 44100);
+        let asc = AudioSpecificConfig::read(lc).unwrap();
+        assert_eq!(asc.object_type, AudioObjectType::Lc);
+        assert!(!asc.sbr_present);
+        assert_eq!(asc.sample_rate, 22050);
+    }
 }

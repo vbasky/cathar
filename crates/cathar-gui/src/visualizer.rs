@@ -203,13 +203,13 @@ impl SpectrumViz {
                     egui::vec2(bar_w.max(2.0), 3.0),
                 );
                 painter.rect_filled(chip, 0.5, peak_c.gamma_multiply(0.95));
-                painter.rect_stroke(chip, 0.5, Stroke::new(0.5, accent.gamma_multiply(0.5)));
+                painter.rect_stroke(chip, 0.5, Stroke::new(0.5_f32, accent.gamma_multiply(0.5)));
             }
         }
 
         painter.line_segment(
             [pos2(plot.left(), plot.bottom()), pos2(plot.right(), plot.bottom())],
-            Stroke::new(1.0, base_line),
+            Stroke::new(1.0_f32, base_line),
         );
     }
 }

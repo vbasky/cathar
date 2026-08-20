@@ -46,6 +46,10 @@ check-all: fmt-check
 run *args:
     cargo run -p cathar-cli -- {{args}}
 
+# Run the spectral-editor GUI (binary name: Cathar)
+gui *args:
+    cargo run -p cathar-gui --release -- {{args}}
+
 # Generate a test waveform:  just wave  --out test.wav --duration 3 --freq 440
 wave *args:
     cargo run -p cathar-cli -- wave {{args}}

@@ -38,16 +38,25 @@ ab_glyph = "0.2"
 # Native file open/save dialogs.
 rfd = "0.15"
 # OS-native application menus (macOS menu bar / Windows window menu).
-# default-features off: avoid pulling GTK on non-Linux hosts.
-muda = { version = "0.19", default-features = false }
+# Not a Linux dep: muda's Linux backend is GTK (pkg-config). In-app shortcuts
+# and buttons cover Open/Save/Undo on Linux; menus are a no-op stub.
 raw-window-handle = "0.6"
 # Same winit as eframe — needed for EventLoopBuilderExtMacOS (disable default menu).
 winit = "0.30"
-# System audio playback — same engine the CLI `play` command uses.
-rodio = { version = "0.22.2", default-features = false, features = ["playback"] }
 egui-phosphor = "0.7.3"
 # Console Ctrl+C → hard exit (eframe may not wake; cpal/rodio Drop can hang on Windows).
 ctrlc = "3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# PulseAudio simple API via dlopen — no ALSA, no pkg-config.
+libloading = "0.8"
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+# CoreAudio / WASAPI. Not pulled on Linux (that path is cpal → alsa-sys).
+rodio = { version = "0.22.2", default-features = false, features = ["playback"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+muda = { version = "0.19", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Set NSProcessInfo process name so the menu bar shows "Cathar", not the crate id.

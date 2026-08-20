@@ -45,7 +45,7 @@ pub(crate) const FONT_MONO: f32 = 12.0;
 
 /// Hairline stroke used on cards and inputs.
 pub(crate) fn stroke_hairline() -> Stroke {
-    Stroke::new(1.0, hairline())
+    Stroke::new(1.0_f32, hairline())
 }
 
 /// Standard chrome card (search, levels well, inset panels).
@@ -324,7 +324,7 @@ fn dark_visuals(p: Palette, r: Rounding) -> Visuals {
     // dark text over a translucent teal, which stays legible.
     v.selection.bg_fill =
         Color32::from_rgba_unmultiplied(p.accent.r(), p.accent.g(), p.accent.b(), 140);
-    v.selection.stroke = Stroke::new(1.0, p.accent);
+    v.selection.stroke = Stroke::new(1.0_f32, p.accent);
     v.handle_shape = HandleShape::Rect { aspect_ratio: 0.45 };
     paint_widgets(
         &mut v,
@@ -334,7 +334,7 @@ fn dark_visuals(p: Palette, r: Rounding) -> Visuals {
         r,
         WidgetColors {
             inactive_bg: p.surface,
-            inactive_border: Stroke::new(1.0, p.hairline),
+            inactive_border: Stroke::new(1.0_f32, p.hairline),
             hover_bg: Color32::from_rgb(62, 56, 50),
             hover_border: Color32::from_rgb(0, 200, 155),
             open_bg: Color32::from_rgb(62, 56, 50),
@@ -356,7 +356,7 @@ fn light_visuals(p: Palette, r: Rounding) -> Visuals {
     // Solid accent for slider trails / progress. Soft alpha (~48) washed out
     // to an invisible mint on paper chrome. Dark body text still reads on it.
     v.selection.bg_fill = p.accent;
-    v.selection.stroke = Stroke::new(1.0, p.accent);
+    v.selection.stroke = Stroke::new(1.0_f32, p.accent);
     v.handle_shape = HandleShape::Rect { aspect_ratio: 0.45 };
     // Override light default greys with warm paper.
     v.override_text_color = Some(p.text);
@@ -370,7 +370,7 @@ fn light_visuals(p: Palette, r: Rounding) -> Visuals {
             // Warm stone rail — pure surface (near-white) made empty slider
             // tracks disappear against chrome_bg.
             inactive_bg: Color32::from_rgb(214, 208, 198),
-            inactive_border: Stroke::new(1.0, p.hairline),
+            inactive_border: Stroke::new(1.0_f32, p.hairline),
             hover_bg: Color32::from_rgb(232, 246, 240),
             hover_border: p.accent,
             open_bg: Color32::from_rgb(236, 248, 242),
@@ -400,26 +400,26 @@ fn paint_widgets(
     v.widgets.inactive.weak_bg_fill = c.inactive_bg;
     v.widgets.inactive.bg_fill = c.inactive_bg;
     v.widgets.inactive.bg_stroke = c.inactive_border;
-    v.widgets.inactive.fg_stroke = Stroke::new(1.0, text);
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, text);
     v.widgets.inactive.rounding = r;
 
     v.widgets.hovered.weak_bg_fill = c.hover_bg;
     v.widgets.hovered.bg_fill = c.hover_bg;
-    v.widgets.hovered.bg_stroke = Stroke::new(1.0, c.hover_border);
-    v.widgets.hovered.fg_stroke = Stroke::new(1.0, text);
+    v.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, c.hover_border);
+    v.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, text);
     v.widgets.hovered.rounding = r;
 
     v.widgets.active.weak_bg_fill = accent;
     v.widgets.active.bg_fill = accent;
     v.widgets.active.bg_stroke = Stroke::NONE;
-    v.widgets.active.fg_stroke = Stroke::new(1.0, on_accent);
+    v.widgets.active.fg_stroke = Stroke::new(1.0_f32, on_accent);
     v.widgets.active.rounding = r;
 
     v.widgets.open.weak_bg_fill = c.open_bg;
     v.widgets.open.bg_fill = c.open_bg;
-    v.widgets.open.bg_stroke = Stroke::new(1.0, c.hover_border);
+    v.widgets.open.bg_stroke = Stroke::new(1.0_f32, c.hover_border);
     v.widgets.open.rounding = r;
 
-    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, text);
-    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, c.separator);
+    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, text);
+    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, c.separator);
 }

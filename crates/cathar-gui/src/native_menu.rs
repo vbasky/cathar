@@ -3,10 +3,13 @@
 //! Keeps File / Edit / View out of the egui client area so we don't double up
 //! with the system chrome.
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use muda::accelerator::{Accelerator, CMD_OR_CTRL, Code, Modifiers};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use muda::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use raw_window_handle::HasWindowHandle;
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use crate::prefs::MAX_RECENT;
 
 /// Menu action identifiers (stable string ids for [`MenuEvent`]).
@@ -49,12 +52,14 @@ pub(crate) mod id {
     pub(crate) const NEXT_TRACK: &str = "cathar.next_track";
 
     /// Stable id for Open Recent slot `i` (0-based).
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub(crate) fn recent(i: usize) -> String {
         format!("cathar.recent.{i}")
     }
 }
 
 /// Owns the native menu graph for the process lifetime.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub(crate) struct NativeMenu {
     /// Root menu must stay alive for the OS to keep showing it.
     _menu: Menu,
@@ -79,6 +84,7 @@ pub(crate) struct NativeMenu {
     installed: bool,
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 impl NativeMenu {
     pub(crate) fn new() -> anyhow::Result<Self> {
         let menu = Menu::new();
@@ -534,6 +540,7 @@ impl NativeMenu {
 }
 
 /// Drain pending menu events (non-blocking).
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub(crate) fn poll_events() -> Vec<String> {
     let mut out = Vec::new();
     let rx = MenuEvent::receiver();
@@ -541,6 +548,53 @@ pub(crate) fn poll_events() -> Vec<String> {
         out.push(ev.id.0.clone());
     }
     out
+}
+
+/// Linux: muda's backend is GTK (pkg-config). Native menus are not attached to
+/// the eframe window anyway; shortcuts and in-app buttons still work.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub(crate) struct NativeMenu;
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+impl NativeMenu {
+    pub(crate) fn new() -> anyhow::Result<Self> {
+        Ok(Self)
+    }
+
+    pub(crate) fn ensure_installed(&mut self, window: &impl HasWindowHandle) {
+        let _ = window;
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn set_enabled(
+        &self,
+        _can_save: bool,
+        _can_undo: bool,
+        _can_redo: bool,
+        _has_selection: bool,
+        _can_compare: bool,
+        _has_ab_loop: bool,
+        _has_file: bool,
+        _has_playlist: bool,
+    ) {
+    }
+
+    pub(crate) fn set_playback_checks(
+        &self,
+        _loop_file: bool,
+        _shuffle: bool,
+        _auto_advance: bool,
+        _wrap: bool,
+        _open_last_on_launch: bool,
+    ) {
+    }
+
+    pub(crate) fn set_recent(&self, _entries: &[(String, bool)]) {}
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub(crate) fn poll_events() -> Vec<String> {
+    Vec::new()
 }
 
 /// Parse `cathar.recent.N` → slot index.

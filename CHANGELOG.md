@@ -30,6 +30,21 @@ The release workflow extracts the notes for a version from the matching
 
 - **Biquad EQ** — transposed direct form II + `graphic_eq` for the GUI live EQ
   path (library improvement shared with the CLI surface).
+- **Linux GUI playback** — PulseAudio simple API via `dlopen` (`libpulse-simple`),
+  not cpal/ALSA/pkg-config. PipeWire's Pulse layer is enough at runtime.
+
+### Fixed
+
+- **`cathar-gui` Linux dock icon** — Wayland compositors (COSMIC/GNOME/KDE)
+  ignore `ViewportBuilder::with_icon` (winit's setter is a no-op). Set a stable
+  `app_id` (`io.github.vbasky.Cathar`) and install a matching `.desktop` +
+  hicolor PNGs under `$XDG_DATA_HOME` so the running app uses the Cathar mark
+  instead of the generic gear.
+- **`cathar-gui` Linux build** — no longer depends on `alsa-sys` / `alsa.pc`.
+- **HE-AAC / M4A open** — Symphonia rejects SBR as `aac too complex`. Decode the
+  AAC-LC core instead (try both SBR rate mappings) and skip malformed packets
+  (`invalid band type`) so HE-AAC `.m4a` files load. The SBR high band is not
+  reconstructed.
 
 ## [0.7.3] - 2026-09-01
 

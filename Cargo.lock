@@ -812,6 +812,7 @@ dependencies = [
  "realfft",
  "rustfft",
  "symphonia",
+ "symphonia-common",
  "thiserror 2.0.18",
 ]
 
@@ -845,6 +846,7 @@ dependencies = [
  "egui",
  "egui-phosphor",
  "image",
+ "libloading",
  "muda",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",

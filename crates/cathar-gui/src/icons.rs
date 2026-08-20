@@ -47,7 +47,7 @@ pub(crate) fn toolbar_toggle(selected: bool, icon: &'static str) -> impl Widget 
     let stroke = if selected {
         egui::Stroke::NONE
     } else {
-        egui::Stroke::new(1.0, crate::theme::hairline())
+        egui::Stroke::new(1.0_f32, crate::theme::hairline())
     };
     let icon_color = if selected { on_accent() } else { Color32::PLACEHOLDER };
     Button::new(rich(icon, TOOLBAR_ICON).color(icon_color))
@@ -66,7 +66,7 @@ pub(crate) fn channel_chip(selected: bool, label: &str) -> Button<'static> {
         if selected {
             egui::Stroke::NONE
         } else {
-            egui::Stroke::new(1.0, crate::theme::hairline())
+            egui::Stroke::new(1.0_f32, crate::theme::hairline())
         },
     );
     if selected {
@@ -87,6 +87,6 @@ pub(crate) fn transport_play_button(playing: bool, icon: &'static str) -> Button
         .stroke(if playing {
             egui::Stroke::NONE
         } else {
-            egui::Stroke::new(1.0, crate::theme::hairline())
+            egui::Stroke::new(1.0_f32, crate::theme::hairline())
         })
 }

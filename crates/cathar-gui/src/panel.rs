@@ -173,7 +173,7 @@ pub(crate) fn tool_tile(
     } else if selected {
         (
             theme::selection_fill(),
-            Stroke::new(1.2, theme::accent()),
+            Stroke::new(1.2_f32, theme::accent()),
             theme::text(),
             theme::accent(),
             theme::accent(),
@@ -181,7 +181,7 @@ pub(crate) fn tool_tile(
     } else if resp.hovered() {
         (
             theme::surface(),
-            Stroke::new(1.0, theme::hairline()),
+            Stroke::new(1.0_f32, theme::hairline()),
             theme::text(),
             theme::text_muted(),
             theme::text(),
@@ -191,7 +191,7 @@ pub(crate) fn tool_tile(
         let hln = theme::hairline();
         (
             Color32::from_rgba_unmultiplied(s.r(), s.g(), s.b(), 90),
-            Stroke::new(1.0, Color32::from_rgba_unmultiplied(hln.r(), hln.g(), hln.b(), 140)),
+            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(hln.r(), hln.g(), hln.b(), 140)),
             theme::text().gamma_multiply(0.92),
             theme::text_muted(),
             theme::text_muted(),
@@ -267,7 +267,7 @@ pub(crate) fn compact_row(ui: &mut Ui, label: &str, selected: bool, enabled: boo
         ui.painter().rect_stroke(
             rect,
             RADIUS_MD,
-            Stroke::new(1.0, theme::accent().gamma_multiply(0.55)),
+            Stroke::new(1.0_f32, theme::accent().gamma_multiply(0.55)),
         );
     }
     ui.painter().text(
@@ -381,7 +381,7 @@ pub(crate) fn primary_button(label: &str) -> Button<'static> {
 fn ghost_button(label: &str) -> Button<'static> {
     Button::new(RichText::new(label.to_string()).size(FONT_BUTTON).color(theme::text()))
         .fill(theme::surface())
-        .stroke(Stroke::new(1.0, theme::hairline()))
+        .stroke(Stroke::new(1.0_f32, theme::hairline()))
         .rounding(RADIUS_MD)
         .min_size(Vec2::new(72.0, CTRL_H))
 }
@@ -419,11 +419,15 @@ pub(crate) fn square_checkbox(ui: &mut Ui, checked: &mut bool, text: &str) -> Re
     let box_rect = Rect::from_min_size(box_min, Vec2::splat(BOX));
 
     let (fill, stroke, check_c) = if *checked {
-        (theme::accent(), Stroke::new(1.0, theme::accent()), theme::on_accent())
+        (theme::accent(), Stroke::new(1.0_f32, theme::accent()), theme::on_accent())
     } else if resp.hovered() {
-        (theme::surface(), Stroke::new(1.25, theme::accent().gamma_multiply(0.75)), theme::text())
+        (
+            theme::surface(),
+            Stroke::new(1.25_f32, theme::accent().gamma_multiply(0.75)),
+            theme::text(),
+        )
     } else {
-        (theme::surface(), Stroke::new(1.25, theme::hairline()), theme::text())
+        (theme::surface(), Stroke::new(1.25_f32, theme::hairline()), theme::text())
     };
 
     let painter = ui.painter();
@@ -435,8 +439,8 @@ pub(crate) fn square_checkbox(ui: &mut Ui, checked: &mut bool, text: &str) -> Re
         let a = pos2(c.x - 4.0, c.y + 0.5);
         let b = pos2(c.x - 1.0, c.y + 3.5);
         let d = pos2(c.x + 4.5, c.y - 3.5);
-        painter.line_segment([a, b], Stroke::new(1.8, check_c));
-        painter.line_segment([b, d], Stroke::new(1.8, check_c));
+        painter.line_segment([a, b], Stroke::new(1.8_f32, check_c));
+        painter.line_segment([b, d], Stroke::new(1.8_f32, check_c));
     }
 
     let text_pos = pos2(box_rect.right() + gap, rect.center().y - galley.size().y * 0.5);
@@ -558,7 +562,11 @@ pub(crate) fn vu_meter_h(ui: &mut Ui, label: &str, peak_linear: f32, width: f32)
             );
             let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 12.0), Sense::hover());
             ui.painter().rect_filled(rect, theme::RADIUS_SM, theme::well_bg());
-            ui.painter().rect_stroke(rect, theme::RADIUS_SM, Stroke::new(1.0, theme::hairline()));
+            ui.painter().rect_stroke(
+                rect,
+                theme::RADIUS_SM,
+                Stroke::new(1.0_f32, theme::hairline()),
+            );
             let fill_w = (t * rect.width()).max(if peak_linear > 0.0 { 1.5 } else { 0.0 });
             if fill_w > 0.0 {
                 let slices = 24usize;
@@ -669,11 +677,11 @@ pub(crate) fn vertical_fader(
         let y = track.bottom() - track.height() * u;
         ui.painter().line_segment(
             [pos2(track.left() - 6.0, y), pos2(track.left() - 2.0, y)],
-            Stroke::new(1.0, theme::hairline()),
+            Stroke::new(1.0_f32, theme::hairline()),
         );
     }
     ui.painter().rect_filled(track, 2.5, theme::surface());
-    ui.painter().rect_stroke(track, 2.5, Stroke::new(1.0, theme::hairline()));
+    ui.painter().rect_stroke(track, 2.5, Stroke::new(1.0_f32, theme::hairline()));
 
     if (resp.dragged() || resp.clicked()) && track.height() > 0.0 {
         if let Some(p) = ui.ctx().pointer_interact_pos().or(resp.interact_pointer_pos()) {
@@ -698,14 +706,14 @@ pub(crate) fn vertical_fader(
     let cap_y = track.bottom() - fill_h;
     let cap = egui::Rect::from_center_size(pos2(track.center().x, cap_y), Vec2::new(22.0, 14.0));
     ui.painter().rect_filled(cap, 3.0, theme::surface());
-    ui.painter().rect_stroke(cap, 3.0, Stroke::new(1.5, accent));
+    ui.painter().rect_stroke(cap, 3.0, Stroke::new(1.5_f32, accent));
     for dy in [-3.0_f32, 0.0, 3.0] {
         ui.painter().line_segment(
             [
                 pos2(cap.left() + 5.0, cap.center().y + dy),
                 pos2(cap.right() - 5.0, cap.center().y + dy),
             ],
-            Stroke::new(1.0, theme::hairline()),
+            Stroke::new(1.0_f32, theme::hairline()),
         );
     }
 
@@ -749,7 +757,7 @@ pub(crate) fn dial(
     let r = 30.0;
     ui.painter().circle_filled(c, r + 2.0, theme::hairline().gamma_multiply(0.28));
     ui.painter().circle_filled(c, r, theme::surface());
-    ui.painter().circle_stroke(c, r, Stroke::new(1.5, theme::hairline()));
+    ui.painter().circle_stroke(c, r, Stroke::new(1.5_f32, theme::hairline()));
 
     if resp.dragged() {
         let dy = -resp.drag_delta().y;
@@ -769,7 +777,7 @@ pub(crate) fn dial(
         let ang1 = a0 + sweep * u1;
         let p0 = pos2(c.x + arc_r * ang0.cos(), c.y + arc_r * ang0.sin());
         let p1 = pos2(c.x + arc_r * ang1.cos(), c.y + arc_r * ang1.sin());
-        ui.painter().line_segment([p0, p1], Stroke::new(4.0, theme::well_bg()));
+        ui.painter().line_segment([p0, p1], Stroke::new(4.0_f32, theme::well_bg()));
     }
     for i in 0..steps {
         let u0 = i as f32 / steps as f32;
@@ -781,14 +789,14 @@ pub(crate) fn dial(
         let ang1 = a0 + sweep * u1.min(t);
         let p0 = pos2(c.x + arc_r * ang0.cos(), c.y + arc_r * ang0.sin());
         let p1 = pos2(c.x + arc_r * ang1.cos(), c.y + arc_r * ang1.sin());
-        ui.painter().line_segment([p0, p1], Stroke::new(4.0, theme::accent()));
+        ui.painter().line_segment([p0, p1], Stroke::new(4.0_f32, theme::accent()));
     }
     // Needle + hub
     let ang = a0 + sweep * t;
     let tip = pos2(c.x + (r - 11.0) * ang.cos(), c.y + (r - 11.0) * ang.sin());
-    ui.painter().line_segment([c, tip], Stroke::new(2.0, theme::text()));
+    ui.painter().line_segment([c, tip], Stroke::new(2.0_f32, theme::text()));
     ui.painter().circle_filled(c, 4.5, theme::accent());
-    ui.painter().circle_stroke(c, 4.5, Stroke::new(1.0, theme::hairline()));
+    ui.painter().circle_stroke(c, 4.5, Stroke::new(1.0_f32, theme::hairline()));
 
     let val_s = fmt.format(*value);
     ui.painter().text(
@@ -845,7 +853,11 @@ pub(crate) fn stem_chips(
             let r = ui.add(
                 Button::new(job)
                     .fill(fill)
-                    .stroke(if sel { Stroke::NONE } else { Stroke::new(1.0, theme::hairline()) })
+                    .stroke(if sel {
+                        Stroke::NONE
+                    } else {
+                        Stroke::new(1.0_f32, theme::hairline())
+                    })
                     .rounding(RADIUS_MD)
                     .min_size(Vec2::new(0.0, theme::TOOLBAR_BTN)),
             );

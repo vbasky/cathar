@@ -13,6 +13,8 @@ mod icons;
 mod native_menu;
 mod panel;
 mod prefs;
+#[cfg(target_os = "linux")]
+mod pulse_linux;
 mod spectral_edit;
 mod spectro;
 mod theme;
@@ -26,6 +28,13 @@ use egui::IconData;
 
 /// Product name shown in the OS menu bar, Dock, and window title.
 pub(crate) const APP_NAME: &str = "Cathar";
+
+/// Freedesktop application ID (`.desktop` basename without the suffix).
+///
+/// Wayland compositors (COSMIC, GNOME, KDE) look up the dock / overview icon
+/// from a matching desktop file — `ViewportBuilder::with_icon` is a no-op on
+/// winit 0.30 Wayland (`set_window_icon` is empty).
+const APP_ID: &str = "io.github.vbasky.Cathar";
 
 /// Guards against re-entrant Ctrl+C while a previous handler is still running.
 static CTRL_C_SEEN: AtomicBool = AtomicBool::new(false);
@@ -57,14 +66,23 @@ fn main() -> eframe::Result<()> {
 
     install_ctrl_c_handler();
 
+    let icon = app_icon();
+    // Wayland ignores `with_icon`; install a .desktop + hicolor PNG so the
+    // compositor can resolve this app_id to the Cathar mark.
+    #[cfg(target_os = "linux")]
+    if let Some(ref icon) = icon {
+        linux::install_shell_icon(icon);
+    }
+
     let mut viewport = egui::ViewportBuilder::default()
         // Restore size if the user un-maximizes; min keeps the layout usable.
         .with_inner_size([1280.0, 800.0])
         .with_min_inner_size([900.0, 560.0])
         .with_maximized(true)
         .with_drag_and_drop(true)
-        .with_title(APP_NAME);
-    if let Some(icon) = app_icon() {
+        .with_title(APP_NAME)
+        .with_app_id(APP_ID);
+    if let Some(icon) = icon {
         viewport = viewport.with_icon(Arc::new(icon));
     }
 
@@ -442,6 +460,125 @@ fn fill_rounded_rect(img: &mut image::RgbaImage, color: image::Rgba<u8>, radius_
             if alpha > 0 {
                 img.put_pixel(x, y, image::Rgba([color[0], color[1], color[2], alpha]));
             }
+        }
+    }
+}
+
+/// Linux shell integration: Wayland `app_id` is matched against a `.desktop`
+/// file. winit does not send a window icon on Wayland, so the dock/overview
+/// would otherwise show the compositor's generic "unknown app" glyph.
+#[cfg(target_os = "linux")]
+mod linux {
+    use std::io::Cursor;
+    use std::path::{Path, PathBuf};
+
+    use egui::IconData;
+
+    const ICON_SIZES: &[u32] = &[32, 48, 64, 128, 256];
+
+    pub(super) fn install_shell_icon(icon: &IconData) {
+        let Some(img) = image::RgbaImage::from_raw(icon.width, icon.height, icon.rgba.clone())
+        else {
+            return;
+        };
+        let Some(data_home) = xdg_data_home() else { return };
+
+        for &size in ICON_SIZES {
+            let dir = data_home.join(format!("icons/hicolor/{size}x{size}/apps"));
+            let path = dir.join(format!("{}.png", super::APP_ID));
+            let sized = if size == img.width() && size == img.height() {
+                img.clone()
+            } else {
+                image::imageops::resize(&img, size, size, image::imageops::FilterType::Lanczos3)
+            };
+            if let Some(png) = encode_png(&sized) {
+                write_if_changed(&path, &png);
+            }
+        }
+
+        let Some(exe) = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok()) else {
+            return;
+        };
+        let desktop = desktop_entry(&exe);
+        let apps = data_home.join("applications");
+        write_if_changed(&apps.join(format!("{}.desktop", super::APP_ID)), desktop.as_bytes());
+    }
+
+    fn xdg_data_home() -> Option<PathBuf> {
+        if let Some(dir) = std::env::var_os("XDG_DATA_HOME") {
+            let p = PathBuf::from(dir);
+            if !p.as_os_str().is_empty() {
+                return Some(p);
+            }
+        }
+        std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share"))
+    }
+
+    fn encode_png(img: &image::RgbaImage) -> Option<Vec<u8>> {
+        let mut buf = Vec::new();
+        img.write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Png).ok()?;
+        Some(buf)
+    }
+
+    fn write_if_changed(path: &Path, bytes: &[u8]) {
+        if let Ok(existing) = std::fs::read(path)
+            && existing == bytes
+        {
+            return;
+        }
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, bytes);
+    }
+
+    fn desktop_entry(exe: &Path) -> String {
+        let exec = desktop_quote(&exe.to_string_lossy());
+        let try_exec = exe.display();
+        format!(
+            "\
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name={name}
+Comment=Spectral audio restoration editor
+Exec={exec}
+TryExec={try_exec}
+Icon={id}
+Terminal=false
+StartupNotify=true
+StartupWMClass={id}
+Categories=AudioVideo;Audio;AudioVideoEditing;
+Keywords=audio;restoration;spectrogram;eq;
+MimeType=audio/wav;audio/x-wav;audio/flac;audio/mpeg;audio/ogg;audio/mp4;
+",
+            name = super::APP_NAME,
+            id = super::APP_ID,
+        )
+    }
+
+    fn desktop_quote(s: &str) -> String {
+        format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::path::Path;
+
+        #[test]
+        fn desktop_entry_matches_app_id() {
+            let text = desktop_entry(Path::new("/opt/Cathar"));
+            assert!(text.contains("Name=Cathar"));
+            assert!(text.contains(&format!("Icon={}", crate::APP_ID)));
+            assert!(text.contains(&format!("StartupWMClass={}", crate::APP_ID)));
+            assert!(text.contains("Exec=\"/opt/Cathar\""));
+            assert!(text.contains("TryExec=/opt/Cathar"));
+        }
+
+        #[test]
+        fn desktop_quote_escapes() {
+            assert_eq!(desktop_quote(r#"C:\a"b"#), r#""C:\\a\"b""#);
         }
     }
 }

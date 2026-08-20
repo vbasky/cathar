@@ -57,6 +57,7 @@ just test         # run all tests
 
 # Optional spectral-editor GUI (workspace crate; WIP — not on crates.io yet):
 cargo run -p cathar-gui --release            # launches the `Cathar` binary
+# or: just gui
 ```
 
 See [Desktop GUI (WIP)](#desktop-gui-wip) for a preview.
@@ -103,7 +104,10 @@ toolbox. Still a work in progress (workspace crate, not on crates.io).*
 
 ```bash
 cargo run -p cathar-gui --release    # product name in Dock / menus: Cathar
+# or: just gui
 ```
+Linux playback uses PulseAudio / PipeWire (`libpulse-simple` at runtime). It does
+not use ALSA and does not need `pkg-config` or `libasound2-dev`.
 
 ## The toolkit
 

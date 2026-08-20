@@ -51,7 +51,7 @@ pub(crate) fn draw_freq_axis(
     painter.rect_filled(axis, 0.0, Color32::from_black_alpha(12));
     painter.line_segment(
         [pos2(image.left(), image.top()), pos2(image.left(), image.bottom())],
-        Stroke::new(1.0, text.gamma_multiply(0.35)),
+        Stroke::new(1.0_f32, text.gamma_multiply(0.35)),
     );
 
     let font = FontId::proportional(10.0);
@@ -60,7 +60,7 @@ pub(crate) fn draw_freq_axis(
         let y = image.top() + t * image.height();
         painter.line_segment(
             [pos2(image.left() - 4.0, y), pos2(image.left(), y)],
-            Stroke::new(1.0, text.gamma_multiply(0.45)),
+            Stroke::new(1.0_f32, text.gamma_multiply(0.45)),
         );
         let label = fmt_hz(f);
         painter.text(
@@ -92,7 +92,7 @@ pub(crate) fn draw_time_axis(
     painter.rect_filled(axis, 0.0, Color32::from_black_alpha(12));
     painter.line_segment(
         [pos2(image.left(), image.bottom()), pos2(image.right(), image.bottom())],
-        Stroke::new(1.0, text.gamma_multiply(0.35)),
+        Stroke::new(1.0_f32, text.gamma_multiply(0.35)),
     );
 
     let font = FontId::proportional(10.0);
@@ -100,7 +100,7 @@ pub(crate) fn draw_time_axis(
         let x = image.left() + (t / duration).clamp(0.0, 1.0) * image.width();
         painter.line_segment(
             [pos2(x, image.bottom()), pos2(x, image.bottom() + 4.0)],
-            Stroke::new(1.0, text.gamma_multiply(0.45)),
+            Stroke::new(1.0_f32, text.gamma_multiply(0.45)),
         );
         painter.text(
             pos2(x, axis.top() + 3.0),

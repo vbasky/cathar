@@ -2543,7 +2543,7 @@ impl CatharGui {
                     let bot = Rect::from_min_max(pos2(rect.left(), mid_y + 1.0), rect.max);
                     painter.line_segment(
                         [pos2(rect.left(), mid_y), pos2(rect.right(), mid_y)],
-                        Stroke::new(1.0, theme::hairline()),
+                        Stroke::new(1.0_f32, theme::hairline()),
                     );
                     self.draw_waveform_env(&painter, top, &self.waveform_l, theme::wave_l());
                     self.draw_waveform_env(&painter, bot, &self.waveform_r, theme::wave_r());
@@ -2681,7 +2681,7 @@ impl CatharGui {
             .frame(
                 egui::Frame::none()
                     .fill(theme::player_bar())
-                    .stroke(Stroke::new(1.0, theme::hairline()))
+                    .stroke(Stroke::new(1.0_f32, theme::hairline()))
                     .inner_margin(egui::Margin { left: 10.0, right: 16.0, top: 6.0, bottom: 6.0 }),
             )
             .show(ctx, |ui| {
@@ -2832,7 +2832,7 @@ impl CatharGui {
         );
         // Higher-contrast empty rail in dark mode (well_bg ≈ player_bar was muddy).
         ui.painter().rect_filled(rail, 2.0, theme::surface());
-        ui.painter().rect_stroke(rail, 2.0, Stroke::new(1.0, theme::hairline()));
+        ui.painter().rect_stroke(rail, 2.0, Stroke::new(1.0_f32, theme::hairline()));
 
         // Spectrogram selection + A–B loop tint on the rail (mock → product crossover).
         if dur > 0.0 {
@@ -2875,7 +2875,7 @@ impl CatharGui {
         let thumb = pos2(thumb_x, scrub_rect.center().y);
         const THUMB_R: f32 = 7.0;
         ui.painter().circle_filled(thumb, THUMB_R, theme::surface());
-        ui.painter().circle_stroke(thumb, THUMB_R, Stroke::new(1.5, theme::accent()));
+        ui.painter().circle_stroke(thumb, THUMB_R, Stroke::new(1.5_f32, theme::accent()));
 
         if has && dur > 0.0 {
             if scrub_resp.drag_started() {
@@ -2948,7 +2948,7 @@ impl CatharGui {
 
                 let rail = Rect::from_center_size(rect.center(), egui::vec2(RAIL_W, RAIL_H));
                 ui.painter().rect_filled(rail, 2.0, theme::surface());
-                ui.painter().rect_stroke(rail, 2.0, Stroke::new(1.0, theme::hairline()));
+                ui.painter().rect_stroke(rail, 2.0, Stroke::new(1.0_f32, theme::hairline()));
 
                 let display_vol = if self.muted { 0.0 } else { self.volume };
                 let t = (display_vol / VOL_MAX).clamp(0.0, 1.0);
@@ -2963,7 +2963,7 @@ impl CatharGui {
                 let thumb_x = (rail.left() + filled_w).clamp(rail.left() + 4.0, rail.right() - 4.0);
                 let thumb = pos2(thumb_x, rail.center().y);
                 ui.painter().circle_filled(thumb, THUMB_R, theme::surface());
-                ui.painter().circle_stroke(thumb, THUMB_R, Stroke::new(1.5, theme::accent()));
+                ui.painter().circle_stroke(thumb, THUMB_R, Stroke::new(1.5_f32, theme::accent()));
 
                 if resp.dragged() || resp.clicked() {
                     if let Some(p) =
@@ -4031,7 +4031,7 @@ impl CatharGui {
                     let a = theme::accent();
                     ui.visuals_mut().selection.bg_fill =
                         Color32::from_rgba_unmultiplied(a.r(), a.g(), a.b(), 50);
-                    ui.visuals_mut().selection.stroke = Stroke::new(1.0, a);
+                    ui.visuals_mut().selection.stroke = Stroke::new(1.0_f32, a);
 
                     for (i, p) in EQ_PRESETS.iter().enumerate() {
                         let label = egui::RichText::new(p.name).size(14.5).color(theme::text());
@@ -4432,9 +4432,9 @@ impl CatharGui {
                                 theme::surface()
                             };
                             let stroke = if selected {
-                                Stroke::new(1.0, theme::accent())
+                                Stroke::new(1.0_f32, theme::accent())
                             } else {
-                                Stroke::new(1.0, theme::hairline())
+                                Stroke::new(1.0_f32, theme::hairline())
                             };
                             // Compact row: fixed title width so long paths never steal
                             // the Open/remove hit targets. Clicking the row loads the track.
@@ -4518,7 +4518,7 @@ impl CatharGui {
                                                         .rounding(theme::RADIUS_MD)
                                                         .fill(theme::surface())
                                                         .stroke(Stroke::new(
-                                                            1.0,
+                                                            1.0_f32,
                                                             theme::hairline(),
                                                         )),
                                                     )
@@ -4720,7 +4720,7 @@ impl CatharGui {
                                                 pos2(image.left(), image.center().y),
                                                 pos2(image.right(), image.center().y),
                                             ],
-                                            Stroke::new(1.0, theme::hairline()),
+                                            Stroke::new(1.0_f32, theme::hairline()),
                                         );
                                         painter.text(
                                             pos2(image.left() + 8.0, image.center().y + 6.0),
@@ -4772,7 +4772,7 @@ impl CatharGui {
                 c,
             );
         }
-        painter.rect_stroke(inner, 0.0, Stroke::new(1.0, text.gamma_multiply(0.35)));
+        painter.rect_stroke(inner, 0.0, Stroke::new(1.0_f32, text.gamma_multiply(0.35)));
         let font = egui::FontId::proportional(9.0);
         painter.text(
             pos2(rect.right() - 2.0, inner.top()),
@@ -4839,7 +4839,7 @@ impl CatharGui {
         let sel_rect =
             Rect::from_min_max(pos2(x_at(sel.t0), y_at(sel.f1)), pos2(x_at(sel.t1), y_at(sel.f0)));
         painter.rect_filled(sel_rect, 0.0, theme::selection_fill());
-        painter.rect_stroke(sel_rect, 0.0, Stroke::new(1.5, theme::selection_stroke()));
+        painter.rect_stroke(sel_rect, 0.0, Stroke::new(1.5_f32, theme::selection_stroke()));
     }
 
     fn draw_playhead(&self, painter: &egui::Painter, rect: Rect) {
@@ -4850,7 +4850,7 @@ impl CatharGui {
         let x = rect.left() + (pos / self.duration).clamp(0.0, 1.0) * rect.width();
         painter.line_segment(
             [pos2(x, rect.top()), pos2(x, rect.bottom())],
-            Stroke::new(1.5, theme::playhead()),
+            Stroke::new(1.5_f32, theme::playhead()),
         );
     }
 
@@ -4864,8 +4864,10 @@ impl CatharGui {
         let x = rect.left() + (t / self.duration).clamp(0.0, 1.0) * rect.width();
         let y = rect.top() + (1.0 - (f / nyq).clamp(0.0, 1.0)) * rect.height();
         let c = theme::accent().gamma_multiply(0.55);
-        painter.line_segment([pos2(x, rect.top()), pos2(x, rect.bottom())], Stroke::new(1.0, c));
-        painter.line_segment([pos2(rect.left(), y), pos2(rect.right(), y)], Stroke::new(1.0, c));
+        painter
+            .line_segment([pos2(x, rect.top()), pos2(x, rect.bottom())], Stroke::new(1.0_f32, c));
+        painter
+            .line_segment([pos2(rect.left(), y), pos2(rect.right(), y)], Stroke::new(1.0_f32, c));
     }
 
     fn draw_waveform_env(
@@ -4885,7 +4887,7 @@ impl CatharGui {
             let x = rect.left() + i as f32 / n as f32 * rect.width();
             painter.line_segment(
                 [pos2(x, mid - hi * half), pos2(x, mid - lo * half)],
-                Stroke::new(1.0, color),
+                Stroke::new(1.0_f32, color),
             );
         }
     }

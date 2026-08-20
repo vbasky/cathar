@@ -30,9 +30,9 @@ jobs:
       - name: system deps (Linux GUI + audio)
         if: runner.os == 'Linux'
         run: |
+          # Playback is PulseAudio (dlopen), not ALSA — no libasound2-dev.
           sudo apt-get update
           sudo apt-get install -y \
-            libasound2-dev \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libxkbcommon-dev libssl-dev \
             libgtk-3-dev

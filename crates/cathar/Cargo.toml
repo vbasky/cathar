@@ -23,6 +23,8 @@ workspace = true
 thiserror.workspace = true
 hound.workspace = true
 symphonia = { workspace = true }
+# AudioSpecificConfig (HE-AAC / SBR extra_data) — same version as `symphonia`.
+symphonia-common = "0.6"
 rustfft.workspace = true
 realfft.workspace = true
 flacenc.workspace = true
