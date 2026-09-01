@@ -31,6 +31,7 @@ means "take away."
 | Gritty "stair-step" quiet passages | **Quantization grain** — too few stored levels | dequantize |
 | Stereo too wide / bass not mono-safe | **Stereo image** — mid/side width and mono-maker | stereo |
 | Phase / mono check | **Phase correlation** — L/R agreement meter | stats |
+| Clipped peaks, hissy gaps, hot true-peak | **Restoration triage** — noise floor, clip runs, suggested command | stats |
 | Too fast / slow / chipmunk | **Time & pitch** — duration vs pitch edits | tempo / pitch / speed |
 
 ## Two big families

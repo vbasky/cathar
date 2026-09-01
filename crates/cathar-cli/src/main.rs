@@ -829,7 +829,7 @@ enum Command {
         #[arg(long, default_value_t = 16)]
         bits: u32,
     },
-    /// Print audio statistics (peak, RMS, LUFS, true-peak, crest factor, …).
+    /// Print audio statistics (peak, RMS, LUFS, true-peak, crest, noise floor, clip runs).
     Stats {
         /// Input file
         input: String,
@@ -1531,6 +1531,12 @@ fn main() -> Result<()> {
                 println!("  Integrated   {:>8.1} LUFS", stats.integrated_lufs);
                 println!("  True peak    {:>8.1} dBTP", stats.true_peak_dbtp);
                 println!("  DC offset    {:>8.4}", stats.dc_offset);
+                println!("  Noise floor  {:>8.1} dBFS", stats.noise_floor_dbfs);
+                println!("  SNR          {:>8.1} dB", stats.snr_db);
+                println!(
+                    "  Clipped      {:>8} smp / {} run(s)",
+                    stats.clipped_samples, stats.clipped_runs
+                );
                 // Monophonic pitch estimate over a mono mixdown.
                 let n = audio.channels.iter().map(Vec::len).max().unwrap_or(0);
                 let nch = audio.channels.len().max(1);
@@ -1552,6 +1558,14 @@ fn main() -> Result<()> {
                     println!();
                     if let Some(pc) = stats.phase_correlation {
                         println!("  Phase corr   {pc:>+8.3}  (−1 out-of-phase … +1 mono)");
+                    }
+                }
+                let hints = stats.suggestions();
+                if !hints.is_empty() {
+                    println!("  ────────────────────────");
+                    for h in hints {
+                        println!("  → {:<10} {}", h.issue, h.invocation(&input));
+                        println!("               {}", h.detail);
                     }
                 }
             } else {

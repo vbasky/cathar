@@ -148,6 +148,7 @@ grouped here by what they fix; run them in any order, or chain them.
 
 | Command | What it does | Key flags |
 | --- | --- | --- |
+| `stats` | Peak, RMS, LUFS, true-peak, crest, noise floor, clip runs; prints a suggested `de-*` command when a check fails | — |
 | `resample` | Resample to a different rate (anti-aliased, any ratio) | `--rate` 48000 |
 | `wave` | Generate a synthetic sine + noise test tone | `--freq` 440, `--duration` 3, `--noise` 0.1, `--sample-rate` 44100 |
 | `batch` | Denoise (and optionally de-hum / normalise) a whole directory | `--indir`, `--outdir`, `--dehum <hz>`, `--normalize <lufs>`, `--exts` |
@@ -306,6 +307,9 @@ The public surface is small and direct:
 - **`NeuralDenoiser`** + **`NeuralConfig`** *(opt-in `ml` feature)* — the learned
   spectral-gain denoiser; `new()` for the passthrough default, `from_safetensors`
   to load trained weights. Implements the same `Denoiser` trait.
+- **`Stats`** + `compute_stats` — peak, RMS, LUFS, true-peak, crest, DC, noise
+  floor, SNR, clip runs; `Stats::suggestions` names a restoration command per
+  failing check.
 - Free functions: `dehum`, `dewind`, `declick` / `declick_with_method`, `declip` / `declip_with_method`, `spectral_repair`,
   `deplosive`, `derustle`, `dereverb`, `voice_isolate`, `deesser`,
   `deess_multiband`, `breath_remove`, `bandwidth_extend`, `resample`,

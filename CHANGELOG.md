@@ -9,6 +9,17 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-09-01
+
+### Added
+
+- **`stats` restoration triage** ([#22](https://github.com/vbasky/cathar/issues/22))
+  — noise-floor dBFS (quietest 15 % of frames), SNR, and clip-run counts
+  (flat-topped peaks at `|x| ≥ 0.99`). Failing checks print one suggested
+  command (`declip`, `denoise`, or `normalize --true-peak -1`). Library:
+  `Stats::{noise_floor_dbfs, snr_db, clipped_samples, clipped_runs, suggestions}`,
+  `Suggestion`. No mix-quality score.
+
 ## [0.7.2] - 2026-08-05
 
 Stereo toolkit and phase-aware alignment / diagnostics

@@ -53,7 +53,7 @@ pub use align::{
     LagMethod, align, align_with_method, azimuth_correct, azimuth_correct_with_method,
     estimate_lag, estimate_lag_with_method,
 };
-pub use analysis::{Stats, compute_stats};
+pub use analysis::{Stats, Suggestion, compute_stats};
 pub use audio::AudioData;
 pub use cqt::{CqtSpec, cqt};
 pub use declip::{DeclipMethod, declip, declip_with_method};
