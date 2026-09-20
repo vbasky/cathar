@@ -375,22 +375,18 @@ container files, so it can sit immediately after ingest and before encoding.
 
 ## Roadmap
 
-Cathar is `0.6.x`, restoration-first, and growing — before `1.0` — into a
+Cathar is `0.7.x`, restoration-first, and growing — before `1.0` — into a
 general-purpose, pure-Rust audio swiss-army knife (a SoX-class tool with no
 ffmpeg and no C/C++ FFI). See [`ROADMAP.md`](https://github.com/vbasky/cathar/blob/main/ROADMAP.md) for the full plan and
-SoX-parity checklist. The `0.2`–`0.4` foundations are complete:
+SoX-parity checklist.
 
-- **True EBU R128 loudness** (`normalize`) — K-weighted gated LUFS with a
-  `--true-peak` dBTP ceiling.
-- **Main-path resampling** — the `resample` command + `AudioData::resample`, a
-  shared anti-aliased Kaiser-windowed sinc any stage can call.
-- **Encode beyond WAV** — 24-bit lossless FLAC and 24-bit AIFF on the pure-Rust
-  default path, selected by the output extension.
-
-Phase 1 `0.5` (DSP depth) is complete, and `0.6` makes the `ml` feature real:
-the optional `ml-denoise` command runs a candle GRU spectral-gain model (load
-trained `.safetensors` weights). Next is the swiss-army expansion (Phase 2) —
-see [`ROADMAP.md`](https://github.com/vbasky/cathar/blob/main/ROADMAP.md).
+Phase 1 is shipped (`v0.2`–`v0.7`): true EBU R128 loudness, anti-aliased
+resample, WAV/FLAC/AIFF encode, the restoration chain (`denoise` / `dehum` /
+`declick` / `declip` / …), swiss-army editing and EQ, learned denoise behind
+`--features ml`, and `enhance --method replicate|interpolate|harmonic|dsre`.
+Next is Phase 2 (`0.8`–`0.10`) — co-sparse dequant, analog NR, creative
+effects, chain DSL — see
+[`ROADMAP.md`](https://github.com/vbasky/cathar/blob/main/ROADMAP.md).
 
 ## Development
 
