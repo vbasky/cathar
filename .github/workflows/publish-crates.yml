@@ -1,0 +1,56 @@
+name: Publish crates
+
+# Manual publish of an already-tagged version. The tag Release workflow also
+# publishes; this exists so a failed crates.io step can be retried without
+# rebuilding binaries, and so two tags can publish without a time-window bail.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to publish (tag, e.g. v0.7.4)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to crates.io
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install Rust
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+
+      - name: Publish crates (dependency order, skip versions already on crates.io)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          CRATES=(
+            cathar
+            cathar-cli
+          )
+          metadata=$(cargo metadata --format-version 1 --no-deps)
+          for c in "${CRATES[@]}"; do
+            version=$(jq -r --arg c "$c" '.packages[] | select(.name == $c) | .version' <<<"$metadata")
+            if [ -z "$version" ]; then
+              echo "::error::No version found for ${c} in workspace metadata"
+              exit 1
+            fi
+            http=$(curl -sSL -o /dev/null -w "%{http_code}" \
+              -H "User-Agent: cathar-release-bot (https://github.com/${{ github.repository }})" \
+              "https://crates.io/api/v1/crates/${c}/${version}")
+            if [ "$http" = "200" ]; then
+              echo "==> SKIP ${c}@${version}: already on crates.io"
+              continue
+            fi
+            echo "==> cargo publish ${c}@${version}"
+            cargo publish -p "${c}"
+          done

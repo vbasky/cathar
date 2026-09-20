@@ -101,22 +101,9 @@ jobs:
     needs: [release]
     runs-on: ubuntu-latest
     steps:
-      - name: Bail if prior workflow run started < 10 min ago
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          prev=$(gh api "repos/${{ github.repository }}/actions/workflows/release.yml/runs?per_page=5" \
-            --jq "[.workflow_runs[] | select(.id != ${{ github.run_id }})][0].run_started_at")
-          if [ -z "$prev" ] || [ "$prev" = "null" ]; then
-            echo "No prior run found; proceeding."
-            exit 0
-          fi
-          diff=$(( $(date +%s) - $(date -d "$prev" +%s) ))
-          echo "Previous run started ${diff}s ago at ${prev}."
-          if [ "$diff" -lt 600 ]; then
-            echo "::error::Previous run started less than 10 minutes ago — bailing to avoid duplicate publish."
-            exit 1
-          fi
+      # Duplicate publishes are skipped below (HTTP 200 on crates.io). A
+      # time-window bail used to abort here and broke back-to-back tags
+      # (v0.7.4 and v0.7.5).
 
       - uses: actions/checkout@v7
 
