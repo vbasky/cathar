@@ -29,11 +29,18 @@ little puff of air straight at the capsule, producing a low **thump** — a
 it's not constant: it's a brief burst, only on the plosive consonants.
 
 So instead of filtering all the time, **de-plosive** watches the low end and
-acts *only when it suddenly thumps*: it spots the short bursts of excess low
-energy and ducks just those moments, leaving the steady low warmth of the voice
-in between alone. (The physical prevention, by the way, is the round foam ball or
-mesh "pop filter" you've seen in front of studio mics — but when you're handed a
-recording that already has the thumps, software has to clean up after the fact.)
+acts *only when it suddenly thumps*: a burst under 150 Hz that stands well
+above the low band's own running level *and* leads the mid band (so a voice
+onset, which lifts both, is not a plosive) is taken down to the level the
+band held just before it. Nothing else is touched — a file with no pops comes
+back bit-identical. (The physical prevention, by the way, is the round foam
+ball or mesh "pop filter" you've seen in front of studio mics — but when
+you're handed a recording that already has the thumps, software has to clean
+up after the fact.)
+
+`--method transients` is the older whole-file path, which ducks low-band
+spikes in every frame and can dent material that never had a plosive. Leave
+the default (`events`) unless you are matching a previous render.
 
 ## Rustle — the clip-on-mic scratch
 

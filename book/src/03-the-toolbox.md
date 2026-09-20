@@ -19,6 +19,7 @@ means "take away."
 | Piercing *ssss* and *sshhh* | **Sibilance** — over-loud consonants | de-ess |
 | A low *whoomph* on outdoor recordings | **Wind** — turbulence rumbling the mic | de-wind |
 | A thump on every "p" and "b" | **Plosives** — breath bursts hitting the mic | de-plosive |
+| A whole VHS / tape capture | **Tape chain** — rumble, hum, hiss, pops, dropouts together | vhs |
 | Scratchy noise when someone moves | **Rustle** — clothing against a clip-on mic | de-rustle |
 | A held note that *breathes* flat/sharp | **Wow & flutter** — unstable playback speed | dewow |
 | Stereo sounds thin; mono sums badly | **Azimuth skew** — L/R channels slightly out of step | azimuth |

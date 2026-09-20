@@ -3,6 +3,18 @@
 
 use crate::AudioData;
 
+/// Subtract the mean of `signal` (DC blocking). A near-zero mean returns a copy.
+pub fn remove_dc(signal: &[f32]) -> Vec<f32> {
+    if signal.is_empty() {
+        return Vec::new();
+    }
+    let mean = signal.iter().sum::<f32>() / signal.len() as f32;
+    if !mean.is_finite() || mean.abs() < 1e-10 {
+        return signal.to_vec();
+    }
+    signal.iter().map(|x| x - mean).collect()
+}
+
 /// Extract a time slice from a mono signal. `start` and `duration` are in
 /// seconds; samples outside the original range are clamped to the boundary.
 /// Returns `None` if the requested slice is empty.
@@ -270,6 +282,17 @@ impl AudioData {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remove_dc_zeros_mean() {
+        let sig: Vec<f32> = (0..1000).map(|i| 0.2 + (i as f32 * 0.01).sin() * 0.1).collect();
+        let out = remove_dc(&sig);
+        let mean = out.iter().sum::<f32>() / out.len() as f32;
+        assert!(mean.abs() < 1e-6, "mean {mean}");
+        let unchanged = remove_dc(&[0.1, -0.1, 0.2, -0.2]);
+        let m2 = unchanged.iter().sum::<f32>() / unchanged.len() as f32;
+        assert!(m2.abs() < 1e-6);
+    }
 
     #[test]
     fn trim_cuts_range() {

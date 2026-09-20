@@ -71,18 +71,27 @@ practice the mains frequency **wanders** a little, and cheap gear lets each
 harmonic breathe in amplitude too. A comb of static notches can leave a thin
 residue — a ghost buzz sitting *between* the notches you carved.
 
-Cathar's **`dehum --adaptive`** takes the tracking idea seriously. For each
-harmonic it **demodulates** the hum tone (shifts it to DC), low-passes to learn
-its slow amplitude wiggle, and subtracts a canceller that follows both small
-frequency drift and level changes. Use it when `--freq 60` gets you most of the
-way but a stubborn buzz remains:
+Cathar's **`dehum --adaptive`** takes the tracking idea seriously. Real tape
+hum rarely sits on exact 50/60 Hz multiples — the lines land a few hertz off,
+and a 50 Hz European tape is not helped by a 60 Hz notch. Adaptive mode
+**reads 50 vs 60 from the recording**, finds each harmonic at the frequency it
+actually sits, and **skips** a line that isn't there, so a file without hum is
+left alone. For each kept harmonic it **demodulates** the tone (shifts it to
+DC), low-passes to learn its slow amplitude wiggle (the tracker widens up the
+series, because transport wow scales with harmonic number), caps the envelope
+so a sung note parked on a mains line is not taken with it, and subtracts.
+Use it when `--freq 60` gets you most of the way but a stubborn buzz remains,
+or when you don't want to guess the region:
 
 ```bash
-cathar dehum buzzy.wav --freq 60 --harmonics 6 --adaptive --out cleaner.wav
+cathar dehum buzzy.wav --freq 0 --harmonics 6 --adaptive --out cleaner.wav
 ```
 
+(`--freq 0` means "detect it." Adaptive mode will also switch 50 ↔ 60 on its
+own if you left the default `--freq 60` on a 50 Hz tape.)
+
 Steady, textbook hum? Plain `dehum` is faster and enough. Wandering, "alive"
-buzz? Try `--adaptive`.
+buzz, or a tape whose region you don't know? Try `--adaptive`.
 
 This is the rare corner of audio where the cheap and free tools are genuinely
 *close* to the expensive ones on steady hum, because the problem is so

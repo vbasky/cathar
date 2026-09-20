@@ -63,6 +63,64 @@ pub fn learn_noise_print(audio: &AudioData) -> Result<NoisePrint, Error> {
     Ok(NoisePrint { fft_size, spectrum })
 }
 
+/// Learn a noise profile from the quietest `duration_s` seconds of `audio`.
+///
+/// Used by the `vhs` chain (4 s on the evidence of real tape). Falls back to
+/// the whole file when it is shorter than `duration_s`.
+pub fn learn_noise_print_quietest(audio: &AudioData, duration_s: f32) -> Result<NoisePrint, Error> {
+    if audio.channels.is_empty() || audio.channels[0].is_empty() {
+        return Err(Error::TooShort);
+    }
+    let n = audio.channels[0].len();
+    let win = ((duration_s * audio.sample_rate as f32).round() as usize).clamp(2048, n);
+    if n < 2048 {
+        return Err(Error::TooShort);
+    }
+    let hop = 2048.min(win);
+    let mut best_start = 0;
+    let mut best_e = f32::MAX;
+    let mut start = 0;
+    while start + win <= n {
+        let mut e = 0.0f32;
+        let mut count = 0usize;
+        for ch in &audio.channels {
+            for v in &ch[start..start + win] {
+                e += v * v;
+                count += 1;
+            }
+        }
+        e /= count.max(1) as f32;
+        if e < best_e {
+            best_e = e;
+            best_start = start;
+        }
+        if start + hop + win > n {
+            break;
+        }
+        start += hop;
+    }
+    let tail = n - win;
+    if tail != best_start {
+        let mut e = 0.0f32;
+        let mut count = 0usize;
+        for ch in &audio.channels {
+            for v in &ch[tail..] {
+                e += v * v;
+                count += 1;
+            }
+        }
+        e /= count.max(1) as f32;
+        if e < best_e {
+            best_start = tail;
+        }
+    }
+    let slice = AudioData {
+        sample_rate: audio.sample_rate,
+        channels: audio.channels.iter().map(|c| c[best_start..best_start + win].to_vec()).collect(),
+    };
+    learn_noise_print(&slice)
+}
+
 // ── SpectralDenoiser ─────────────────────────────────────────────────────────
 
 /// STFT spectral-subtraction / Wiener denoiser (see [`Denoiser`]).

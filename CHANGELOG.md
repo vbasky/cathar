@@ -9,6 +9,40 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-09-20
+
+Tape / VHS restoration chain and measured de-hum / de-plosive fixes
+([#25](https://github.com/vbasky/cathar/issues/25)).
+
+### Added
+
+- **Tape / VHS restoration chain** ([#25](https://github.com/vbasky/cathar/issues/25))
+  — `cathar vhs` runs a gated cascade: DC block, rumble high-pass, stereo
+  azimuth + bass-mono, declip (only if flat-top runs are present), dropout
+  inpaint, declick, decrackle, adaptive dehum, event-gated deplosive, coherent
+  spectral subtraction from the quietest 4 s, multiband de-ess. Library:
+  `vhs_restore`, `VhsOptions`. Inspired by the measured
+  `auto_pure_linear` stages in
+  [AI Hybrid VHS Audio Restorer](https://github.com/ventura8/AI-Hybrid-VHS-Audio-Restorer).
+- **`detect_mains_hz`** — pick 50 vs 60 from the recording's quiet spectrum.
+- **`learn_noise_print_quietest`** — noise print from the quietest N seconds.
+- **`remove_dc`** — mean subtraction (DC blocking).
+
+### Changed
+
+- **`dehum --adaptive`** — each harmonic is cancelled at the frequency it
+  actually sits (tape lines land 1–8 Hz off the exact series); 50 vs 60 is
+  taken from the recording when the other series is clearly stronger;
+  harmonics that do not stand out are skipped, so no-hum files pass through
+  unchanged. `--freq 0` auto-detects. Envelope bandwidth widens with harmonic
+  number; a 6 dB cap over the running envelope keeps a voiced partial parked
+  on a mains line from being taken with it.
+- **`deplosive`** — default is now event-gated (`--method events`): a blast
+  under 150 Hz that stands over the low band's running level and leads the
+  mid band is taken down, and nothing else is touched. Undamaged material is
+  bit-identical. `--method transients` keeps the legacy whole-file STFT path,
+  which was measured harmful on controls.
+
 ## [0.7.3] - 2026-09-01
 
 ### Added

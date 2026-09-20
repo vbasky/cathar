@@ -46,9 +46,10 @@ mod spectrum;
 mod stereo;
 mod timestretch;
 mod util;
+mod vhs;
 mod wpe;
 
-pub use adehum::dehum_adaptive;
+pub use adehum::{dehum_adaptive, detect_mains_hz};
 pub use align::{
     LagMethod, align, align_with_method, azimuth_correct, azimuth_correct_with_method,
     estimate_lag, estimate_lag_with_method,
@@ -59,12 +60,16 @@ pub use cqt::{CqtSpec, cqt};
 pub use declip::{DeclipMethod, declip, declip_with_method};
 pub use decrackle::decrackle;
 pub use deemphasis::{Emphasis, deemphasis};
-pub use denoise::{Denoiser, NoisePrint, SpectralDenoiser, learn_noise_print, wiener_denoise};
+pub use denoise::{
+    Denoiser, NoisePrint, SpectralDenoiser, learn_noise_print, learn_noise_print_quietest,
+    wiener_denoise,
+};
 pub use dequant::dequantize;
 pub use dewow::dewow;
 pub use digitize::{elliptical_mono, riaa_deemphasis, vinyl_restore};
 pub use edit::{
-    dither, fade, gain_db, pad, remix, reverse, select_channels, silence_strip, trim, vad,
+    dither, fade, gain_db, pad, remix, remove_dc, reverse, select_channels, silence_strip, trim,
+    vad,
 };
 pub use enhance::{
     EnhanceMethod, bandwidth_extend, bandwidth_extend_with_method, breath_remove, deess_multiband,
@@ -80,8 +85,8 @@ pub use ml::{NeuralConfig, NeuralDenoiser};
 pub use pitch::{detect_pitch, fundamental_hz};
 pub use resample::resample;
 pub use restore::{
-    DeclickMethod, declick, declick_with_method, dehum, deplosive, dereverb, derustle, dewind,
-    spectral_repair,
+    DeclickMethod, DeplosiveMethod, declick, declick_with_method, dehum, deplosive,
+    deplosive_with_method, dereverb, derustle, dewind, spectral_repair,
 };
 pub use sms::{SinusoidalModel, analyze_sms, synthesize_sms};
 pub use spectrum::{Spectrogram, spectrogram};
@@ -90,6 +95,7 @@ pub use stereo::{
 };
 pub use timestretch::{StretchMode, pitch_shift, time_stretch};
 pub use util::{generate_wave, variance};
+pub use vhs::{VhsOptions, vhs_restore};
 pub use wpe::wpe;
 
 #[cfg(test)]
@@ -566,19 +572,48 @@ mod tests {
         let two_pi = 2.0 * std::f32::consts::PI;
         let mut sig: Vec<f32> =
             (0..fs).map(|i| 0.3 * (two_pi * 2000.0 * i as f32 / fs as f32).sin()).collect();
-        let (start, len) = (fs / 2, fs * 40 / 1000); // 40 ms 100 Hz pop
-        for (i, s) in sig.iter_mut().enumerate().skip(start).take(len) {
-            *s += 0.6 * (two_pi * 100.0 * i as f32 / fs as f32).sin();
+        let (start, len) = (fs / 2, fs * 40 / 1000); // 40 ms decaying 80 Hz thump
+        for (k, s) in sig.iter_mut().enumerate().skip(start).take(len) {
+            let env = 1.0 - (k - start) as f32 / len as f32;
+            *s += 0.8 * env * (two_pi * 80.0 * k as f32 / fs as f32).sin();
         }
         let out = deplosive(&sig, fs as u32, 6.0);
         let (b, a) = (
-            mag_at(&sig, 100.0, fs, start, start + len),
-            mag_at(&out, 100.0, fs, start, start + len),
+            mag_at(&sig, 80.0, fs, start, start + len),
+            mag_at(&out, 80.0, fs, start, start + len),
         );
         assert!(a < b * 0.6, "plosive not reduced: {b} -> {a}");
         let (tb, ta) =
             (mag_at(&sig, 2000.0, fs, 2000, fs / 4), mag_at(&out, 2000.0, fs, 2000, fs / 4));
         assert!(ta > tb * 0.8, "tone not preserved: {tb} -> {ta}");
+    }
+
+    #[test]
+    fn deplosive_undamaged_is_identity() {
+        let fs = 48_000usize;
+        let two_pi = 2.0 * std::f32::consts::PI;
+        let sig: Vec<f32> =
+            (0..fs).map(|i| 0.3 * (two_pi * 2000.0 * i as f32 / fs as f32).sin()).collect();
+        let out = deplosive(&sig, fs as u32, 4.0);
+        assert_eq!(out, sig, "event-gated deplosive must not touch undamaged material");
+    }
+
+    #[test]
+    fn deplosive_transients_still_reduces_burst() {
+        let fs = 48_000usize;
+        let two_pi = 2.0 * std::f32::consts::PI;
+        let mut sig: Vec<f32> =
+            (0..fs).map(|i| 0.3 * (two_pi * 2000.0 * i as f32 / fs as f32).sin()).collect();
+        let (start, len) = (fs / 2, fs * 40 / 1000);
+        for (i, s) in sig.iter_mut().enumerate().skip(start).take(len) {
+            *s += 0.6 * (two_pi * 100.0 * i as f32 / fs as f32).sin();
+        }
+        let out = deplosive_with_method(&sig, fs as u32, 6.0, DeplosiveMethod::Transients);
+        let (b, a) = (
+            mag_at(&sig, 100.0, fs, start, start + len),
+            mag_at(&out, 100.0, fs, start, start + len),
+        );
+        assert!(a < b * 0.6, "legacy transients path not reducing: {b} -> {a}");
     }
 
     #[test]

@@ -37,6 +37,23 @@ enum DeclickMethodArg {
     Cubic,
 }
 
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum DeplosiveMethodArg {
+    /// Event-gated low-band expander (default). Undamaged material is untouched.
+    Events,
+    /// Whole-file STFT band-transient suppression (legacy).
+    Transients,
+}
+
+impl From<DeplosiveMethodArg> for cathar::DeplosiveMethod {
+    fn from(m: DeplosiveMethodArg) -> Self {
+        match m {
+            DeplosiveMethodArg::Events => cathar::DeplosiveMethod::Events,
+            DeplosiveMethodArg::Transients => cathar::DeplosiveMethod::Transients,
+        }
+    }
+}
+
 impl From<DeclickMethodArg> for cathar::DeclickMethod {
     fn from(m: DeclickMethodArg) -> Self {
         match m {
@@ -187,13 +204,16 @@ enum Command {
         /// Output WAV file
         #[arg(short, long, default_value = "dehummed.wav")]
         out: String,
-        /// Base frequency (50 or 60 Hz)
+        /// Base frequency (50 or 60 Hz). `0` auto-detects from the recording.
         #[arg(short = 'f', long, default_value_t = 60.0)]
         freq: f32,
         /// Number of harmonics to notch
         #[arg(short = 'n', long, default_value_t = 5)]
         harmonics: usize,
-        /// Track a drifting fundamental + per-harmonic amplitude (adaptive)
+        /// Track a drifting fundamental + per-harmonic amplitude (adaptive).
+        /// Also auto-picks 50 vs 60 when the other series is clearly stronger,
+        /// and skips harmonics that do not stand out — so no-hum files pass
+        /// through unchanged.
         #[arg(long)]
         adaptive: bool,
     },
@@ -302,9 +322,12 @@ enum Command {
         /// Output WAV file
         #[arg(short, long, default_value = "deplosived.wav")]
         out: String,
-        /// Aggressiveness 1–10
+        /// Aggressiveness 1–10 (event threshold; 4 ≈ 12 dB of low-band excess)
         #[arg(short, long, default_value_t = 4.0)]
         strength: f32,
+        /// `events` (default, gated) or `transients` (legacy whole-file)
+        #[arg(long, value_enum, default_value_t = DeplosiveMethodArg::Events)]
+        method: DeplosiveMethodArg,
     },
     /// Suppress lavalier / clothing rustle (mid-band transient bursts).
     Derustle {
@@ -573,6 +596,26 @@ enum Command {
         duration: f32,
         #[arg(short, long, default_value_t = 0.1)]
         noise: f32,
+    },
+    /// Tape / VHS restoration chain (gated stages).
+    Vhs {
+        /// Input file
+        input: String,
+        /// Output WAV file
+        #[arg(short, long, default_value = "vhs.wav")]
+        out: String,
+        /// Denoise aggressiveness
+        #[arg(short, long, default_value_t = 3.0)]
+        alpha: f32,
+        /// Spectral floor
+        #[arg(short = 'b', long, default_value_t = 0.01)]
+        beta: f32,
+        /// Rumble high-pass cutoff in Hz
+        #[arg(long, default_value_t = 80.0)]
+        cutoff: f32,
+        /// Also normalise to this LUFS level
+        #[arg(long, allow_hyphen_values = true)]
+        normalize: Option<f32>,
     },
     /// Batch process all audio files in a directory.
     Batch {
@@ -946,6 +989,9 @@ fn main() -> Result<()> {
         Command::Dehum { input, out, freq, harmonics, adaptive } => {
             let audio = cathar::AudioData::from_file(&input)?;
             let sr = audio.sample_rate;
+            let mix = mixdown(&audio);
+            let freq =
+                if freq <= 0.0 { cathar::detect_mains_hz(&mix, sr).unwrap_or(60.0) } else { freq };
             let cleaned = if adaptive {
                 audio.map_channels(|c| cathar::dehum_adaptive(c, sr, freq, harmonics))
             } else {
@@ -1042,11 +1088,18 @@ fn main() -> Result<()> {
             cleaned.to_file(&out)?;
             eprintln!("de-winded  high-pass {cutoff} Hz  →  {out}");
         }
-        Command::Deplosive { input, out, strength } => {
+        Command::Deplosive { input, out, strength, method } => {
             let audio = cathar::AudioData::from_file(&input)?;
-            let cleaned = audio.map_channels(|c| cathar::deplosive(c, audio.sample_rate, strength));
+            let method: cathar::DeplosiveMethod = method.into();
+            let cleaned = audio.map_channels(|c| {
+                cathar::deplosive_with_method(c, audio.sample_rate, strength, method)
+            });
             cleaned.to_file(&out)?;
-            eprintln!("de-plosived  strength={strength}  →  {out}");
+            let m = match method {
+                cathar::DeplosiveMethod::Events => "events",
+                cathar::DeplosiveMethod::Transients => "transients",
+            };
+            eprintln!("de-plosived  strength={strength}  method={m}  →  {out}");
         }
         Command::Derustle { input, out, strength } => {
             let audio = cathar::AudioData::from_file(&input)?;
@@ -1324,6 +1377,23 @@ fn main() -> Result<()> {
                     "normalized  {before:.1} → {after:.1} LUFS  (target {target}, true peak {tp:.1} dBTP ≤ {true_peak})  →  {out}"
                 );
             }
+        }
+
+        Command::Vhs { input, out, alpha, beta, cutoff, normalize } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let opts = cathar::VhsOptions {
+                alpha,
+                beta,
+                dewind_cutoff: cutoff,
+                harmonics: 8,
+                normalize_lufs: normalize,
+            };
+            let cleaned = cathar::vhs_restore(&audio, &opts)?;
+            cleaned.to_file(&out)?;
+            eprintln!(
+                "vhs  alpha={alpha}  cutoff={cutoff} Hz{}  →  {out}",
+                normalize.map(|n| format!("  loudness={n} LUFS")).unwrap_or_default()
+            );
         }
 
         Command::Wave { out, sample_rate, freq, duration, noise } => {
@@ -1621,6 +1691,15 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn mixdown(audio: &cathar::AudioData) -> Vec<f32> {
+    let n_ch = audio.channels.len();
+    if n_ch <= 1 {
+        return audio.channels.first().cloned().unwrap_or_default();
+    }
+    let len = audio.channels.iter().map(|c| c.len()).min().unwrap_or(0);
+    (0..len).map(|i| audio.channels.iter().map(|c| c[i]).sum::<f32>() / n_ch as f32).collect()
 }
 
 fn power(channel: &[f32]) -> Option<f32> {

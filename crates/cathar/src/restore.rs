@@ -499,11 +499,49 @@ fn attenuate_band_transients(
     output
 }
 
-/// Tame plosive pops — the low-frequency bursts on "p"/"b" sounds — by
-/// attenuating transient energy below ~250 Hz. `strength` 1–10 (higher removes
-/// more). Sustained low-frequency content is preserved.
+/// How to tame plosive pops.
+///
+/// Detection of *where* a plosive is always looks at the low band; methods
+/// differ in how widely they act. The default is event-gated so undamaged
+/// material is returned bit-identical.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DeplosiveMethod {
+    /// Event-gated downward expander on the low band (default).
+    ///
+    /// A blast under 150 Hz that stands over the low band's running level and
+    /// leads the mid band is taken down to the level the band held just before
+    /// it; nothing else is touched. Measured free on undamaged material, unlike
+    /// [`Transients`](Self::Transients).
+    #[default]
+    Events,
+    /// Whole-file STFT band-transient suppression (legacy). Acts on every
+    /// frame, so it costs fidelity on files with no plosives.
+    Transients,
+}
+
+/// Tame plosive pops — the low-frequency bursts on "p"/"b" sounds.
+///
+/// Default is event-gated ([`DeplosiveMethod::Events`]): undamaged material is
+/// returned unchanged. `strength` 1–10 maps to the detection threshold
+/// (4 → 12 dB of low-band excess, the measured default). See
+/// [`deplosive_with_method`] to keep the legacy whole-file path.
 pub fn deplosive(signal: &[f32], sample_rate: u32, strength: f32) -> Vec<f32> {
-    attenuate_band_transients(signal, sample_rate, 0.0, 250.0, strength)
+    deplosive_with_method(signal, sample_rate, strength, DeplosiveMethod::default())
+}
+
+/// Tame plosive pops with an explicit [`DeplosiveMethod`].
+pub fn deplosive_with_method(
+    signal: &[f32],
+    sample_rate: u32,
+    strength: f32,
+    method: DeplosiveMethod,
+) -> Vec<f32> {
+    match method {
+        DeplosiveMethod::Transients => {
+            attenuate_band_transients(signal, sample_rate, 0.0, 250.0, strength)
+        }
+        DeplosiveMethod::Events => deplosive_events(signal, sample_rate, strength),
+    }
 }
 
 /// Suppress lavalier / clothing rustle — transient bursts in the ~1.5–6 kHz band
@@ -511,4 +549,360 @@ pub fn deplosive(signal: &[f32], sample_rate: u32, strength: f32) -> Vec<f32> {
 /// speech in that band is left largely intact.
 pub fn derustle(signal: &[f32], sample_rate: u32, strength: f32) -> Vec<f32> {
     attenuate_band_transients(signal, sample_rate, 1500.0, 6000.0, strength)
+}
+
+// ── Event-gated plosive control ──────────────────────────────────────────────
+
+const PLOSIVE_HOP: usize = 256;
+const PLOSIVE_CROSSOVER_HZ: f32 = 150.0;
+const PLOSIVE_MID_LO_HZ: f32 = 300.0;
+const PLOSIVE_MID_HI_HZ: f32 = 3400.0;
+const PLOSIVE_BASELINE_S: f32 = 1.0;
+const PLOSIVE_ATTACK_HOPS: usize = 5;
+const PLOSIVE_LEAD_DB: f32 = 6.0;
+const PLOSIVE_MIN_MS: f32 = 10.0;
+const PLOSIVE_MAX_MS: f32 = 120.0;
+const PLOSIVE_ISOLATION_MS: f32 = 250.0;
+const PLOSIVE_DENSITY_WINDOW_S: f32 = 10.0;
+const PLOSIVE_DENSITY_MAX: usize = 6;
+const PLOSIVE_RAMP_MS: f32 = 5.0;
+const PLOSIVE_LEVEL_FLOOR: f32 = 1e-12;
+/// Butterworth 4th-order section Qs (same pair as [`dewind`]).
+const BUTTER_Q4: [f32; 2] = [0.541_196_1, 1.306_563];
+
+fn deplosive_events(signal: &[f32], sample_rate: u32, strength: f32) -> Vec<f32> {
+    let n = signal.len();
+    let sr = sample_rate as f32;
+    if n < PLOSIVE_HOP * 8 || sample_rate == 0 {
+        return signal.to_vec();
+    }
+    // strength 1–10; CLI default 4 → 12 dB (the measured threshold).
+    let excess_db = (16.0 - strength).clamp(6.0, 18.0);
+
+    let low = filtfilt_lowpass(signal, sr, PLOSIVE_CROSSOVER_HZ);
+    let mid = filtfilt_bandpass(signal, sr, PLOSIVE_MID_LO_HZ, PLOSIVE_MID_HI_HZ);
+    let low_db = hop_levels_db(&low);
+    let mid_db = hop_levels_db(&mid);
+    if low_db.len() < 8 {
+        return signal.to_vec();
+    }
+    let baseline = running_median(&low_db, median_radius(sr, PLOSIVE_BASELINE_S));
+    let mid_base = running_median(&mid_db, median_radius(sr, PLOSIVE_BASELINE_S));
+
+    let mut events = detect_plosive_events(&low_db, &mid_db, &baseline, &mid_base, excess_db, sr);
+    // Butterworth filtfilt rings at the file edges; those hops are not plosives.
+    let edge = ((0.05 * sr) as usize).max(PLOSIVE_HOP * 2);
+    events.retain(|&(start, stop)| start >= edge && stop + edge <= n);
+    if events.is_empty() {
+        return signal.to_vec();
+    }
+    let gain = plosive_gain(&events, &low_db, &baseline, n, sr);
+    let mut out = signal.to_vec();
+    for ((o, g), l) in out.iter_mut().zip(gain.iter()).zip(low.iter()) {
+        *o -= (1.0 - g) * l;
+    }
+    out
+}
+
+fn median_radius(sr: f32, seconds: f32) -> usize {
+    let hops = ((seconds * sr / PLOSIVE_HOP as f32).round() as usize).max(3);
+    hops / 2
+}
+
+fn hop_levels_db(samples: &[f32]) -> Vec<f32> {
+    samples
+        .chunks_exact(PLOSIVE_HOP)
+        .map(|c| {
+            let e = c.iter().map(|v| v * v).sum::<f32>() / PLOSIVE_HOP as f32;
+            10.0 * (e + PLOSIVE_LEVEL_FLOOR).log10()
+        })
+        .collect()
+}
+
+fn running_median(x: &[f32], radius: usize) -> Vec<f32> {
+    let n = x.len();
+    let mut out = vec![0.0f32; n];
+    let mut buf = Vec::with_capacity(2 * radius + 1);
+    for (i, slot) in out.iter_mut().enumerate() {
+        let lo = i.saturating_sub(radius);
+        let hi = (i + radius).min(n - 1);
+        buf.clear();
+        buf.extend_from_slice(&x[lo..=hi]);
+        buf.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        *slot = buf[buf.len() / 2];
+    }
+    out
+}
+
+fn detect_plosive_events(
+    low_db: &[f32],
+    mid_db: &[f32],
+    baseline: &[f32],
+    mid_base: &[f32],
+    excess_db: f32,
+    sr: f32,
+) -> Vec<(usize, usize)> {
+    let n = low_db.len();
+    let mut cand = vec![false; n];
+    for i in 0..n {
+        let rise = low_db[i] - baseline[i];
+        let lead = rise - (mid_db[i] - mid_base[i]);
+        cand[i] = rise >= excess_db && lead >= PLOSIVE_LEAD_DB;
+    }
+    let mut runs = Vec::new();
+    let mut i = 0;
+    while i < n {
+        if cand[i] {
+            let start = i;
+            while i < n && cand[i] {
+                i += 1;
+            }
+            let mut stop = i;
+            if qualifies_plosive(low_db, baseline, start, stop, excess_db, sr) {
+                // Extend through the decaying tail while the low band stays
+                // half the excess up.
+                let limit =
+                    (start + ((PLOSIVE_MAX_MS * sr / 1000.0 / PLOSIVE_HOP as f32) as usize)).min(n);
+                while stop < limit && low_db[stop] - baseline[stop] >= excess_db / 2.0 {
+                    stop += 1;
+                }
+                runs.push((start * PLOSIVE_HOP, stop * PLOSIVE_HOP));
+            }
+        } else {
+            i += 1;
+        }
+    }
+    let isolated = isolate_plosives(&runs, sr);
+    unrhythmic_plosives(&isolated, sr)
+}
+
+fn qualifies_plosive(
+    low_db: &[f32],
+    baseline: &[f32],
+    start: usize,
+    stop: usize,
+    _excess_db: f32,
+    sr: f32,
+) -> bool {
+    let length_ms = (stop - start) as f32 * PLOSIVE_HOP as f32 * 1000.0 / sr;
+    if !(PLOSIVE_MIN_MS..=PLOSIVE_MAX_MS).contains(&length_ms) {
+        return false;
+    }
+    let mut peak_at = 0usize;
+    let mut peak = f32::NEG_INFINITY;
+    for (k, i) in (start..stop).enumerate() {
+        let rise = low_db[i] - baseline[i];
+        if rise > peak {
+            peak = rise;
+            peak_at = k;
+        }
+    }
+    peak_at <= PLOSIVE_ATTACK_HOPS
+}
+
+fn isolate_plosives(events: &[(usize, usize)], sr: f32) -> Vec<(usize, usize)> {
+    if events.is_empty() {
+        return Vec::new();
+    }
+    let gap = (PLOSIVE_ISOLATION_MS * sr / 1000.0) as usize;
+    let mut kept = Vec::new();
+    for (i, &(start, stop)) in events.iter().enumerate() {
+        let prev_close = i > 0 && start.saturating_sub(events[i - 1].1) < gap;
+        let next_close = i + 1 < events.len() && events[i + 1].0.saturating_sub(stop) < gap;
+        if !prev_close && !next_close {
+            kept.push((start, stop));
+        }
+    }
+    kept
+}
+
+fn unrhythmic_plosives(events: &[(usize, usize)], sr: f32) -> Vec<(usize, usize)> {
+    let half = (PLOSIVE_DENSITY_WINDOW_S * sr / 2.0) as usize;
+    events
+        .iter()
+        .copied()
+        .filter(|&(start, _)| {
+            let around = events.iter().filter(|&&(s, _)| s.abs_diff(start) <= half).count();
+            around <= PLOSIVE_DENSITY_MAX
+        })
+        .collect()
+}
+
+fn plosive_gain(
+    events: &[(usize, usize)],
+    low_db: &[f32],
+    baseline: &[f32],
+    length: usize,
+    sr: f32,
+) -> Vec<f32> {
+    let mut hop_gain = vec![1.0f32; low_db.len()];
+    for &(start, stop) in events {
+        let first = (start / PLOSIVE_HOP).min(low_db.len().saturating_sub(1));
+        let last = (stop / PLOSIVE_HOP).min(low_db.len());
+        let target = baseline[first];
+        for h in first..last {
+            let g = 10.0f32.powf((target - low_db[h]) / 20.0);
+            hop_gain[h] = hop_gain[h].min(g).min(1.0);
+        }
+    }
+    let mut gain = vec![1.0f32; length];
+    for (i, g) in gain.iter_mut().enumerate() {
+        let pos = i as f32 / PLOSIVE_HOP as f32 - 0.5;
+        if pos <= 0.0 {
+            *g = hop_gain[0];
+            continue;
+        }
+        let i0 = pos.floor() as usize;
+        if i0 + 1 >= hop_gain.len() {
+            *g = *hop_gain.last().unwrap();
+            continue;
+        }
+        let t = pos - i0 as f32;
+        *g = hop_gain[i0] * (1.0 - t) + hop_gain[i0 + 1] * t;
+    }
+    let ramp = ((PLOSIVE_RAMP_MS * sr / 1000.0) as usize).max(1);
+    smooth_gain(&mut gain, ramp);
+    gain
+}
+
+fn smooth_gain(gain: &mut [f32], ramp: usize) {
+    if gain.is_empty() || ramp == 0 {
+        return;
+    }
+    let n = gain.len();
+    let mut kernel = vec![0.0f32; ramp + 2];
+    let scale = std::f32::consts::PI / (ramp + 1) as f32;
+    for (i, k) in kernel.iter_mut().enumerate() {
+        *k = 0.5 - 0.5 * (scale * i as f32).cos();
+    }
+    kernel[0] = 0.0;
+    *kernel.last_mut().unwrap() = 0.0;
+    let ksum: f32 = kernel.iter().sum();
+    if ksum <= 0.0 {
+        return;
+    }
+    let orig = gain.to_vec();
+    for (i, g) in gain.iter_mut().enumerate() {
+        let mut acc = 0.0;
+        let mut w = 0.0;
+        for (k, &kv) in kernel.iter().enumerate() {
+            let j = i as isize + k as isize - ramp as isize;
+            if j >= 0 && (j as usize) < n {
+                acc += orig[j as usize] * kv;
+                w += kv;
+            }
+        }
+        if w > 0.0 {
+            *g = acc / w;
+        }
+    }
+    for g in gain.iter_mut() {
+        if (*g - 1.0).abs() < 1e-6 {
+            *g = 1.0;
+        }
+    }
+}
+
+struct Bq {
+    b0: f32,
+    b1: f32,
+    b2: f32,
+    a1: f32,
+    a2: f32,
+    x1: f32,
+    x2: f32,
+    y1: f32,
+    y2: f32,
+}
+
+impl Bq {
+    fn lowpass(sample_rate: f32, cutoff: f32, q: f32) -> Self {
+        let w0 = 2.0 * std::f32::consts::PI * cutoff / sample_rate;
+        let alpha = w0.sin() / (2.0 * q);
+        let cos = w0.cos();
+        let b0 = (1.0 - cos) / 2.0;
+        let b1 = 1.0 - cos;
+        let b2 = (1.0 - cos) / 2.0;
+        let a0 = 1.0 + alpha;
+        Self {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: (-2.0 * cos) / a0,
+            a2: (1.0 - alpha) / a0,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
+    fn highpass(sample_rate: f32, cutoff: f32, q: f32) -> Self {
+        let w0 = 2.0 * std::f32::consts::PI * cutoff / sample_rate;
+        let alpha = w0.sin() / (2.0 * q);
+        let cos = w0.cos();
+        let b0 = (1.0 + cos) / 2.0;
+        let b1 = -(1.0 + cos);
+        let b2 = (1.0 + cos) / 2.0;
+        let a0 = 1.0 + alpha;
+        Self {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: (-2.0 * cos) / a0,
+            a2: (1.0 - alpha) / a0,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.x1 = 0.0;
+        self.x2 = 0.0;
+        self.y1 = 0.0;
+        self.y2 = 0.0;
+    }
+
+    fn tick(&mut self, x: f32) -> f32 {
+        let y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2
+            - self.a1 * self.y1
+            - self.a2 * self.y2;
+        self.x2 = self.x1;
+        self.x1 = x;
+        self.y2 = self.y1;
+        self.y1 = y;
+        y
+    }
+}
+
+fn filtfilt_cascade(signal: &[f32], sections: &mut [Bq]) -> Vec<f32> {
+    let mut y = signal.to_vec();
+    for s in sections.iter_mut() {
+        s.reset();
+        for v in y.iter_mut() {
+            *v = s.tick(*v);
+        }
+        s.reset();
+        for v in y.iter_mut().rev() {
+            *v = s.tick(*v);
+        }
+    }
+    y
+}
+
+fn filtfilt_lowpass(signal: &[f32], sr: f32, cutoff: f32) -> Vec<f32> {
+    let mut secs = [Bq::lowpass(sr, cutoff, BUTTER_Q4[0]), Bq::lowpass(sr, cutoff, BUTTER_Q4[1])];
+    filtfilt_cascade(signal, &mut secs)
+}
+
+fn filtfilt_bandpass(signal: &[f32], sr: f32, lo: f32, hi: f32) -> Vec<f32> {
+    let mut secs = [
+        Bq::highpass(sr, lo, BUTTER_Q4[0]),
+        Bq::highpass(sr, lo, BUTTER_Q4[1]),
+        Bq::lowpass(sr, hi, BUTTER_Q4[0]),
+        Bq::lowpass(sr, hi, BUTTER_Q4[1]),
+    ];
+    filtfilt_cascade(signal, &mut secs)
 }

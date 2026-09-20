@@ -161,10 +161,13 @@ extensions to the restoration chain, all deterministic and pure Rust:
   the current STFT frame from `K` frames past a delay, subtracted and refined
   over iterations (complex Hermitian solve). Deterministic, no weights
   ([WPE paper](https://arxiv.org/abs/1807.03612)).
-- ✅ **Adaptive de-hum** (`v0.7.0`) — `dehum --adaptive` / `dehum_adaptive`:
-  locate the precise fundamental from a spectral peak, then cancel each harmonic
-  with an I/Q heterodyne canceller (demodulate → zero-phase low-pass → subtract)
-  that tracks slow amplitude and small frequency drift.
+- ✅ **Adaptive de-hum** (`v0.7.0`, deepened `Unreleased`) — `dehum --adaptive` /
+  `dehum_adaptive`: locate the precise fundamental from a spectral peak, then
+  cancel each harmonic with an I/Q heterodyne canceller (demodulate → zero-phase
+  low-pass → subtract) that tracks slow amplitude and small frequency drift.
+  `Unreleased` adds auto 50 vs 60, per-harmonic actual line frequency, and
+  skip-if-absent gating so no-hum files pass through unchanged
+  ([#25](https://github.com/vbasky/cathar/issues/25)).
 - ✅ **Audio inpainting / gap interpolation** (`v0.7.0`) — `inpaint` command /
   `inpaint_gap`, `inpaint_auto`: autoregressive **Janssen / Godsill–Rayner**
   interpolation (AR model from the samples around the gap via Levinson–Durbin,
@@ -368,7 +371,9 @@ classical methods plateau. See also the
 | De-noise | Spectral subtraction / Wiener; phase-coherent stereo | Boll (1979); Ephraim & Malah |
 | Learned de-noise | GRU spectral-gain (`ml` feature) | DNS Challenge / DeepFilterNet recipe |
 | De-reverb | Energy gating + **WPE** (`--wpe`, per-bin weighted linear prediction) | Nakatani et al. WPE |
-| De-hum | Cascaded notch harmonics; `--adaptive` I/Q heterodyne tracking | SoX `noisered`; adaptive frequency/amplitude tracking |
+| De-hum | Cascaded notch harmonics; `--adaptive` I/Q heterodyne at each line's actual frequency, auto 50/60, skip-if-absent | SoX `noisered`; tape-line tracking ([#25](https://github.com/vbasky/cathar/issues/25)) |
+| De-plosive | Event-gated low-band expander (default); whole-file STFT transients as `--method transients` | Air-blast detector; measured free on undamaged material ([#25](https://github.com/vbasky/cathar/issues/25)) |
+| Tape / VHS chain | `vhs` gated cascade (DC, rumble, azimuth, repair, dehum, deplosive, 4 s probe denoise) | [AI Hybrid VHS Audio Restorer](https://github.com/ventura8/AI-Hybrid-VHS-Audio-Restorer) `auto_pure_linear` ([#25](https://github.com/vbasky/cathar/issues/25)) |
 | Spectral repair | Temporal-median outlier pull | iZotope RX Spectral Repair (conceptual) |
 | Voice isolate | Energy VAD + spectral gating | Classical; ML dialogue isolation TBD |
 | Vinyl | RIAA + elliptical mono | [DrCuts](https://github.com/opcode66/DrCuts), [Vinyl Restoration Suite](https://github.com/flarkflarkflark/AudioRestorationVST) |
@@ -407,7 +412,7 @@ versions.
 | **Spectral rebalance** | `0.10` | Long-term envelope match to reference | [AssistedSpectralRebalancePlugin](https://github.com/joaomauricio5/AssistedSpectralRebalancePlugin) |
 | **HR upsampling** | `0.10` | Bandlimited interpolation kernels | [DSRE](https://github.com/x1aoqv/DSRE---Digital-Sound-Resolution-Enhancer), [HRAudioWizard](https://github.com/Super-YH/HRAudioWizard) |
 | **Chain DSL / presets** | `0.10` | Declarative `batch` pipelines | — |
-| **DC offset / rumble** | — | Mean removal + subsonic high-pass | HyMPS; `dewind` covers part today |
+| **DC offset / rumble** | — | Mean removal (`remove_dc`) + subsonic high-pass (`dewind`); both run in `vhs` | HyMPS |
 
 ### Open projects worth watching (GUI / integration, not ports)
 

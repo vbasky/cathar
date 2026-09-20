@@ -70,6 +70,9 @@ cathar declick   recording.wav                  # interpolate impulse clicks
 cathar declip    recording.wav                  # rebuild clipped peaks
 cathar normalize recording.wav --target -16     # to -16 LUFS (podcast)
 
+# A tape / VHS capture in one go (gated stages, auto 50/60 hum):
+cathar vhs tape.wav --out restored.wav
+
 # Generate a synthetic noisy tone to experiment with:
 cathar wave --out test.wav --duration 3 --freq 440 --noise 0.15
 ```
@@ -96,13 +99,14 @@ grouped here by what they fix; run them in any order, or chain them.
 | `denoise` | Broadband denoiser — spectral subtraction (default) or Wiener filter; `--coherent` keeps the stereo image stable | `--alpha` 3.0, `--beta` 0.01, `--noiseprint <f>`, `--wiener`, `--coherent` |
 | `ml-denoise` *(opt-in)* | **Learned** spectral-gain denoiser — a candle GRU predicts a per-bin suppression mask; load a trained `.safetensors` checkpoint | `--weights <f>` |
 | `noiseprint` | Learn a noise profile from a silence/room-tone clip → JSON | `--out noise.np.json` |
-| `dehum` | Notch out mains hum (50/60 Hz) and its harmonics; `--adaptive` tracks a drifting fundamental + per-harmonic amplitude | `--freq` 60, `--harmonics` 5, `--adaptive` |
+| `dehum` | Notch out mains hum (50/60 Hz) and its harmonics; `--adaptive` tracks each line at the frequency it actually sits, auto-picks 50 vs 60, and skips harmonics that are not there | `--freq` 60 (`0` = auto), `--harmonics` 5, `--adaptive` |
 | `dewind` | Cut low-frequency wind rumble with a 4th-order high-pass | `--cutoff` 80 |
 | `dereverb` | Suppress room reverb — spectral-decay gating, or `--wpe` for Weighted Prediction Error linear-prediction dereverb | `--strength` 2.0, `--wpe`, `--taps` 15, `--delay` 3 |
 | `decrackle` | Suppress dense low-level surface crackle (vinyl), distinct from de-click | `--sensitivity` 5 |
 | `voiceisolate` | Keep speech, gate everything else (energy VAD + spectral gate) | `--noiseprint <f>` |
 | `deesser` | Tame harsh sibilance ("sss"); `--bands >1` is multiband + adaptive | `--freq` 4000, `--threshold` -24, `--bands` 1 |
-| `deplosive` | Tame plosive "p"/"b" pops (low-frequency transient bursts) | `--strength` 4 |
+| `deplosive` | Tame plosive "p"/"b" pops; default is event-gated (undamaged material untouched) | `--strength` 4, `--method events\|transients` |
+| `vhs` | Tape / VHS restoration chain (gated cascade of the stages above) | `--alpha` 3, `--cutoff` 80, `--normalize` |
 | `derustle` | Suppress lavalier / clothing rustle (mid-band transient bursts) | `--strength` 4 |
 | `breath` | Detect and high-pass the breaths before speech onsets | — |
 | `riaa` | RIAA playback curve for digitized vinyl; optional elliptical mono on stereo lows | `--elliptical` 200 |
@@ -243,13 +247,15 @@ Every stage is classic, inspectable DSP — no black boxes.
 | `dereverb` | Two-pass spectral-decay gating: track each bin's envelope (8 ms attack / 50 ms release), gate bins sitting near their reverb floor |
 | `voiceisolate` | Energy VAD on 20 ms frames (gap-fill < 120 ms, drop segments < 50 ms) + spectral gating of non-speech (tighter with a noiseprint) |
 | `deesser` | STFT 2048/256; single-band compresses the HF region when its power ratio exceeds the threshold. `--bands >1` splits the sibilant region into sub-bands, each compressed when it rises `threshold` dB above its own EMA-tracked running level (multiband + adaptive) |
-| `deplosive` / `derustle` | STFT; per frame measure energy in a band (plosive < 250 Hz, rustle 1.5–6 kHz); frames whose band energy spikes above the temporal median are scaled back toward it, phase preserved, sustained content untouched |
+| `deplosive` | Default **event-gated**: a blast under 150 Hz that stands over the low band's running level and leads the mid band is expanded down; nothing else is touched. `--method transients` is the legacy whole-file STFT path (also used by `derustle`) |
+| `derustle` | STFT; per frame measure energy in 1.5–6 kHz; frames whose band energy spikes above the temporal median are scaled back toward it, phase preserved |
 | `breath` | VAD-flag the frames just before a speech onset (≤ 150 ms) and high-pass them at 200 Hz, mixed 40 / 60 dry/wet |
 | `resample` | Kaiser-windowed sinc (16 lobes, β = 9), arbitrary ratio; cutoff tracks the lower Nyquist so downsampling is anti-aliased and upsampling adds no imaging |
 | `enhance` | Shared resampler to the target rate, then spectral band replication (4096 FFT) folds the existing top band into the empty highs with a tiled rolloff |
 | `decrackle` | Second-difference (Laplacian) detector over a running EMA noise floor flags dense impulsive crackle; each micro-run is repaired by cubic-Hermite interpolation |
 | `inpaint` | Autoregressive (Janssen/Godsill–Rayner) interpolation: an AR model is fit to the samples around the gap (Levinson–Durbin), the missing block solved by banded Cholesky, iterated; order scales with gap length |
-| `dehum --adaptive` | Locate the precise fundamental from a spectral peak, then cancel each harmonic with an I/Q heterodyne canceller (demodulate → zero-phase low-pass → subtract) that tracks amplitude and small frequency drift |
+| `dehum --adaptive` | Quiet-spectrum 50 vs 60 pick; each harmonic cancelled at the frequency it actually sits (I/Q heterodyne, bandwidth widens with wow); lines that do not stand out are skipped; 6 dB envelope cap |
+| `vhs` | Gated cascade: DC → dewind → azimuth + bass-mono → declip (if clipped) → inpaint → declick → decrackle → adaptive dehum → event-gated deplosive → 4 s quietest-stretch denoise → de-ess |
 | `deemphasis` | Exact first-order bilinear de-emphasis: FM 50/75 µs single-pole roll-off, CD/IEC 50/15 µs shelf; unity gain at DC |
 | `dewow` | Track a dominant tone's instantaneous frequency by I/Q heterodyne demodulation, form a mean-normalised speed curve, then time-warp (resample at φ⁻¹, φ = ∫speed) to flatten pitch |
 | `azimuth` / `align` | Sub-sample lag from normalised cross-correlation or **GCC-PHAT** (parabolic-interpolated peak) + fractional-delay shift |
@@ -310,9 +316,11 @@ The public surface is small and direct:
 - **`Stats`** + `compute_stats` — peak, RMS, LUFS, true-peak, crest, DC, noise
   floor, SNR, clip runs; `Stats::suggestions` names a restoration command per
   failing check.
-- Free functions: `dehum`, `dewind`, `declick` / `declick_with_method`, `declip` / `declip_with_method`, `spectral_repair`,
-  `deplosive`, `derustle`, `dereverb`, `voice_isolate`, `deesser`,
-  `deess_multiband`, `breath_remove`, `bandwidth_extend`, `resample`,
+- Free functions: `dehum` / `dehum_adaptive` / `detect_mains_hz`, `dewind`,
+  `declick` / `declick_with_method`, `declip` / `declip_with_method`,
+  `spectral_repair`, `deplosive` / `deplosive_with_method`, `derustle`,
+  `dereverb`, `voice_isolate`, `deesser`, `deess_multiband`, `breath_remove`,
+  `bandwidth_extend`, `resample`, `vhs_restore`, `remove_dc`,
   `normalize_peak`, `integrated_loudness`, `true_peak_dbtp`, `generate_wave`.
 
 ## Formats & I/O
