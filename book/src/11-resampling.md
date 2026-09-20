@@ -64,7 +64,7 @@ the result sounds brighter and more open. It's an educated fabrication, not a
 recovery — useful for rescuing dull material, but it's adding an informed guess,
 not restoring lost detail.
 
-Cathar offers two strategies via **`--method`**:
+Cathar offers four strategies via **`--method`**:
 
 - **`replicate`** (default) — **spectral band replication (SBR):** copy the
   texture of the highest frequencies you still have and "paint" similar energy
@@ -73,10 +73,19 @@ Cathar offers two strategies via **`--method`**:
 - **`interpolate`** — draw a smooth **log-magnitude curve** through the existing
   spectrum and extrapolate it into the missing highs. Often a bit more natural on
   material where the top end was softly rolled off rather than brutally chopped.
+- **`harmonic`** — find the strong tones in the existing top and **extend their
+  overtone series** into the empty band (the same idea as HRAudioWizard's HFP).
+  Best on music and speech that still has a clear pitch.
+- **`dsre`** — a mild **nonlinearity** on the existing highs, then a high-pass
+  so only the newly generated content above the original ceiling is mixed in
+  (DSRE / Sony DSEE-like). Works even when there isn't a tidy harmonic series.
+  Most useful when you also raise the sample rate (`--rate 96000`).
 
 ```bash
 cathar enhance dull.wav --rate 48000 --method replicate --out brighter.wav
 cathar enhance dull.wav --rate 48000 --method interpolate --out brighter.wav
+cathar enhance dull.wav --rate 96000 --method harmonic --out brighter.wav
+cathar enhance dull.wav --rate 96000 --method dsre --out brighter.wav
 ```
 
 Both paths resample to the target rate first (using the same anti-aliased sinc

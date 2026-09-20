@@ -145,7 +145,7 @@ grouped here by what they fix; run them in any order, or chain them.
 
 | Command | What it does | Key flags |
 | --- | --- | --- |
-| `enhance` | Bandwidth extension — resample up and synthesise the missing highs | `--rate` 48000, `--method replicate\|interpolate` |
+| `enhance` | Bandwidth extension — resample up and synthesise the missing highs | `--rate` 48000, `--method replicate\|interpolate\|harmonic\|dsre` |
 | `normalize` | Loudness (LUFS, true EBU R128) or peak (dBFS) normalisation | `--target` -16, `--peak`, `--true-peak` -1 |
 
 ### Utility
@@ -251,7 +251,7 @@ Every stage is classic, inspectable DSP — no black boxes.
 | `derustle` | STFT; per frame measure energy in 1.5–6 kHz; frames whose band energy spikes above the temporal median are scaled back toward it, phase preserved |
 | `breath` | VAD-flag the frames just before a speech onset (≤ 150 ms) and high-pass them at 200 Hz, mixed 40 / 60 dry/wet |
 | `resample` | Kaiser-windowed sinc (16 lobes, β = 9), arbitrary ratio; cutoff tracks the lower Nyquist so downsampling is anti-aliased and upsampling adds no imaging |
-| `enhance` | Shared resampler to the target rate, then spectral band replication (4096 FFT) folds the existing top band into the empty highs with a tiled rolloff |
+| `enhance` | Shared resampler, then `--method replicate` (SBR tile), `interpolate` (log-magnitude slope), `harmonic` (overtone series, HFP family), or `dsre` (nonlinear highs, high-passed above the original ceiling) |
 | `decrackle` | Second-difference (Laplacian) detector over a running EMA noise floor flags dense impulsive crackle; each micro-run is repaired by cubic-Hermite interpolation |
 | `inpaint` | Autoregressive (Janssen/Godsill–Rayner) interpolation: an AR model is fit to the samples around the gap (Levinson–Durbin), the missing block solved by banded Cholesky, iterated; order scales with gap length |
 | `dehum --adaptive` | Quiet-spectrum 50 vs 60 pick; each harmonic cancelled at the frequency it actually sits (I/Q heterodyne, bandwidth widens with wow); lines that do not stand out are skipped; 6 dB envelope cap |

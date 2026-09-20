@@ -16,8 +16,14 @@ mod tui;
 
 #[derive(Debug, Clone, clap::ValueEnum)]
 enum EnhanceMethodArg {
+    /// Spectral band replication (SBR).
     Replicate,
+    /// Log-magnitude extrapolation into the empty high band.
     Interpolate,
+    /// Overtone extrapolation (HRAudioWizard HFP family).
+    Harmonic,
+    /// Nonlinear harmonic generation (DSRE / DSEE-like).
+    Dsre,
 }
 
 impl From<EnhanceMethodArg> for cathar::EnhanceMethod {
@@ -25,6 +31,8 @@ impl From<EnhanceMethodArg> for cathar::EnhanceMethod {
         match m {
             EnhanceMethodArg::Replicate => cathar::EnhanceMethod::Replicate,
             EnhanceMethodArg::Interpolate => cathar::EnhanceMethod::Interpolate,
+            EnhanceMethodArg::Harmonic => cathar::EnhanceMethod::Harmonic,
+            EnhanceMethodArg::Dsre => cathar::EnhanceMethod::Dsre,
         }
     }
 }
@@ -502,7 +510,7 @@ enum Command {
         /// Target sample rate (Hz)
         #[arg(short, long, default_value_t = 48000)]
         rate: u32,
-        /// Upsampling strategy: replicate (SBR) or interpolate (log-magnitude extrapolation)
+        /// Upsampling strategy: replicate, interpolate, harmonic, or dsre
         #[arg(long, default_value = "replicate")]
         method: EnhanceMethodArg,
     },
@@ -1312,6 +1320,8 @@ fn main() -> Result<()> {
             let mode = match method {
                 cathar::EnhanceMethod::Replicate => "replicate",
                 cathar::EnhanceMethod::Interpolate => "interpolate",
+                cathar::EnhanceMethod::Harmonic => "harmonic",
+                cathar::EnhanceMethod::Dsre => "dsre",
             };
             eprintln!("enhanced  {} Hz → {rate} Hz  ({mode})  →  {out}", audio.sample_rate);
         }

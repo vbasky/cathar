@@ -142,7 +142,11 @@ transients — especially for vinyl captures and low-bit-depth sources.
   deterministic. Co-sparse depth → **`0.8`**.
 - ✅ **Bandwidth extension — foundation** (`v0.6.1`) — `enhance --method
   replicate|interpolate`: SBR band replication (default since `v0.5`) plus
-  log-magnitude extrapolation into the empty high band. HR upsampling → **`0.10`**.
+  log-magnitude extrapolation into the empty high band.
+- ✅ **HR enhance methods** (`Unreleased`, [#20](https://github.com/vbasky/cathar/issues/20))
+  — `enhance --method harmonic` (overtone extrapolation, HFP family) and
+  `dsre` (nonlinear highs, high-passed above the original ceiling). Remaining
+  MDCT / psychoacoustic-RDO depth → **`0.10`**.
 
 **Restoration depth — shipped `v0.7.0`** (`0.7.x` track) — research-backed
 extensions to the restoration chain, all deterministic and pure Rust:
@@ -260,8 +264,9 @@ here repeats it.
 - ⬜ **Reference spectral rebalance** — long-term spectrum match to a clean
   reference track; inspectable corrective gain curve
   ([AssistedSpectralRebalancePlugin](https://github.com/joaomauricio5/AssistedSpectralRebalancePlugin)).
-- ⬜ **HR spectral upsampling** — DSRE / HRAudioWizard-class bandlimited
-  interpolation kernels; distinct from `enhance` bandwidth extension
+- 🔶 **HR spectral upsampling** — `harmonic` / `dsre` methods shipped
+  (`Unreleased`). Remaining: MDCT kernels, psychoacoustic RDO resample/noise
+  shaping
   ([DSRE](https://github.com/x1aoqv/DSRE---Digital-Sound-Resolution-Enhancer),
   [HRAudioWizard](https://github.com/Super-YH/HRAudioWizard)).
 - ⬜ **Analysis UX depth** — pYIN HMM smoothing for `stats`; `cathar view --cqt`
@@ -329,7 +334,7 @@ depth or ⬜ rows is a **minor-release** task; patches fix regressions and docs.
 | Dequantization (lattice foundation) | ⬜ | ✅ `dequantize` (`v0.6.1`) |
 | Dequantization (co-sparse / Záviška depth) | ⬜ | ⬜ `0.8` |
 | Bandwidth extension (`enhance`) | partial | ✅ `enhance --method` (`v0.6.1`) |
-| HR spectral upsampling (DSRE-class) | ⬜ | ⬜ `0.10` |
+| HR spectral upsampling (DSRE-class) | ⬜ | 🔶 `harmonic`/`dsre` (`Unreleased`) · MDCT/RDO `0.10` |
 | Wow / flutter / azimuth (vinyl & tape) | ⬜ | ✅ `dewow` + `azimuth` (`v0.7.0`) |
 | Harmonic/percussive separation | ⬜ | ✅ `hpss` (`v0.7.0`) |
 | Gap interpolation (inpainting) | ⬜ | ✅ `inpaint` (AR/Janssen, `v0.7.0`) |
@@ -378,7 +383,7 @@ classical methods plateau. See also the
 | Voice isolate | Energy VAD + spectral gating | Classical; ML dialogue isolation TBD |
 | Vinyl | RIAA + elliptical mono | [DrCuts](https://github.com/opcode66/DrCuts), [Vinyl Restoration Suite](https://github.com/flarkflarkflark/AudioRestorationVST) |
 | Dequant | Lattice neighbour prediction (`v0.6.1` foundation) | Záviška et al. co-sparse methods → `0.8` |
-| Enhance | SBR + log-magnitude interpolate (`v0.6.1` foundation) | DSRE, HRAudioWizard → `0.10` |
+| Enhance | SBR + log-magnitude interpolate (`v0.6.1`); overtone / DSRE methods (`Unreleased`, [#20](https://github.com/vbasky/cathar/issues/20)) | DSRE, HRAudioWizard; MDCT/RDO → `0.10` |
 | De-crackle | Laplacian detector over a running floor + cubic-Hermite repair | ClickRepair lineage |
 | Inpainting | Autoregressive (Janssen/Godsill–Rayner) gap interpolation | Janssen; Godsill & Rayner |
 | Wow & flutter | Instantaneous-frequency tracking → time-warp | Capstan-style archival tools |

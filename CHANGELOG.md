@@ -9,6 +9,22 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-09-20
+
+High-frequency enhance methods inspired by DSRE / HRAudioWizard
+([#20](https://github.com/vbasky/cathar/issues/20)).
+
+### Added
+
+- **`enhance --method harmonic|dsre`** ([#20](https://github.com/vbasky/cathar/issues/20))
+  — two inspectable high-frequency restorers on top of the shipped SBR /
+  log-magnitude pair. `harmonic` extends detected overtone series into the
+  empty band (HRAudioWizard HFP family, phase-locked, no Griffin-Lim).
+  `dsre` waveshapes the existing highs and high-passes the new content above
+  the original ceiling (DSRE / DSEE-like). Both fill a rolled-off top at the
+  same sample rate; `replicate` / `interpolate` still require a rate increase.
+  Library: `EnhanceMethod::{Harmonic, Dsre}`.
+
 ## [0.7.4] - 2026-09-20
 
 Tape / VHS restoration chain and measured de-hum / de-plosive fixes

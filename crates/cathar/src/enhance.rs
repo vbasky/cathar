@@ -1,5 +1,6 @@
 //! Enhancement: voice isolation, de-essing, breath removal, bandwidth extension.
 
+use crate::filter::highpass;
 use crate::util::hann_window;
 use crate::{NoisePrint, resample};
 use realfft::RealFftPlanner;
@@ -12,6 +13,12 @@ pub enum EnhanceMethod {
     Replicate,
     /// Log-spaced magnitude interpolation into the empty high band.
     Interpolate,
+    /// Overtone extrapolation — pick peaks in the existing top band and extend
+    /// each harmonic series into the empty highs (HRAudioWizard HFP family).
+    Harmonic,
+    /// Nonlinear harmonic generation of the existing highs, high-passed into
+    /// the empty band (DSRE / DSEE-like; no learned weights).
+    Dsre,
 }
 
 /// Isolate speech from background using energy-based VAD + spectral gating.
@@ -364,31 +371,48 @@ pub fn breath_remove(signal: &[f32], sample_rate: u32) -> Vec<f32> {
 
 /// Restore high-frequency content lost to compression or low sample rates.
 ///
-/// With [`EnhanceMethod::Replicate`], the spectral envelope from the upper octave
-/// of the source signal is transposed into the missing high band. With
-/// [`EnhanceMethod::Interpolate`], the log-magnitude envelope is smoothly
-/// extrapolated instead of tiled. No ML — pure DSP, zero weights.
+/// [`EnhanceMethod::Replicate`] tiles the upper-octave envelope (SBR).
+/// [`EnhanceMethod::Interpolate`] extrapolates log-magnitude.
+/// [`EnhanceMethod::Harmonic`] extends detected overtone series.
+/// [`EnhanceMethod::Dsre`] generates new highs by a mild nonlinearity.
+/// No ML — pure DSP, zero weights.
 pub fn bandwidth_extend(signal: &[f32], sample_rate: u32, target_rate: u32) -> Vec<f32> {
     bandwidth_extend_with_method(signal, sample_rate, target_rate, EnhanceMethod::Replicate)
 }
 
 /// Like [`bandwidth_extend`] but selects the upsampling strategy.
+///
+/// [`EnhanceMethod::Replicate`] and [`EnhanceMethod::Interpolate`] still
+/// require `target_rate > sample_rate` (identity otherwise). Harmonic and
+/// DSRE also fill a rolled-off top at the same rate.
 pub fn bandwidth_extend_with_method(
     signal: &[f32],
     sample_rate: u32,
     target_rate: u32,
     method: EnhanceMethod,
 ) -> Vec<f32> {
-    if target_rate <= sample_rate {
-        return signal.to_vec();
-    }
-
-    // ── 1. Resample to target rate (shared Kaiser-windowed sinc) ──
-    let resampled = resample(signal, sample_rate, target_rate);
+    let out_rate = target_rate.max(sample_rate);
+    let resampled = if out_rate > sample_rate {
+        resample(signal, sample_rate, out_rate)
+    } else {
+        signal.to_vec()
+    };
 
     match method {
-        EnhanceMethod::Replicate => replicate_high_band(&resampled, sample_rate, target_rate),
-        EnhanceMethod::Interpolate => interpolate_high_band(&resampled, sample_rate, target_rate),
+        EnhanceMethod::Replicate => {
+            if target_rate <= sample_rate {
+                return signal.to_vec();
+            }
+            replicate_high_band(&resampled, sample_rate, target_rate)
+        }
+        EnhanceMethod::Interpolate => {
+            if target_rate <= sample_rate {
+                return signal.to_vec();
+            }
+            interpolate_high_band(&resampled, sample_rate, target_rate)
+        }
+        EnhanceMethod::Harmonic => harmonic_high_band(&resampled, sample_rate, out_rate),
+        EnhanceMethod::Dsre => dsre_high_band(&resampled, sample_rate, out_rate),
     }
 }
 
@@ -549,4 +573,264 @@ fn interpolate_high_band(resampled: &[f32], sample_rate: u32, target_rate: u32) 
 
     output.truncate(n);
     output
+}
+
+/// Extend detected overtone series into the empty high band.
+///
+/// Per frame: pick spectral peaks below the original Nyquist, then place
+/// harmonics `k·f` above it with a decaying envelope and phase-locked to the
+/// fundamental (`k · φ`). Deterministic — no Griffin-Lim, no random dither.
+fn harmonic_high_band(resampled: &[f32], src_rate: u32, out_rate: u32) -> Vec<f32> {
+    let fft_size = 4096;
+    let hop_size = fft_size / 4;
+    let n = resampled.len();
+    if n < fft_size || out_rate == 0 {
+        return resampled.to_vec();
+    }
+
+    let n_bins = fft_size / 2 + 1;
+    let hz_per_bin = out_rate as f32 / fft_size as f32;
+    let orig_nyq_bin = ((src_rate as f32 / 2.0 / hz_per_bin).round() as usize).clamp(8, n_bins - 2);
+    let ceiling = spectral_ceiling_bin(resampled, fft_size, orig_nyq_bin).min(orig_nyq_bin);
+    if ceiling + 4 >= n_bins {
+        return resampled.to_vec();
+    }
+
+    let mut planner = RealFftPlanner::<f32>::new();
+    let r2c = planner.plan_fft_forward(fft_size);
+    let c2r = planner.plan_fft_inverse(fft_size);
+    let hann = hann_window(fft_size);
+    let scale = 1.0f32 / fft_size as f32;
+    let frames = n / hop_size;
+
+    let mut output = vec![0.0f32; n + fft_size];
+    let mut in_buf = r2c.make_input_vec();
+    let mut out_buf = r2c.make_output_vec();
+
+    for fi in 0..frames {
+        let offset = fi * hop_size;
+        if offset + fft_size > n {
+            break;
+        }
+        for i in 0..fft_size {
+            in_buf[i] = resampled[offset + i] * hann[i];
+        }
+        r2c.process(&mut in_buf, &mut out_buf).unwrap();
+
+        let mag: Vec<f32> = out_buf.iter().map(|c| (c.re * c.re + c.im * c.im).sqrt()).collect();
+        let peaks = pick_overtone_peaks(&mag, ceiling);
+        for &(bin, amp) in &peaks {
+            if bin == 0 {
+                continue;
+            }
+            let phase = out_buf[bin].im.atan2(out_buf[bin].re);
+            let mut k = 2usize;
+            loop {
+                let tgt = bin * k;
+                if tgt >= n_bins - 1 {
+                    break;
+                }
+                if tgt > ceiling {
+                    let decay = 0.55f32.powi((k - 1) as i32);
+                    let rolloff = (-((tgt - ceiling) as f32) / 350.0).exp().max(0.02);
+                    let add = amp * decay * rolloff * 0.7;
+                    let existing = mag[tgt];
+                    if existing < add * 0.4 {
+                        let phi = phase * k as f32;
+                        out_buf[tgt].re += add * phi.cos();
+                        out_buf[tgt].im += add * phi.sin();
+                    }
+                }
+                k += 1;
+            }
+        }
+
+        c2r.process(&mut out_buf, &mut in_buf).unwrap();
+        for i in 0..fft_size {
+            output[offset + i] += in_buf[i] * hann[i] * scale;
+        }
+    }
+    output.truncate(n);
+    output
+}
+
+/// DSRE-style: waveshape the existing highs, then keep only the new content
+/// above the original ceiling.
+fn dsre_high_band(resampled: &[f32], src_rate: u32, out_rate: u32) -> Vec<f32> {
+    let n = resampled.len();
+    if n < 64 || out_rate == 0 {
+        return resampled.to_vec();
+    }
+    let orig_nyq = src_rate as f32 / 2.0;
+    let new_nyq = out_rate as f32 / 2.0;
+    if new_nyq <= orig_nyq * 1.02 {
+        let fft_size = 4096.min(n.next_power_of_two().min(n) & !1).max(256);
+        let orig_bin = ((orig_nyq / (out_rate as f32 / fft_size as f32)).round() as usize)
+            .clamp(8, fft_size / 2 - 2);
+        let ceiling_bin = spectral_ceiling_bin(resampled, fft_size, orig_bin);
+        let ceiling_hz = ceiling_bin as f32 * out_rate as f32 / fft_size as f32;
+        if ceiling_hz >= orig_nyq * 0.92 {
+            return resampled.to_vec();
+        }
+        return dsre_mix(resampled, out_rate, (ceiling_hz * 0.4).clamp(1500.0, 8000.0), ceiling_hz);
+    }
+    dsre_mix(resampled, out_rate, (orig_nyq * 0.2).clamp(800.0, 4000.0), orig_nyq * 0.85)
+}
+
+fn dsre_mix(resampled: &[f32], sr: u32, pre_hz: f32, post_hz: f32) -> Vec<f32> {
+    let mut x = highpass(resampled, sr, pre_hz);
+    x = highpass(&x, sr, pre_hz);
+    for _ in 0..4 {
+        for s in &mut x {
+            let v = *s;
+            *s = (v + 0.35 * v * v.abs() + 0.12 * v * v * v).clamp(-1.5, 1.5);
+        }
+    }
+    x = highpass(&x, sr, post_hz);
+    x = highpass(&x, sr, post_hz);
+    let src_rms = rms(resampled).max(1e-9);
+    let gen_rms = rms(&x).max(1e-9);
+    let gain = (src_rms * 0.28 / gen_rms).min(0.6);
+    resampled.iter().zip(x.iter()).map(|(o, n)| o + n * gain).collect()
+}
+
+fn rms(x: &[f32]) -> f32 {
+    if x.is_empty() {
+        return 0.0;
+    }
+    (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt()
+}
+
+fn spectral_ceiling_bin(signal: &[f32], fft_size: usize, orig_nyq_bin: usize) -> usize {
+    let hop = fft_size / 2;
+    let n = signal.len();
+    if n < fft_size {
+        return orig_nyq_bin;
+    }
+    let mut planner = RealFftPlanner::<f32>::new();
+    let r2c = planner.plan_fft_forward(fft_size);
+    let hann = hann_window(fft_size);
+    let n_bins = fft_size / 2 + 1;
+    let mut acc = vec![0.0f32; n_bins];
+    let mut in_buf = r2c.make_input_vec();
+    let mut out_buf = r2c.make_output_vec();
+    let mut frames = 0usize;
+    let mut offset = 0;
+    while offset + fft_size <= n {
+        for i in 0..fft_size {
+            in_buf[i] = signal[offset + i] * hann[i];
+        }
+        r2c.process(&mut in_buf, &mut out_buf).ok();
+        for (a, c) in acc.iter_mut().zip(out_buf.iter()) {
+            *a += (c.re * c.re + c.im * c.im).sqrt();
+        }
+        frames += 1;
+        offset += hop;
+        if frames >= 32 {
+            break;
+        }
+    }
+    if frames == 0 {
+        return orig_nyq_bin;
+    }
+    for a in &mut acc {
+        *a /= frames as f32;
+    }
+    let mid_lo = (orig_nyq_bin / 8).max(1);
+    let mid_hi = (orig_nyq_bin / 2).max(mid_lo + 1);
+    let mut mid: Vec<f32> = acc[mid_lo..mid_hi.min(acc.len())].to_vec();
+    if mid.is_empty() {
+        return orig_nyq_bin;
+    }
+    mid.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let floor = mid[mid.len() / 2] * 0.04;
+    let hi = orig_nyq_bin.min(n_bins - 2);
+    let mut ceiling = hi;
+    for k in (8..=hi).rev() {
+        if acc[k] > floor {
+            ceiling = k;
+            break;
+        }
+    }
+    ceiling.max(8)
+}
+
+fn pick_overtone_peaks(mag: &[f32], ceiling: usize) -> Vec<(usize, f32)> {
+    let lo = (ceiling / 5).max(2);
+    let hi = ceiling.saturating_sub(2).max(lo + 1);
+    if hi + 1 >= mag.len() || hi <= lo {
+        return Vec::new();
+    }
+    let mut peaks: Vec<(usize, f32)> = Vec::new();
+    for k in lo..hi {
+        if mag[k] > mag[k - 1] && mag[k] >= mag[k + 1] {
+            peaks.push((k, mag[k]));
+        }
+    }
+    peaks.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    peaks.truncate(16);
+    let floor = peaks.first().map(|p| p.1 * 0.08).unwrap_or(0.0);
+    peaks.retain(|p| p.1 >= floor);
+    peaks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tone(sr: u32, secs: f32, freq: f32, amp: f32) -> Vec<f32> {
+        let n = (sr as f32 * secs) as usize;
+        let two_pi = 2.0 * std::f32::consts::PI;
+        (0..n).map(|i| amp * (two_pi * freq * i as f32 / sr as f32).sin()).collect()
+    }
+
+    fn mag_at(x: &[f32], f: f32, fs: u32) -> f64 {
+        let two_pi = 2.0 * std::f64::consts::PI;
+        let (mut re, mut im) = (0.0f64, 0.0f64);
+        let n = x.len();
+        for (i, &v) in x.iter().enumerate() {
+            let p = two_pi * f as f64 * i as f64 / fs as f64;
+            re += v as f64 * p.cos();
+            im -= v as f64 * p.sin();
+        }
+        (re * re + im * im).sqrt() / n as f64
+    }
+
+    #[test]
+    fn harmonic_places_overtone_above_original_nyquist() {
+        let sr = 8_000u32;
+        let x = tone(sr, 1.0, 1000.0, 0.5);
+        let out = bandwidth_extend_with_method(&x, sr, 16_000, EnhanceMethod::Harmonic);
+        assert_eq!(out.len(), 16_000);
+        // 5th harmonic of 1 kHz sits at 5 kHz, above the original 4 kHz Nyquist.
+        let hi = mag_at(&out, 5000.0, 16_000);
+        let fund = mag_at(&out, 1000.0, 16_000);
+        assert!(fund > 0.05, "fundamental lost: {fund}");
+        assert!(hi > fund * 0.02, "no overtone above original Nyquist: 5 kHz={hi}, 1 kHz={fund}");
+    }
+
+    #[test]
+    fn dsre_adds_energy_above_original_nyquist() {
+        let sr = 8_000u32;
+        let mut x = tone(sr, 1.0, 1000.0, 0.4);
+        for (i, s) in x.iter_mut().enumerate() {
+            *s += 0.3 * (2.0 * std::f32::consts::PI * 1800.0 * i as f32 / sr as f32).sin();
+        }
+        let resampled = resample(&x, sr, 16_000);
+        let out = bandwidth_extend_with_method(&x, sr, 16_000, EnhanceMethod::Dsre);
+        let band = |v: &[f32]| mag_at(v, 5000.0, 16_000) + mag_at(v, 6000.0, 16_000);
+        assert!(
+            band(&out) > band(&resampled) * 1.5,
+            "DSRE should add energy above 4 kHz: {} vs {}",
+            band(&out),
+            band(&resampled)
+        );
+    }
+
+    #[test]
+    fn replicate_identity_when_rate_does_not_increase() {
+        let x = tone(48_000, 0.25, 440.0, 0.3);
+        let out = bandwidth_extend_with_method(&x, 48_000, 48_000, EnhanceMethod::Replicate);
+        assert_eq!(out, x);
+    }
 }
