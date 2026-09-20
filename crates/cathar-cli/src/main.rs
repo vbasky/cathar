@@ -621,6 +621,9 @@ enum Command {
         /// Rumble high-pass cutoff in Hz
         #[arg(long, default_value_t = 80.0)]
         cutoff: f32,
+        /// Multiband de-ess threshold (dB above each band's running average; not the single-band -24)
+        #[arg(long, default_value_t = 6.0, allow_hyphen_values = true)]
+        deess_threshold: f32,
         /// Also normalise to this LUFS level
         #[arg(long, allow_hyphen_values = true)]
         normalize: Option<f32>,
@@ -1076,6 +1079,12 @@ fn main() -> Result<()> {
         }
         Command::Deesser { input, out, freq, threshold, bands } => {
             let audio = cathar::AudioData::from_file(&input)?;
+            if bands > 1 && threshold <= 0.0 {
+                eprintln!(
+                    "warning: --threshold {threshold} is the single-band HF/broadband default; \
+                     with --bands {bands} it is dB above each band's running average (try 6)"
+                );
+            }
             let cleaned = audio.map_channels(|c| {
                 if bands > 1 {
                     cathar::deess_multiband(c, audio.sample_rate, freq, threshold, 4.0, bands)
@@ -1389,19 +1398,20 @@ fn main() -> Result<()> {
             }
         }
 
-        Command::Vhs { input, out, alpha, beta, cutoff, normalize } => {
+        Command::Vhs { input, out, alpha, beta, cutoff, deess_threshold, normalize } => {
             let audio = cathar::AudioData::from_file(&input)?;
             let opts = cathar::VhsOptions {
                 alpha,
                 beta,
                 dewind_cutoff: cutoff,
                 harmonics: 8,
+                deess_threshold,
                 normalize_lufs: normalize,
             };
             let cleaned = cathar::vhs_restore(&audio, &opts)?;
             cleaned.to_file(&out)?;
             eprintln!(
-                "vhs  alpha={alpha}  cutoff={cutoff} Hz{}  →  {out}",
+                "vhs  alpha={alpha}  cutoff={cutoff} Hz  deess={deess_threshold} dB{}  →  {out}",
                 normalize.map(|n| format!("  loudness={n} LUFS")).unwrap_or_default()
             );
         }

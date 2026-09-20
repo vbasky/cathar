@@ -9,6 +9,21 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-09-21
+
+VHS multiband de-ess no longer takes down everything above 4 kHz
+([#26](https://github.com/vbasky/cathar/issues/26)).
+
+### Fixed
+
+- **`vhs` de-ess** ([#26](https://github.com/vbasky/cathar/issues/26)) — the
+  chain called `deess_multiband` with `threshold_db = -24`, the single-band
+  HF/broadband-ratio default. In multiband mode that value is "dB above each
+  band's running average", so every frame was over and the region above 4 kHz
+  was taken down (~30 dB). Default is now 6 dB (`VhsOptions.deess_threshold`,
+  `cathar vhs --deess-threshold`). Negative multiband thresholds are floored
+  at 0 dB so the same mix-up cannot crush the highs.
+
 ## [0.7.5] - 2026-09-20
 
 High-frequency enhance methods inspired by DSRE / HRAudioWizard

@@ -106,7 +106,7 @@ grouped here by what they fix; run them in any order, or chain them.
 | `voiceisolate` | Keep speech, gate everything else (energy VAD + spectral gate) | `--noiseprint <f>` |
 | `deesser` | Tame harsh sibilance ("sss"); `--bands >1` is multiband + adaptive | `--freq` 4000, `--threshold` -24, `--bands` 1 |
 | `deplosive` | Tame plosive "p"/"b" pops; default is event-gated (undamaged material untouched) | `--strength` 4, `--method events\|transients` |
-| `vhs` | Tape / VHS restoration chain (gated cascade of the stages above) | `--alpha` 3, `--cutoff` 80, `--normalize` |
+| `vhs` | Tape / VHS restoration chain (gated cascade of the stages above) | `--alpha` 3, `--cutoff` 80, `--deess-threshold` 6, `--normalize` |
 | `derustle` | Suppress lavalier / clothing rustle (mid-band transient bursts) | `--strength` 4 |
 | `breath` | Detect and high-pass the breaths before speech onsets | — |
 | `riaa` | RIAA playback curve for digitized vinyl; optional elliptical mono on stereo lows | `--elliptical` 200 |

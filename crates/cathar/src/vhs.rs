@@ -32,13 +32,26 @@ pub struct VhsOptions {
     pub dewind_cutoff: f32,
     /// How many mains harmonics to evaluate (each is gated on standing out).
     pub harmonics: usize,
+    /// Multiband de-ess threshold: dB above each band's running average.
+    ///
+    /// Typical values are 3–6. This is **not** the single-band `deesser`
+    /// HF/broadband-ratio default (−24); that value compresses every frame
+    /// and takes down the whole region above 4 kHz.
+    pub deess_threshold: f32,
     /// Optional EBU R128 target (LUFS). `None` leaves loudness alone.
     pub normalize_lufs: Option<f32>,
 }
 
 impl Default for VhsOptions {
     fn default() -> Self {
-        Self { alpha: 3.0, beta: 0.01, dewind_cutoff: 80.0, harmonics: 8, normalize_lufs: None }
+        Self {
+            alpha: 3.0,
+            beta: 0.01,
+            dewind_cutoff: 80.0,
+            harmonics: 8,
+            deess_threshold: 6.0,
+            normalize_lufs: None,
+        }
     }
 }
 
@@ -92,7 +105,7 @@ pub fn vhs_restore(audio: &AudioData, opts: &VhsOptions) -> Result<AudioData, Er
         denoiser.denoise(&audio)?
     };
 
-    audio = audio.map_channels(|c| deess_multiband(c, sr, 4000.0, -24.0, 4.0, 3));
+    audio = audio.map_channels(|c| deess_multiband(c, sr, 4000.0, opts.deess_threshold, 4.0, 3));
 
     if let Some(lufs) = opts.normalize_lufs {
         audio = audio.normalize_r128(lufs, -1.0);
@@ -141,5 +154,44 @@ mod tests {
             power(&out.channels[0]) < power(&x) * 0.95,
             "vhs chain should reduce noisy+hum power"
         );
+    }
+
+    fn mag_at(x: &[f32], f: f32, sr: u32) -> f64 {
+        let two_pi = 2.0 * std::f64::consts::PI;
+        let (mut re, mut im) = (0.0f64, 0.0f64);
+        let n = x.len();
+        for (i, &v) in x.iter().enumerate() {
+            let p = two_pi * f as f64 * i as f64 / sr as f64;
+            re += v as f64 * p.cos();
+            im -= v as f64 * p.sin();
+        }
+        (re * re + im * im).sqrt() / n as f64
+    }
+
+    #[test]
+    fn vhs_deess_threshold_is_above_running_average() {
+        assert!(
+            VhsOptions::default().deess_threshold > 0.0,
+            "multiband de-ess threshold must be dB above the running average, not the single-band -24"
+        );
+    }
+
+    #[test]
+    fn vhs_deess_keeps_steady_highs() {
+        // Issue #26: the chain used the single-band default (−24), which in
+        // multiband mode compresses every frame and takes down >4 kHz by ~30 dB.
+        let sr = 48_000u32;
+        let n = sr as usize;
+        let two_pi = 2.0 * std::f32::consts::PI;
+        let x: Vec<f32> = (0..n)
+            .map(|i| {
+                let t = i as f32 / sr as f32;
+                0.3 * (two_pi * 1000.0 * t).sin() + 0.3 * (two_pi * 8000.0 * t).sin()
+            })
+            .collect();
+        let out = deess_multiband(&x, sr, 4000.0, VhsOptions::default().deess_threshold, 4.0, 3);
+        let ratio = |v: &[f32]| mag_at(v, 8000.0, sr) / mag_at(v, 1000.0, sr).max(1e-12);
+        let db = 20.0 * (ratio(&out) / ratio(&x)).log10();
+        assert!(db > -6.0, "steady 8 kHz vs 1 kHz shifted {db:.1} dB");
     }
 }

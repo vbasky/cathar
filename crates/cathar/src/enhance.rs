@@ -217,6 +217,11 @@ pub fn deesser(
 /// time* catches sibilance concentrated in part of the band and follows a
 /// speaker's changing level, where a single fixed-threshold band over- or
 /// under-reacts. Falls back to a single band when `bands <= 1`.
+///
+/// `threshold_db` is **dB above the running average** (try 3–6). It is not the
+/// single-band [`deesser`] HF/broadband-ratio threshold (default −24). A
+/// negative value would compress every frame and take down the whole region
+/// above `crossover_freq`; those values are floored at 0 dB.
 pub fn deess_multiband(
     signal: &[f32],
     sample_rate: u32,
@@ -232,6 +237,9 @@ pub fn deess_multiband(
         return signal.to_vec();
     }
     let bands = bands.max(1);
+    // Negative values mean "this far *below* the average", so every frame is
+    // over and the HF region is crushed. Floor at 0 dB (compress on a rise).
+    let threshold_db = threshold_db.max(0.0);
     let mut planner = RealFftPlanner::<f32>::new();
     let r2c = planner.plan_fft_forward(fft_size);
     let c2r = planner.plan_fft_inverse(fft_size);
@@ -832,5 +840,45 @@ mod tests {
         let x = tone(48_000, 0.25, 440.0, 0.3);
         let out = bandwidth_extend_with_method(&x, 48_000, 48_000, EnhanceMethod::Replicate);
         assert_eq!(out, x);
+    }
+
+    fn two_tone(sr: u32, secs: f32, f1: f32, f2: f32, amp: f32) -> Vec<f32> {
+        let n = (sr as f32 * secs) as usize;
+        let two_pi = 2.0 * std::f32::consts::PI;
+        (0..n)
+            .map(|i| {
+                let t = i as f32 / sr as f32;
+                amp * (two_pi * f1 * t).sin() + amp * (two_pi * f2 * t).sin()
+            })
+            .collect()
+    }
+
+    fn hf_shift_db(input: &[f32], output: &[f32], sr: u32) -> f64 {
+        let ratio = |x: &[f32]| mag_at(x, 8000.0, sr) / mag_at(x, 1000.0, sr).max(1e-12);
+        20.0 * (ratio(output) / ratio(input)).log10()
+    }
+
+    #[test]
+    fn deess_multiband_keeps_steady_highs() {
+        let sr = 48_000u32;
+        let x = two_tone(sr, 1.0, 1000.0, 8000.0, 0.3);
+        let out = deess_multiband(&x, sr, 4000.0, 6.0, 4.0, 3);
+        let db = hf_shift_db(&x, &out, sr);
+        assert!(db > -6.0, "steady 8 kHz vs 1 kHz shifted {db:.1} dB");
+        assert!(
+            mag_at(&out, 1000.0, sr) > mag_at(&x, 1000.0, sr) * 0.8,
+            "1 kHz tone not preserved"
+        );
+    }
+
+    #[test]
+    fn deess_multiband_negative_threshold_does_not_crush_hf() {
+        // The single-band deesser default (−24) is an HF/broadband ratio. In
+        // multiband mode it would compress every frame; it is floored at 0 dB.
+        let sr = 48_000u32;
+        let x = two_tone(sr, 1.0, 1000.0, 8000.0, 0.3);
+        let out = deess_multiband(&x, sr, 4000.0, -24.0, 4.0, 3);
+        let db = hf_shift_db(&x, &out, sr);
+        assert!(db > -12.0, "negative threshold crushed HF by {db:.1} dB");
     }
 }
