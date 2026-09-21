@@ -383,7 +383,7 @@ container files, so it can sit immediately after ingest and before encoding.
 
 ## Roadmap
 
-Cathar is `0.7.x`, restoration-first, and growing — before `1.0` — into a
+Cathar is `0.8.x`, restoration-first, and growing — before `1.0` — into a
 general-purpose, pure-Rust audio swiss-army knife (a SoX-class tool with no
 ffmpeg and no C/C++ FFI). See [`ROADMAP.md`](https://github.com/vbasky/cathar/blob/main/ROADMAP.md) for the full plan and
 SoX-parity checklist.
@@ -392,8 +392,11 @@ Phase 1 is shipped (`v0.2`–`v0.7`): true EBU R128 loudness, anti-aliased
 resample, WAV/FLAC/AIFF encode, the restoration chain (`denoise` / `dehum` /
 `declick` / `declip` / …), swiss-army editing and EQ, learned denoise behind
 `--features ml`, and `enhance --method replicate|interpolate|harmonic|dsre`.
-Next is Phase 2 (`0.8`–`0.10`) — co-sparse dequant, analog NR, creative
-effects, chain DSL — see
+Phase 2 is underway in `0.8.0`: co-sparse dequantization, psychoacoustic
+denoising, measured deconvolution, spectral rebalance, stereo modulation
+effects, pitch smoothing, and the JSON chain DSL are shipped. Remaining Phase
+2 work includes analog noise reduction and further codec and streaming
+features — see
 [`ROADMAP.md`](https://github.com/vbasky/cathar/blob/main/ROADMAP.md).
 
 ## Development
