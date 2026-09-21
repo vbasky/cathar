@@ -378,7 +378,7 @@ classical methods plateau. See also the
 | De-reverb | Energy gating + **WPE** (`--wpe`, per-bin weighted linear prediction) | Nakatani et al. WPE |
 | De-hum | Cascaded notch harmonics; `--adaptive` I/Q heterodyne at each line's actual frequency, auto 50/60, skip-if-absent | SoX `noisered`; tape-line tracking ([#25](https://github.com/vbasky/cathar/issues/25)) |
 | De-plosive | Event-gated low-band expander (default); whole-file STFT transients as `--method transients` | Air-blast detector; measured free on undamaged material ([#25](https://github.com/vbasky/cathar/issues/25)) |
-| Tape / VHS chain | `vhs` gated cascade (DC, rumble, azimuth, repair, dehum, deplosive, 4 s probe denoise) | [AI Hybrid VHS Audio Restorer](https://github.com/ventura8/AI-Hybrid-VHS-Audio-Restorer) `auto_pure_linear` ([#25](https://github.com/vbasky/cathar/issues/25)) |
+| Tape / VHS chain | `vhs` gated cascade (DC, rumble, azimuth, repair, dehum, deplosive, stitched quiet-window denoise) | [AI Hybrid VHS Audio Restorer](https://github.com/ventura8/AI-Hybrid-VHS-Audio-Restorer) `auto_pure_linear` ([#25](https://github.com/vbasky/cathar/issues/25), [#27](https://github.com/vbasky/cathar/issues/27)) |
 | Spectral repair | Temporal-median outlier pull | iZotope RX Spectral Repair (conceptual) |
 | Voice isolate | Energy VAD + spectral gating | Classical; ML dialogue isolation TBD |
 | Vinyl | RIAA + elliptical mono | [DrCuts](https://github.com/opcode66/DrCuts), [Vinyl Restoration Suite](https://github.com/flarkflarkflark/AudioRestorationVST) |

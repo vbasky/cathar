@@ -1,8 +1,10 @@
 //! Adaptive de-hum — track a drifting mains fundamental and per-harmonic
 //! amplitude, instead of the fixed notches in `dehum`.
 //!
-//! The recording's own quietest stretch decides 50 vs 60 Hz and where each
-//! harmonic actually sits (real tape lines land 1–8 Hz off the exact series).
+//! 50 vs 60 Hz is taken from the recording's mean spectrum, not one quiet
+//! second (a pause can look like the other series when the real line is weak).
+//! Each harmonic is then placed from the quietest stretch (real tape lines
+//! land 1–8 Hz off the exact series).
 //! Harmonics that do not stand out above their spectral neighbourhood are
 //! left alone, so a file without hum is returned unchanged. Each kept line is
 //! cancelled by an I/Q heterodyne canceller: demodulate → zero-phase low-pass
@@ -51,13 +53,17 @@ fn series_tolerance_hz(h: usize) -> f32 {
     0.5 * bandwidth_hz(h)
 }
 
-/// Pick 50 or 60 Hz from the recording's quiet spectrum, or `None` when neither
-/// series stands out as mains hum.
+/// Pick 50 or 60 Hz from the recording, or `None` when neither series stands
+/// out as mains hum.
+///
+/// Uses the mean spectrum of the whole file so a weak stationary line is not
+/// beaten by the other series sitting in one quiet second. Harmonic placement
+/// still uses the quietest stretch (see [`dehum_adaptive`]).
 ///
 /// Used by [`dehum_adaptive`] when `base_freq` is `0`, and by the `vhs` chain.
 /// Anti-phase hum that cancels in a mono downmix is missed.
 pub fn detect_mains_hz(signal: &[f32], sample_rate: u32) -> Option<f32> {
-    let spec = quiet_spectrum(signal, sample_rate)?;
+    let spec = mean_spectrum(signal, sample_rate)?;
     let e50 = series_excess(&spec, 50.0, MAINS_HARMONICS);
     let e60 = series_excess(&spec, 60.0, MAINS_HARMONICS);
     if e50 < HUM_MIN_EXCESS_DB && e60 < HUM_MIN_EXCESS_DB {
@@ -311,6 +317,68 @@ fn quiet_spectrum(signal: &[f32], sample_rate: u32) -> Option<Spectrum> {
     Some(Spectrum { power, hz_per_bin: sample_rate as f32 / fft_len as f32 })
 }
 
+/// Mean power spectrum of the whole recording (Welch-style).
+///
+/// 50 vs 60 is a property of the tape, not of its quietest second: a PAL
+/// capture with a weak 50 Hz line loses to a 60 Hz bump in one pause if the
+/// pick is made from that pause alone.
+fn mean_spectrum(signal: &[f32], sample_rate: u32) -> Option<Spectrum> {
+    let n = signal.len();
+    if n < 64 || sample_rate == 0 {
+        return None;
+    }
+    let mut fft_len = 16384.min(n.next_power_of_two().clamp(4096, 1 << 17));
+    if fft_len % 2 == 1 {
+        fft_len += 1;
+    }
+    let mut planner = RealFftPlanner::<f32>::new();
+    let r2c = planner.plan_fft_forward(fft_len);
+    let n_bins = fft_len / 2 + 1;
+    let mut power = vec![0.0f32; n_bins];
+    let mut in_buf = r2c.make_input_vec();
+    let mut out_buf = r2c.make_output_vec();
+
+    let mut count = 0usize;
+    if n >= fft_len {
+        let hop = fft_len / 4;
+        let hann = crate::util::hann_window(fft_len);
+        let mut start = 0;
+        while start + fft_len <= n {
+            for (i, v) in in_buf.iter_mut().enumerate() {
+                *v = signal[start + i] * hann[i];
+            }
+            r2c.process(&mut in_buf, &mut out_buf).ok()?;
+            for (p, c) in power.iter_mut().zip(out_buf.iter()) {
+                *p += c.re * c.re + c.im * c.im;
+            }
+            count += 1;
+            start += hop;
+        }
+    }
+    if count == 0 {
+        in_buf.fill(0.0);
+        let take = n.min(fft_len);
+        if take > 1 {
+            let scale = std::f32::consts::PI / (take - 1) as f32;
+            for (i, v) in in_buf.iter_mut().take(take).enumerate() {
+                let w = 0.5 - 0.5 * (scale * i as f32).cos();
+                *v = signal[i] * w;
+            }
+        } else {
+            in_buf[0] = signal[0];
+        }
+        r2c.process(&mut in_buf, &mut out_buf).ok()?;
+        for (p, c) in power.iter_mut().zip(out_buf.iter()) {
+            *p = c.re * c.re + c.im * c.im;
+        }
+        count = 1;
+    }
+    for p in &mut power {
+        *p /= count as f32;
+    }
+    Some(Spectrum { power, hz_per_bin: sample_rate as f32 / fft_len as f32 })
+}
+
 fn cancel_line(out: &mut [f32], sample_rate: u32, freq: f64, bandwidth_hz: f32) {
     let n = out.len();
     let sr = sample_rate as f64;
@@ -418,6 +486,32 @@ mod tests {
         let tone_b = hum_band_energy(&x, sr, 1000.0);
         let tone_a = hum_band_energy(&out, sr, 1000.0);
         assert!(tone_a > tone_b * 0.8, "tone not preserved: {tone_b} -> {tone_a}");
+    }
+
+    #[test]
+    fn weak_50_beats_60_in_the_quietest_second() {
+        // PAL: weak 50 Hz throughout. The quietest second is a pause with a
+        // stronger 60 Hz thump. The pick must follow the stationary line.
+        let sr = 48_000usize;
+        let n = sr * 6;
+        let two_pi = 2.0 * std::f32::consts::PI;
+        let x: Vec<f32> = (0..n)
+            .map(|i| {
+                let t = i as f32 / sr as f32;
+                let mut s = 0.08 * (two_pi * 50.0 * t).sin() + 0.04 * (two_pi * 100.0 * t).sin();
+                if (1.0..2.0).contains(&t) {
+                    s += 0.3 * (two_pi * 60.0 * t).sin();
+                } else {
+                    s += 0.4 * (two_pi * 1000.0 * t).sin();
+                }
+                s
+            })
+            .collect();
+        assert_eq!(detect_mains_hz(&x, sr as u32), Some(50.0));
+        let out = dehum_adaptive(&x, sr as u32, 0.0, 5);
+        let before = hum_band_energy(&x, sr, 50.0);
+        let after = hum_band_energy(&out, sr, 50.0);
+        assert!(after < before * 0.3, "50 Hz hum not cancelled: {before} -> {after}");
     }
 
     #[test]

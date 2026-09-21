@@ -106,7 +106,7 @@ grouped here by what they fix; run them in any order, or chain them.
 | `voiceisolate` | Keep speech, gate everything else (energy VAD + spectral gate) | `--noiseprint <f>` |
 | `deesser` | Tame harsh sibilance ("sss"); `--bands >1` is multiband + adaptive | `--freq` 4000, `--threshold` -24, `--bands` 1 |
 | `deplosive` | Tame plosive "p"/"b" pops; default is event-gated (undamaged material untouched) | `--strength` 4, `--method events\|transients` |
-| `vhs` | Tape / VHS restoration chain (gated cascade of the stages above) | `--alpha` 3, `--cutoff` 80, `--deess-threshold` 6, `--normalize` |
+| `vhs` | Tape / VHS restoration chain (gated cascade of the stages above) | `--alpha` 2, `--cutoff` 80, `--deess-threshold` 6, `--normalize` |
 | `derustle` | Suppress lavalier / clothing rustle (mid-band transient bursts) | `--strength` 4 |
 | `breath` | Detect and high-pass the breaths before speech onsets | — |
 | `riaa` | RIAA playback curve for digitized vinyl; optional elliptical mono on stereo lows | `--elliptical` 200 |
@@ -254,8 +254,8 @@ Every stage is classic, inspectable DSP — no black boxes.
 | `enhance` | Shared resampler, then `--method replicate` (SBR tile), `interpolate` (log-magnitude slope), `harmonic` (overtone series, HFP family), or `dsre` (nonlinear highs, high-passed above the original ceiling) |
 | `decrackle` | Second-difference (Laplacian) detector over a running EMA noise floor flags dense impulsive crackle; each micro-run is repaired by cubic-Hermite interpolation |
 | `inpaint` | Autoregressive (Janssen/Godsill–Rayner) interpolation: an AR model is fit to the samples around the gap (Levinson–Durbin), the missing block solved by banded Cholesky, iterated; order scales with gap length |
-| `dehum --adaptive` | Quiet-spectrum 50 vs 60 pick; each harmonic cancelled at the frequency it actually sits (I/Q heterodyne, bandwidth widens with wow); lines that do not stand out are skipped; 6 dB envelope cap |
-| `vhs` | Gated cascade: DC → dewind → azimuth + bass-mono → declip (if clipped) → inpaint → declick → decrackle → adaptive dehum → event-gated deplosive → 4 s quietest-stretch denoise → de-ess |
+| `dehum --adaptive` | Whole-recording 50 vs 60 pick; each harmonic cancelled at the frequency it actually sits (I/Q heterodyne, bandwidth widens with wow); lines that do not stand out are skipped; 6 dB envelope cap |
+| `vhs` | Gated cascade: DC → dewind → azimuth + bass-mono → declip (if clipped) → inpaint → declick → decrackle → adaptive dehum → event-gated deplosive → stitched quiet-window denoise → de-ess |
 | `deemphasis` | Exact first-order bilinear de-emphasis: FM 50/75 µs single-pole roll-off, CD/IEC 50/15 µs shelf; unity gain at DC |
 | `dewow` | Track a dominant tone's instantaneous frequency by I/Q heterodyne demodulation, form a mean-normalised speed curve, then time-warp (resample at φ⁻¹, φ = ∫speed) to flatten pitch |
 | `azimuth` / `align` | Sub-sample lag from normalised cross-correlation or **GCC-PHAT** (parabolic-interpolated peak) + fractional-delay shift |

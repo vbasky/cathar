@@ -2,15 +2,15 @@
 //!
 //! Analog pre-conditioning, gated physical repair, per-harmonic hum
 //! cancellation ahead of the noise probe, event-gated plosives, then spectral
-//! subtraction from the quietest 4 s. Neural denoisers stay behind
-//! `--features ml` and are not part of this chain.
+//! subtraction from quiet windows spread across the file. Neural denoisers
+//! stay behind `--features ml` and are not part of this chain.
 
 use crate::align::azimuth_correct_with_method;
 use crate::analysis::compute_stats;
 use crate::declip::declip;
 use crate::decrackle::decrackle;
 use crate::dehum_adaptive;
-use crate::denoise::{Denoiser, SpectralDenoiser, learn_noise_print_quietest};
+use crate::denoise::{Denoiser, SpectralDenoiser, learn_noise_print_quiet_windows};
 use crate::edit::remove_dc;
 use crate::enhance::deess_multiband;
 use crate::inpaint::inpaint_auto;
@@ -18,13 +18,19 @@ use crate::restore::{declick, deplosive, dewind};
 use crate::stereo::mono_below;
 use crate::{AudioData, Error, LagMethod};
 
-/// Seconds of the quietest stretch used to learn the noise profile.
-const NOISE_PROBE_S: f32 = 4.0;
+/// Stitched noise print: 8 × 0.75 s over the quietest 20 %, 10 ms joins.
+const NOISE_WINDOW_S: f32 = 0.75;
+const NOISE_WINDOWS: usize = 8;
+const NOISE_QUIET_FRACTION: f32 = 0.20;
+const NOISE_CROSSFADE_S: f32 = 0.010;
 
 /// Knobs for [`vhs_restore`]. Defaults match the measured tape chain.
 #[derive(Debug, Clone)]
 pub struct VhsOptions {
     /// Spectral-subtraction over-subtraction factor (1 = gentle, 6 = aggressive).
+    ///
+    /// Default 2.0. Alpha 3 with coherent subtraction gates pauses to
+    /// near-silence.
     pub alpha: f32,
     /// Spectral floor as a fraction of the input magnitude.
     pub beta: f32,
@@ -45,7 +51,7 @@ pub struct VhsOptions {
 impl Default for VhsOptions {
     fn default() -> Self {
         Self {
-            alpha: 3.0,
+            alpha: 2.0,
             beta: 0.01,
             dewind_cutoff: 80.0,
             harmonics: 8,
@@ -60,7 +66,7 @@ impl Default for VhsOptions {
 /// Order: DC block → rumble high-pass → stereo azimuth + bass-mono → declip
 /// (only if flat-top runs are present) → dropout inpaint → declick →
 /// decrackle → adaptive dehum (auto 50/60) → event-gated deplosive →
-/// coherent spectral subtraction from the quietest 4 s → multiband de-ess →
+/// coherent spectral subtraction from stitched quiet windows → multiband de-ess →
 /// optional loudness normalise.
 ///
 /// Hum cancellation and plosive control are internally gated: a file that
@@ -95,7 +101,13 @@ pub fn vhs_restore(audio: &AudioData, opts: &VhsOptions) -> Result<AudioData, Er
     audio = audio.map_channels(|c| dehum_adaptive(c, sr, 0.0, opts.harmonics));
     audio = audio.map_channels(|c| deplosive(c, sr, 4.0));
 
-    let denoiser = match learn_noise_print_quietest(&audio, NOISE_PROBE_S) {
+    let denoiser = match learn_noise_print_quiet_windows(
+        &audio,
+        NOISE_WINDOW_S,
+        NOISE_WINDOWS,
+        NOISE_QUIET_FRACTION,
+        NOISE_CROSSFADE_S,
+    ) {
         Ok(np) => SpectralDenoiser::with_noise_print(np, opts.alpha, opts.beta),
         Err(_) => SpectralDenoiser { alpha: opts.alpha, beta: opts.beta, ..Default::default() },
     };
@@ -169,6 +181,13 @@ mod tests {
     }
 
     #[test]
+    fn vhs_alpha_default_does_not_gate_pauses() {
+        // Alpha 3 with coherent subtraction gates pauses to near-silence.
+        // 2.0 was the by-ear pick on five tapes.
+        assert!((VhsOptions::default().alpha - 2.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
     fn vhs_deess_threshold_is_above_running_average() {
         assert!(
             VhsOptions::default().deess_threshold > 0.0,
@@ -178,8 +197,8 @@ mod tests {
 
     #[test]
     fn vhs_deess_keeps_steady_highs() {
-        // Issue #26: the chain used the single-band default (−24), which in
-        // multiband mode compresses every frame and takes down >4 kHz by ~30 dB.
+        // The single-band default (−24) in multiband mode compresses every
+        // frame and takes down >4 kHz by ~30 dB.
         let sr = 48_000u32;
         let n = sr as usize;
         let two_pi = 2.0 * std::f32::consts::PI;

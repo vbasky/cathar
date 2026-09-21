@@ -9,6 +9,30 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.7.7] - 2026-09-21
+
+VHS noise print no longer eats sibilance, the chain no longer gates pauses,
+and a weak 50 Hz line is not mistaken for 60
+([#27](https://github.com/vbasky/cathar/issues/27)).
+
+### Fixed
+
+- **`vhs` noise print** ([#27](https://github.com/vbasky/cathar/issues/27)) —
+  `learn_noise_print_quietest` took one contiguous 4 s stretch. On dialogue
+  that stretch sits well above the true pauses and the print carries
+  sibilance, so subtraction takes down 8–16 kHz. The chain now stitches
+  eight non-overlapping 0.75 s windows spread evenly by level over the
+  quietest 20 % of the file, with 10 ms crossfades
+  (`learn_noise_print_quiet_windows`). Digital-silent tiles are skipped so
+  a dropout is not learned as the floor.
+- **`vhs` alpha** ([#27](https://github.com/vbasky/cathar/issues/27)) —
+  default over-subtraction is 2.0 (`VhsOptions.alpha`, `cathar vhs --alpha`).
+  Alpha 3 with coherent subtraction gated pauses to near-silence.
+- **`detect_mains_hz`** ([#27](https://github.com/vbasky/cathar/issues/27)) —
+  50 vs 60 is taken from the mean spectrum of the whole recording, not the
+  quietest 1 s. A weak 50 Hz PAL line was losing to a 60 Hz bump in one
+  pause; harmonic placement still uses the quietest stretch.
+
 ## [0.7.6] - 2026-09-21
 
 VHS multiband de-ess no longer takes down everything above 4 kHz

@@ -61,8 +61,8 @@ pub use declip::{DeclipMethod, declip, declip_with_method};
 pub use decrackle::decrackle;
 pub use deemphasis::{Emphasis, deemphasis};
 pub use denoise::{
-    Denoiser, NoisePrint, SpectralDenoiser, learn_noise_print, learn_noise_print_quietest,
-    wiener_denoise,
+    Denoiser, NoisePrint, SpectralDenoiser, learn_noise_print, learn_noise_print_quiet_windows,
+    learn_noise_print_quietest, wiener_denoise,
 };
 pub use dequant::dequantize;
 pub use dewow::dewow;

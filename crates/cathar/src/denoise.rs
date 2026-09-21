@@ -65,8 +65,9 @@ pub fn learn_noise_print(audio: &AudioData) -> Result<NoisePrint, Error> {
 
 /// Learn a noise profile from the quietest `duration_s` seconds of `audio`.
 ///
-/// Used by the `vhs` chain (4 s on the evidence of real tape). Falls back to
-/// the whole file when it is shorter than `duration_s`.
+/// Falls back to the whole file when it is shorter than `duration_s`. The
+/// `vhs` chain uses [`learn_noise_print_quiet_windows`] instead: a contiguous
+/// stretch on dialogue includes speech.
 pub fn learn_noise_print_quietest(audio: &AudioData, duration_s: f32) -> Result<NoisePrint, Error> {
     if audio.channels.is_empty() || audio.channels[0].is_empty() {
         return Err(Error::TooShort);
@@ -119,6 +120,159 @@ pub fn learn_noise_print_quietest(audio: &AudioData, duration_s: f32) -> Result<
         channels: audio.channels.iter().map(|c| c[best_start..best_start + win].to_vec()).collect(),
     };
     learn_noise_print(&slice)
+}
+
+/// Mean-square below this is digital silence (a dropout), not tape hiss.
+const SILENCE_MS: f32 = 1e-12;
+
+#[derive(Clone, Copy)]
+struct QuietWindow {
+    start: usize,
+    energy: f32,
+}
+
+fn mean_square(audio: &AudioData, start: usize, len: usize) -> f32 {
+    let mut e = 0.0f32;
+    let mut count = 0usize;
+    for ch in &audio.channels {
+        for &v in &ch[start..start + len] {
+            e += v * v;
+            count += 1;
+        }
+    }
+    e / count.max(1) as f32
+}
+
+/// Non-overlapping `win`-sample tiles, skipping digital silence.
+fn tile_windows(audio: &AudioData, win: usize) -> Vec<QuietWindow> {
+    let n = audio.channels[0].len();
+    let mut out = Vec::new();
+    let mut start = 0;
+    while start + win <= n {
+        let energy = mean_square(audio, start, win);
+        if energy > SILENCE_MS {
+            out.push(QuietWindow { start, energy });
+        }
+        start += win;
+    }
+    out
+}
+
+/// Quietest `quiet_fraction` of `windows`, then `n_pick` of those spread evenly by level.
+fn pick_even_by_level(
+    mut windows: Vec<QuietWindow>,
+    quiet_fraction: f32,
+    n_pick: usize,
+) -> Vec<QuietWindow> {
+    if windows.is_empty() || n_pick == 0 {
+        return Vec::new();
+    }
+    windows.sort_by(|a, b| a.energy.total_cmp(&b.energy).then(a.start.cmp(&b.start)));
+    let n_quiet = ((windows.len() as f32) * quiet_fraction.clamp(0.0, 1.0)).ceil() as usize;
+    let n_quiet = n_quiet.clamp(1, windows.len());
+    let quiet = &windows[..n_quiet];
+    let n_pick = n_pick.min(quiet.len());
+    let mut picked = Vec::with_capacity(n_pick);
+    if n_pick == 1 {
+        picked.push(quiet[0]);
+    } else {
+        for k in 0..n_pick {
+            let idx = k * (quiet.len() - 1) / (n_pick - 1);
+            picked.push(quiet[idx]);
+        }
+    }
+    picked.sort_by_key(|w| w.start);
+    picked.dedup_by_key(|w| w.start);
+    picked
+}
+
+fn stitch_windows(audio: &AudioData, starts: &[usize], win: usize, fade: usize) -> AudioData {
+    let fade = fade.min(win / 2);
+    let channels = audio
+        .channels
+        .iter()
+        .map(|ch| {
+            let mut out = Vec::new();
+            for (i, &start) in starts.iter().enumerate() {
+                let src = &ch[start..start + win];
+                if i == 0 || fade == 0 {
+                    out.extend_from_slice(src);
+                    continue;
+                }
+                let n = out.len();
+                for (k, &incoming) in src.iter().take(fade).enumerate() {
+                    let t = (k + 1) as f32 / fade as f32;
+                    let dst = n - fade + k;
+                    out[dst] = out[dst] * (1.0 - t) + incoming * t;
+                }
+                out.extend_from_slice(&src[fade..]);
+            }
+            out
+        })
+        .collect();
+    AudioData { sample_rate: audio.sample_rate, channels }
+}
+
+/// Starts of the windows [`learn_noise_print_quiet_windows`] would stitch.
+pub(crate) fn quiet_window_starts(
+    audio: &AudioData,
+    window_s: f32,
+    n_windows: usize,
+    quiet_fraction: f32,
+) -> Vec<usize> {
+    if audio.channels.is_empty() || audio.channels[0].is_empty() {
+        return Vec::new();
+    }
+    let n = audio.channels[0].len();
+    if n < 2048 {
+        return Vec::new();
+    }
+    let win = ((window_s * audio.sample_rate as f32).round() as usize).clamp(2048, n);
+    pick_even_by_level(tile_windows(audio, win), quiet_fraction, n_windows.max(1))
+        .into_iter()
+        .map(|w| w.start)
+        .collect()
+}
+
+/// Learn a noise print from quiet windows spread across the file.
+///
+/// Non-overlapping `window_s` tiles are ranked by mean-square level. The
+/// quietest `quiet_fraction` of them are the pool; `n_windows` of those are
+/// taken evenly by level, concatenated with `crossfade_s` linear joins, and
+/// passed to [`learn_noise_print`].
+///
+/// A single contiguous stretch (see [`learn_noise_print_quietest`]) is used
+/// when the file is too short to tile. Digital-silent tiles are skipped so a
+/// dropout is not learned as the noise floor.
+///
+/// The `vhs` chain uses 8 × 0.75 s over the quietest 20 %, 10 ms crossfades:
+/// a contiguous 4 s on dialogue sits well above the true pauses and the print
+/// carries sibilance into the subtraction.
+pub fn learn_noise_print_quiet_windows(
+    audio: &AudioData,
+    window_s: f32,
+    n_windows: usize,
+    quiet_fraction: f32,
+    crossfade_s: f32,
+) -> Result<NoisePrint, Error> {
+    if audio.channels.is_empty() || audio.channels[0].is_empty() {
+        return Err(Error::TooShort);
+    }
+    let n = audio.channels[0].len();
+    if n < 2048 {
+        return Err(Error::TooShort);
+    }
+    let sr = audio.sample_rate as f32;
+    let win = ((window_s * sr).round() as usize).clamp(2048, n);
+    if n / win < 2 {
+        return learn_noise_print_quietest(audio, window_s);
+    }
+    let starts = quiet_window_starts(audio, window_s, n_windows, quiet_fraction);
+    if starts.is_empty() {
+        return learn_noise_print_quietest(audio, window_s);
+    }
+    let fade = ((crossfade_s.max(0.0) * sr).round() as usize).min(win / 2);
+    learn_noise_print(&stitch_windows(audio, &starts, win, fade))
 }
 
 // ── SpectralDenoiser ─────────────────────────────────────────────────────────
@@ -392,4 +546,87 @@ pub fn wiener_denoise(
     }
     output.truncate(n);
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::AudioData;
+
+    fn xorshift(rng: &mut u64) -> f32 {
+        *rng ^= *rng << 13;
+        *rng ^= *rng >> 7;
+        *rng ^= *rng << 17;
+        *rng as f32 / u64::MAX as f32 - 0.5
+    }
+
+    /// 16 × 0.75 s tiles: odd tiles are hiss, even tiles are 1 kHz + 8 kHz speech.
+    fn dialogue_with_pauses(sr: u32) -> AudioData {
+        let win = ((0.75 * sr as f32).round() as usize).max(2048);
+        let n_tiles = 16;
+        let n = win * n_tiles;
+        let two_pi = 2.0 * std::f32::consts::PI;
+        let mut rng = 1u64;
+        let x: Vec<f32> = (0..n)
+            .map(|i| {
+                let t = i as f32 / sr as f32;
+                let hiss = xorshift(&mut rng) * 0.08;
+                if (i / win) % 2 == 1 {
+                    hiss
+                } else {
+                    hiss + 0.4 * (two_pi * 1000.0 * t).sin() + 0.4 * (two_pi * 8000.0 * t).sin()
+                }
+            })
+            .collect();
+        AudioData { sample_rate: sr, channels: vec![x] }
+    }
+
+    fn bin_at(np: &NoisePrint, hz: f32, sr: u32) -> f32 {
+        let k = (hz * np.fft_size as f32 / sr as f32).round() as usize;
+        np.spectrum[k.min(np.spectrum.len() - 1)]
+    }
+
+    #[test]
+    fn quiet_windows_land_on_pauses_not_speech() {
+        let sr = 48_000u32;
+        let win = ((0.75 * sr as f32).round() as usize).max(2048);
+        let audio = dialogue_with_pauses(sr);
+        let starts = quiet_window_starts(&audio, 0.75, 8, 0.20);
+        assert!(!starts.is_empty(), "expected quiet windows");
+        for &s in &starts {
+            assert_eq!(s % win, 0, "window {s} is not on the 0.75 s grid");
+            let tile = s / win;
+            assert_eq!(tile % 2, 1, "window at tile {tile} is speech, not a pause");
+        }
+        for i in 1..starts.len() {
+            assert!(starts[i] >= starts[i - 1] + win, "windows overlap");
+        }
+    }
+
+    #[test]
+    fn stitched_print_drops_sibilance_contiguous_4s_keeps() {
+        // The quietest 4 s on dialogue includes speech, so the print carries
+        // 8 kHz and the subtraction eats the presence band. Short windows in
+        // the pauses do not.
+        let sr = 48_000u32;
+        let audio = dialogue_with_pauses(sr);
+        let stitched = learn_noise_print_quiet_windows(&audio, 0.75, 8, 0.20, 0.010).unwrap();
+        let contiguous = learn_noise_print_quietest(&audio, 4.0).unwrap();
+        let s8 = bin_at(&stitched, 8000.0, sr);
+        let c8 = bin_at(&contiguous, 8000.0, sr);
+        assert!(
+            s8 < c8 * 0.5,
+            "stitched 8 kHz {s8:.4} should be well below contiguous 4 s {c8:.4}"
+        );
+        assert!(s8 > 1e-4, "stitched print still captured hiss at 8 kHz");
+    }
+
+    #[test]
+    fn quiet_windows_falls_back_when_too_short_to_tile() {
+        let audio = crate::util::generate_wave(48_000, 440.0, 0.8, 0.1);
+        let a = learn_noise_print_quiet_windows(&audio, 0.75, 8, 0.20, 0.010).unwrap();
+        let b = learn_noise_print_quietest(&audio, 0.75).unwrap();
+        assert_eq!(a.fft_size, b.fft_size);
+        assert_eq!(a.spectrum.len(), b.spectrum.len());
+    }
 }

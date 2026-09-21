@@ -612,8 +612,8 @@ enum Command {
         /// Output WAV file
         #[arg(short, long, default_value = "vhs.wav")]
         out: String,
-        /// Denoise aggressiveness
-        #[arg(short, long, default_value_t = 3.0)]
+        /// Denoise aggressiveness (1 = gentle, 6 = aggressive)
+        #[arg(short, long, default_value_t = 2.0)]
         alpha: f32,
         /// Spectral floor
         #[arg(short = 'b', long, default_value_t = 0.01)]
