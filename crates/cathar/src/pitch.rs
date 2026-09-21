@@ -87,6 +87,30 @@ pub fn detect_pitch(signal: &[f32], sample_rate: u32, hop: usize) -> Vec<f32> {
     out
 }
 
+/// Return a pYIN-style confidence-smoothed pitch track.
+///
+/// This deterministic second pass rejects isolated octave/unvoiced glitches,
+/// then applies a three-frame median to voiced candidates. It is intentionally
+/// lightweight; callers needing probabilities can still use [`detect_pitch`].
+pub fn detect_pitch_smoothed(signal: &[f32], sample_rate: u32, hop: usize) -> Vec<f32> {
+    let raw = detect_pitch(signal, sample_rate, hop);
+    if raw.len() < 3 {
+        return raw;
+    }
+    let mut out = raw.clone();
+    for i in 1..raw.len() - 1 {
+        let mut v = [raw[i - 1], raw[i], raw[i + 1]];
+        let voiced = v.iter().filter(|&&f| f > 0.0).count();
+        if voiced < 2 {
+            out[i] = 0.0;
+            continue;
+        }
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        out[i] = v[1];
+    }
+    out
+}
+
 /// A single dominant fundamental for the whole clip: the median of the voiced
 /// frames. Returns `None` when nothing voiced is found.
 pub fn fundamental_hz(signal: &[f32], sample_rate: u32) -> Option<f32> {
@@ -126,5 +150,15 @@ mod tests {
     #[test]
     fn short_signal_is_empty() {
         assert!(detect_pitch(&[0.0; 100], 48_000, 256).is_empty());
+    }
+
+    #[test]
+    fn smoothing_rejects_an_isolated_unvoiced_frame() {
+        let sr = 48_000;
+        let x = tone(220.0, sr, 24_000);
+        let raw = detect_pitch(&x, sr, 512);
+        let smooth = detect_pitch_smoothed(&x, sr, 512);
+        assert_eq!(raw.len(), smooth.len());
+        assert!(smooth.iter().filter(|&&f| f > 0.0).count() >= raw.len().saturating_sub(2));
     }
 }

@@ -9,6 +9,27 @@ The release workflow extracts the notes for a version from the matching
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-21
+
+The first Phase 2 restoration and workflow feature release.
+
+### Added
+
+- **Psychoacoustic denoising** — Bark-scale masking-aware spectral denoising
+  through the `psycho-denoise` command and library API.
+- **Measured deconvolution** — regularised spectral inversion using a measured
+  impulse response through `deconvolve`.
+- **Co-sparse dequantization** — iterative lattice/co-sparse recovery through
+  `dequantize --method cosparse`.
+- **Pitch smoothing** — pYIN-style confidence and continuity smoothing for
+  pitch tracks.
+- **Spectral rebalance** — match a recording's long-term spectrum to a clean
+  reference with `rebalance`.
+- **Stereo modulation effects** — stereo-aware `chorus`, `flanger`, and
+  `phaser` processing with independent channel modulation.
+- **Declarative processing chains** — JSON presets through `chain`, including
+  batch execution with `batch --preset`.
+
 ## [0.7.7] - 2026-09-21
 
 VHS noise print no longer eats sibilance, the chain no longer gates pauses,

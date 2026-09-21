@@ -99,6 +99,76 @@ pub fn haas_delay(
     }
 }
 
+/// Apply a stereo chorus with independent, opposite-phase delay modulation.
+/// This preserves width better than processing both channels with identical
+/// modulation. `mix` is clamped to `[0, 1]`.
+pub fn stereo_chorus(
+    left: &[f32],
+    right: &[f32],
+    sample_rate: u32,
+    rate_hz: f32,
+    depth_ms: f32,
+    mix: f32,
+) -> (Vec<f32>, Vec<f32>) {
+    stereo_mod_delay(left, right, sample_rate, rate_hz, depth_ms, mix, 0.0)
+}
+
+/// Apply a stereo flanger with opposite-phase modulation and feedback.
+pub fn stereo_flanger(
+    left: &[f32],
+    right: &[f32],
+    sample_rate: u32,
+    rate_hz: f32,
+    depth_ms: f32,
+    feedback: f32,
+    mix: f32,
+) -> (Vec<f32>, Vec<f32>) {
+    stereo_mod_delay(left, right, sample_rate, rate_hz, depth_ms, mix, feedback)
+}
+
+fn stereo_mod_delay(
+    left: &[f32],
+    right: &[f32],
+    sr: u32,
+    rate: f32,
+    depth_ms: f32,
+    mix: f32,
+    feedback: f32,
+) -> (Vec<f32>, Vec<f32>) {
+    let n = left.len().min(right.len());
+    if n == 0 || sr == 0 || rate <= 0.0 || depth_ms <= 0.0 {
+        return (left[..n].to_vec(), right[..n].to_vec());
+    }
+    let base = (depth_ms * sr as f32 / 2000.0).max(1.0);
+    let mix = mix.clamp(0.0, 1.0);
+    let fb = feedback.clamp(-0.99, 0.99);
+    let mut lh = vec![0.0; n];
+    let mut rh = vec![0.0; n];
+    let mut lo = Vec::with_capacity(n);
+    let mut ro = Vec::with_capacity(n);
+    for i in 0..n {
+        let phase = 2.0 * std::f32::consts::PI * rate * i as f32 / sr as f32;
+        let dl = base * (1.0 + phase.sin());
+        let dr = base * (1.0 - phase.sin());
+        let read = |history: &[f32], delay: f32, index: usize| {
+            if index as f32 <= delay {
+                return 0.0;
+            }
+            let p = index as f32 - delay;
+            let k = p.floor() as usize;
+            let f = p - k as f32;
+            history[k] * (1.0 - f) + history[(k + 1).min(index - 1)] * f
+        };
+        let dlv = read(&lh, dl, i);
+        let drv = read(&rh, dr, i);
+        lo.push(left[i] * (1.0 - mix) + dlv * mix);
+        ro.push(right[i] * (1.0 - mix) + drv * mix);
+        lh[i] = left[i] + dlv * fb;
+        rh[i] = right[i] + drv * fb;
+    }
+    (lo, ro)
+}
+
 /// Zero-lag normalised correlation of L and R in `[-1, +1]`.
 ///
 /// - near `+1` — in phase / highly mono-compatible

@@ -37,6 +37,47 @@ pub fn dequantize(signal: &[f32], _sample_rate: u32, bits: u32, strength: f32) -
     out
 }
 
+/// Co-sparse depth pass for quantized audio.
+///
+/// Alternates projections onto the quantizer cells with first- and
+/// second-order analysis priors. The cubic local predictor handles slowly
+/// varying tones better than the lattice-only midpoint predictor, while the
+/// cell constraint prevents invented samples from crossing quantization bins.
+/// This is a deterministic, dependency-free approximation of co-sparse
+/// recovery; `iterations` in the range 2–6 is usually sufficient.
+pub fn dequantize_cosparse(
+    signal: &[f32],
+    _sample_rate: u32,
+    bits: u32,
+    strength: f32,
+    iterations: u32,
+) -> Vec<f32> {
+    let strength = strength.clamp(0.0, 1.0);
+    if signal.len() < 5 || strength <= 0.0 || iterations == 0 {
+        return signal.to_vec();
+    }
+    let bits = bits.clamp(4, 24);
+    let step = 2.0f32 / (1u32 << bits) as f32;
+    let half = step * 0.5;
+    let mut out = signal.to_vec();
+    for _ in 0..iterations.min(16) {
+        let src = out.clone();
+        for i in 2..src.len() - 2 {
+            let q = (src[i] / step).round() * step;
+            let linear = (src[i - 1] + src[i + 1]) * 0.5;
+            let cubic = (-src[i - 2] + 4.0 * src[i - 1] + 4.0 * src[i + 1] - src[i + 2]) / 6.0;
+            let d1 = (src[i + 1] - src[i - 1]).abs();
+            let d2 = (src[i + 2] - 2.0 * src[i + 1] + 2.0 * src[i - 1] - src[i - 2]).abs();
+            let cubic_weight = (1.0 / (1.0 + 32.0 * d2)).clamp(0.1, 1.0);
+            let candidate = (linear + cubic * cubic_weight) / (1.0 + cubic_weight);
+            let target = candidate.clamp(q - half, q + half);
+            let local_strength = strength * (0.5 + 0.5 / (1.0 + 16.0 * d1));
+            out[i] = src[i] + local_strength * (target - src[i]);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -71,5 +112,20 @@ mod tests {
     fn dequantize_zero_strength_is_bypass() {
         let sig = vec![0.1, 0.2, 0.3, 0.4];
         assert_eq!(dequantize(&sig, 48_000, 16, 0.0), sig);
+    }
+
+    #[test]
+    fn cosparse_reduces_quantization_error() {
+        let sr = 48_000u32;
+        let clean: Vec<f32> = (0..sr as usize)
+            .map(|i| {
+                let t = i as f32 / sr as f32;
+                0.6 * (2.0 * std::f32::consts::PI * 330.0 * t).sin()
+            })
+            .collect();
+        let noisy = quantize(&clean, 6);
+        let restored = dequantize_cosparse(&noisy, sr, 6, 1.0, 4);
+        let err = |a: &[f32]| a.iter().zip(&clean).map(|(x, y)| (x - y).powi(2)).sum::<f32>();
+        assert!(err(&restored) < err(&noisy));
     }
 }

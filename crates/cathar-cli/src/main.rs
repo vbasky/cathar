@@ -6,6 +6,7 @@ use anyhow::Result;
 use cathar::Denoiser;
 use clap::{Parser, Subcommand};
 use rayon::prelude::*;
+use serde::Deserialize;
 
 #[cfg(feature = "tui")]
 mod player;
@@ -145,6 +146,14 @@ enum EmphasisArg {
     Cd,
 }
 
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum DequantMethodArg {
+    /// Local lattice neighbour prediction.
+    Lattice,
+    /// Iterative first/second-order co-sparse recovery.
+    Cosparse,
+}
+
 impl From<EmphasisArg> for cathar::Emphasis {
     fn from(m: EmphasisArg) -> Self {
         match m {
@@ -153,6 +162,243 @@ impl From<EmphasisArg> for cathar::Emphasis {
             EmphasisArg::Cd => cathar::Emphasis::CdIec,
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ChainPreset {
+    stages: Vec<ChainStage>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "effect", rename_all = "kebab-case")]
+enum ChainStage {
+    Gain {
+        db: f32,
+    },
+    Denoise {
+        #[serde(default = "default_alpha")]
+        alpha: f32,
+        #[serde(default = "default_beta")]
+        beta: f32,
+    },
+    Dehum {
+        #[serde(default = "default_hum_freq")]
+        freq: f32,
+        #[serde(default = "default_harmonics")]
+        harmonics: usize,
+    },
+    Dewind {
+        #[serde(default = "default_wind_cutoff")]
+        cutoff: f32,
+    },
+    Normalize {
+        target: f32,
+    },
+    Echo {
+        delay_ms: f32,
+        #[serde(default)]
+        feedback: f32,
+        #[serde(default = "default_mix")]
+        mix: f32,
+    },
+    Reverb {
+        #[serde(default = "default_room")]
+        room: f32,
+        #[serde(default = "default_mix")]
+        mix: f32,
+    },
+    Chorus {
+        #[serde(default = "default_chorus_rate")]
+        rate: f32,
+        #[serde(default = "default_chorus_depth")]
+        depth_ms: f32,
+        #[serde(default = "default_mix")]
+        mix: f32,
+    },
+    Flanger {
+        #[serde(default = "default_flanger_rate")]
+        rate: f32,
+        #[serde(default = "default_flanger_depth")]
+        depth_ms: f32,
+        #[serde(default)]
+        feedback: f32,
+        #[serde(default = "default_mix")]
+        mix: f32,
+    },
+    Phaser {
+        #[serde(default = "default_phaser_rate")]
+        rate: f32,
+        #[serde(default = "default_depth")]
+        depth: f32,
+        #[serde(default)]
+        feedback: f32,
+        #[serde(default = "default_mix")]
+        mix: f32,
+    },
+    Tremolo {
+        #[serde(default = "default_tremolo_rate")]
+        rate: f32,
+        #[serde(default = "default_depth")]
+        depth: f32,
+    },
+    Overdrive {
+        #[serde(default = "default_drive")]
+        drive: f32,
+        #[serde(default = "default_mix")]
+        mix: f32,
+    },
+    Compand {
+        #[serde(default = "default_threshold")]
+        threshold: f32,
+        #[serde(default = "default_ratio")]
+        ratio: f32,
+        #[serde(default = "default_attack")]
+        attack: f32,
+        #[serde(default = "default_release")]
+        release: f32,
+        #[serde(default)]
+        makeup: f32,
+    },
+    Contrast {
+        #[serde(default = "default_contrast")]
+        amount: f32,
+    },
+}
+
+fn default_alpha() -> f32 {
+    3.0
+}
+fn default_beta() -> f32 {
+    0.01
+}
+fn default_hum_freq() -> f32 {
+    60.0
+}
+fn default_harmonics() -> usize {
+    5
+}
+fn default_wind_cutoff() -> f32 {
+    80.0
+}
+fn default_mix() -> f32 {
+    0.5
+}
+fn default_room() -> f32 {
+    0.5
+}
+fn default_chorus_rate() -> f32 {
+    0.35
+}
+fn default_chorus_depth() -> f32 {
+    8.0
+}
+fn default_flanger_rate() -> f32 {
+    0.25
+}
+fn default_flanger_depth() -> f32 {
+    3.0
+}
+fn default_phaser_rate() -> f32 {
+    0.3
+}
+fn default_depth() -> f32 {
+    0.8
+}
+fn default_tremolo_rate() -> f32 {
+    5.0
+}
+fn default_drive() -> f32 {
+    1.0
+}
+fn default_threshold() -> f32 {
+    -20.0
+}
+fn default_ratio() -> f32 {
+    2.0
+}
+fn default_attack() -> f32 {
+    0.01
+}
+fn default_release() -> f32 {
+    0.1
+}
+fn default_contrast() -> f32 {
+    0.5
+}
+
+fn parse_chain_file(path: &str) -> Result<ChainPreset> {
+    let text = std::fs::read_to_string(path)?;
+    if !path.to_ascii_lowercase().ends_with(".toml") {
+        return Ok(serde_json::from_str(&text)?);
+    }
+    let mut stages = Vec::new();
+    let mut current = serde_json::Map::new();
+    for raw in text.lines() {
+        let line = raw.split('#').next().unwrap_or_default().trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line == "[[stages]]" {
+            if !current.is_empty() {
+                stages.push(serde_json::Value::Object(std::mem::take(&mut current)));
+            }
+            continue;
+        }
+        let (key, value) =
+            line.split_once('=').ok_or_else(|| anyhow::anyhow!("invalid TOML line: {line}"))?;
+        let parsed = serde_json::from_str(value.trim()).unwrap_or_else(|_| {
+            serde_json::Value::String(value.trim().trim_matches('"').to_owned())
+        });
+        current.insert(key.trim().to_owned(), parsed);
+    }
+    if !current.is_empty() {
+        stages.push(serde_json::Value::Object(current));
+    }
+    Ok(serde_json::from_value(serde_json::json!({"stages": stages}))?)
+}
+
+fn apply_chain(mut audio: cathar::AudioData, preset: ChainPreset) -> Result<cathar::AudioData> {
+    for stage in preset.stages {
+        let sr = audio.sample_rate;
+        audio = match stage {
+            ChainStage::Gain { db } => audio.gain_db(db),
+            ChainStage::Denoise { alpha, beta } => {
+                cathar::SpectralDenoiser { alpha, beta, ..Default::default() }.denoise(&audio)?
+            }
+            ChainStage::Dehum { freq, harmonics } => {
+                audio.map_channels(|c| cathar::dehum(c, sr, freq, harmonics))
+            }
+            ChainStage::Dewind { cutoff } => audio.map_channels(|c| cathar::dewind(c, sr, cutoff)),
+            ChainStage::Normalize { target } => audio.normalize_r128(target, -1.0),
+            ChainStage::Echo { delay_ms, feedback, mix } => {
+                audio.map_channels(|c| cathar::echo(c, sr, delay_ms, feedback, mix))
+            }
+            ChainStage::Reverb { room, mix } => {
+                audio.map_channels(|c| cathar::reverb(c, sr, room, mix))
+            }
+            ChainStage::Chorus { rate, depth_ms, mix } => {
+                audio.map_channels(|c| cathar::chorus(c, sr, rate, depth_ms, mix))
+            }
+            ChainStage::Flanger { rate, depth_ms, feedback, mix } => {
+                audio.map_channels(|c| cathar::flanger(c, sr, rate, depth_ms, feedback, mix))
+            }
+            ChainStage::Phaser { rate, depth, feedback, mix } => {
+                audio.map_channels(|c| cathar::phaser(c, sr, rate, depth, feedback, mix))
+            }
+            ChainStage::Tremolo { rate, depth } => {
+                audio.map_channels(|c| cathar::tremolo(c, sr, rate, depth))
+            }
+            ChainStage::Overdrive { drive, mix } => {
+                audio.map_channels(|c| cathar::overdrive(c, drive, mix))
+            }
+            ChainStage::Compand { threshold, ratio, attack, release, makeup } => audio
+                .map_channels(|c| {
+                    cathar::compand_dynamic(c, sr, threshold, ratio, attack, release, makeup)
+                }),
+            ChainStage::Contrast { amount } => audio.map_channels(|c| cathar::contrast(c, amount)),
+        };
+    }
+    Ok(audio)
 }
 
 /// Audio restoration toolbox — denoise, de-hum, de-click, de-clip, normalise.
@@ -499,6 +745,12 @@ enum Command {
         /// Correction strength 0–1
         #[arg(short, long, default_value_t = 0.7)]
         strength: f32,
+        /// Recovery method.
+        #[arg(long, value_enum, default_value = "lattice")]
+        method: DequantMethodArg,
+        /// Co-sparse iterations (used with `--method cosparse`).
+        #[arg(long, default_value_t = 4)]
+        iterations: u32,
     },
     /// Restore high frequencies lost to compression or low sample rates.
     Enhance {
@@ -648,6 +900,9 @@ enum Command {
         /// Also normalize to this LUFS level
         #[arg(long)]
         normalize: Option<f32>,
+        /// Optional JSON chain preset to apply instead of the built-in denoise chain.
+        #[arg(long)]
+        preset: Option<String>,
         /// Extensions to process (comma-separated)
         #[arg(long, default_value = "wav,mp3,mp4,m4a,mkv,flac,ogg,aac")]
         exts: String,
@@ -871,6 +1126,155 @@ enum Command {
         /// Release time in seconds
         #[arg(long, default_value_t = 0.1)]
         release: f32,
+    },
+    /// Add a delayed echo.
+    Echo {
+        input: String,
+        #[arg(short, long, default_value = "echo.wav")]
+        out: String,
+        #[arg(long, default_value_t = 250.0)]
+        delay_ms: f32,
+        #[arg(long, default_value_t = 0.35)]
+        feedback: f32,
+        #[arg(long, default_value_t = 0.5)]
+        mix: f32,
+    },
+    /// Add a synthetic room reverb.
+    Reverb {
+        input: String,
+        #[arg(short, long, default_value = "reverb.wav")]
+        out: String,
+        #[arg(long, default_value_t = 0.5)]
+        room: f32,
+        #[arg(long, default_value_t = 0.3)]
+        mix: f32,
+    },
+    /// Apply a chorus effect.
+    Chorus {
+        input: String,
+        #[arg(short, long, default_value = "chorus.wav")]
+        out: String,
+        #[arg(long, default_value_t = 0.35)]
+        rate: f32,
+        #[arg(long, default_value_t = 8.0)]
+        depth_ms: f32,
+        #[arg(long, default_value_t = 0.5)]
+        mix: f32,
+    },
+    /// Apply a flanger effect.
+    Flanger {
+        input: String,
+        #[arg(short, long, default_value = "flanger.wav")]
+        out: String,
+        #[arg(long, default_value_t = 0.25)]
+        rate: f32,
+        #[arg(long, default_value_t = 3.0)]
+        depth_ms: f32,
+        #[arg(long, default_value_t = 0.5)]
+        feedback: f32,
+        #[arg(long, default_value_t = 0.5)]
+        mix: f32,
+    },
+    /// Apply a phase-shifting modulation effect.
+    Phaser {
+        input: String,
+        #[arg(short, long, default_value = "phaser.wav")]
+        out: String,
+        #[arg(long, default_value_t = 0.3)]
+        rate: f32,
+        #[arg(long, default_value_t = 0.8)]
+        depth: f32,
+        #[arg(long, default_value_t = 0.3)]
+        feedback: f32,
+        #[arg(long, default_value_t = 0.5)]
+        mix: f32,
+    },
+    /// Apply amplitude modulation.
+    Tremolo {
+        input: String,
+        #[arg(short, long, default_value = "tremolo.wav")]
+        out: String,
+        #[arg(long, default_value_t = 5.0)]
+        rate: f32,
+        #[arg(long, default_value_t = 0.5)]
+        depth: f32,
+    },
+    /// Apply tanh soft-clipping overdrive.
+    Overdrive {
+        input: String,
+        #[arg(short, long, default_value = "overdrive.wav")]
+        out: String,
+        #[arg(long, default_value_t = 1.0)]
+        drive: f32,
+        #[arg(long, default_value_t = 1.0)]
+        mix: f32,
+    },
+    /// Apply a time-varying broadband compressor curve.
+    Compand {
+        input: String,
+        #[arg(short, long, default_value = "companded.wav")]
+        out: String,
+        #[arg(long, default_value_t = -20.0, allow_hyphen_values = true)]
+        threshold: f32,
+        #[arg(long, default_value_t = 2.0)]
+        ratio: f32,
+        #[arg(long, default_value_t = 0.01)]
+        attack: f32,
+        #[arg(long, default_value_t = 0.1)]
+        release: f32,
+        #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
+        makeup: f32,
+    },
+    /// Increase or decrease waveform contrast.
+    Contrast {
+        input: String,
+        #[arg(short, long, default_value = "contrasted.wav")]
+        out: String,
+        #[arg(long, default_value_t = 0.5, allow_hyphen_values = true)]
+        amount: f32,
+    },
+    /// Apply Bark-scale masking-aware denoising.
+    PsychoDenoise {
+        input: String,
+        #[arg(short, long, default_value = "psycho-clean.wav")]
+        out: String,
+        #[arg(short, long, default_value_t = 3.0)]
+        alpha: f32,
+        #[arg(short = 'b', long, default_value_t = 0.02)]
+        beta: f32,
+    },
+    /// Match a recording's long-term spectrum to a clean reference.
+    Rebalance {
+        input: String,
+        #[arg(long)]
+        reference: String,
+        #[arg(short, long, default_value = "rebalanced.wav")]
+        out: String,
+        #[arg(long, default_value_t = 1.0)]
+        strength: f32,
+    },
+    /// Correct a recording using a measured impulse response.
+    Deconvolve {
+        /// Recorded signal to correct.
+        input: String,
+        /// Measured impulse-response audio file.
+        #[arg(long)]
+        impulse: String,
+        #[arg(short, long, default_value = "deconvolved.wav")]
+        out: String,
+        /// Wiener regularization as a fraction of peak IR power.
+        #[arg(long, default_value_t = 0.0001)]
+        regularization: f32,
+    },
+    /// Run a declarative JSON processing chain.
+    Chain {
+        /// Input audio file.
+        input: String,
+        /// JSON preset containing a `stages` array.
+        #[arg(long)]
+        preset: String,
+        #[arg(short, long, default_value = "chained.wav")]
+        out: String,
     },
     /// Apply TPDF dither (for bit-depth reduction).
     Dither {
@@ -1308,12 +1712,18 @@ fn main() -> Result<()> {
             eprintln!("de-emphasis ({c:?})  →  {out}");
         }
 
-        Command::Dequantize { input, out, bits, strength } => {
+        Command::Dequantize { input, out, bits, strength, method, iterations } => {
             let audio = cathar::AudioData::from_file(&input)?;
-            let cleaned =
-                audio.map_channels(|c| cathar::dequantize(c, audio.sample_rate, bits, strength));
+            let cleaned = audio.map_channels(|c| match method {
+                DequantMethodArg::Lattice => {
+                    cathar::dequantize(c, audio.sample_rate, bits, strength)
+                }
+                DequantMethodArg::Cosparse => {
+                    cathar::dequantize_cosparse(c, audio.sample_rate, bits, strength, iterations)
+                }
+            });
             cleaned.to_file(&out)?;
-            eprintln!("dequantized  {bits}-bit  strength={strength}  →  {out}");
+            eprintln!("dequantized  {bits}-bit  strength={strength}  method={method:?}  →  {out}");
         }
 
         Command::Enhance { input, out, rate, method } => {
@@ -1425,8 +1835,9 @@ fn main() -> Result<()> {
             );
         }
 
-        Command::Batch { indir, outdir, alpha, beta, dehum, normalize, exts } => {
+        Command::Batch { indir, outdir, alpha, beta, dehum, normalize, preset, exts } => {
             std::fs::create_dir_all(&outdir)?;
+            let chain_preset = preset.map(|path| parse_chain_file(&path)).transpose()?;
             let extensions: Vec<&str> = exts.split(',').map(|s| s.trim()).collect();
             let mut files: Vec<_> = std::fs::read_dir(&indir)?
                 .filter_map(|e| e.ok())
@@ -1451,16 +1862,21 @@ fn main() -> Result<()> {
 
                 let process = || -> Result<()> {
                     let audio = cathar::AudioData::from_file(&path.to_string_lossy())?;
-                    let denoiser = cathar::SpectralDenoiser { alpha, beta, ..Default::default() };
-                    let mut clean = denoiser.denoise(&audio)?;
-
-                    if let Some(freq) = dehum {
-                        clean =
-                            clean.map_channels(|c| cathar::dehum(c, clean.sample_rate, freq, 5));
-                    }
-                    if let Some(lu) = normalize {
-                        clean = clean.normalize_r128(lu, -1.0);
-                    }
+                    let clean = if let Some(ref chain) = chain_preset {
+                        apply_chain(audio, chain.clone())?
+                    } else {
+                        let denoiser =
+                            cathar::SpectralDenoiser { alpha, beta, ..Default::default() };
+                        let mut clean = denoiser.denoise(&audio)?;
+                        if let Some(freq) = dehum {
+                            clean = clean
+                                .map_channels(|c| cathar::dehum(c, clean.sample_rate, freq, 5));
+                        }
+                        if let Some(lu) = normalize {
+                            clean = clean.normalize_r128(lu, -1.0);
+                        }
+                        clean
+                    };
 
                     let out_path = std::path::Path::new(&outdir).join(format!("{name}.wav"));
                     clean.to_file(&out_path.to_string_lossy())?;
@@ -1600,6 +2016,132 @@ fn main() -> Result<()> {
                 .map_channels(|c| cathar::gate(c, audio.sample_rate, threshold, attack, release))
                 .to_file(&out)?;
             eprintln!("gated  {threshold} dBFS  →  {out}");
+        }
+        Command::Echo { input, out, delay_ms, feedback, mix } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio
+                .map_channels(|c| cathar::echo(c, audio.sample_rate, delay_ms, feedback, mix))
+                .to_file(&out)?;
+            eprintln!("echo  delay={delay_ms} ms  →  {out}");
+        }
+        Command::Reverb { input, out, room, mix } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio
+                .map_channels(|c| cathar::reverb(c, audio.sample_rate, room, mix))
+                .to_file(&out)?;
+            eprintln!("reverb  room={room}  →  {out}");
+        }
+        Command::Chorus { input, out, rate, depth_ms, mix } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio
+                .map_channels(|c| cathar::chorus(c, audio.sample_rate, rate, depth_ms, mix))
+                .to_file(&out)?;
+            eprintln!("chorus  rate={rate} Hz  →  {out}");
+        }
+        Command::Flanger { input, out, rate, depth_ms, feedback, mix } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio
+                .map_channels(|c| {
+                    cathar::flanger(c, audio.sample_rate, rate, depth_ms, feedback, mix)
+                })
+                .to_file(&out)?;
+            eprintln!("flanger  rate={rate} Hz  →  {out}");
+        }
+        Command::Phaser { input, out, rate, depth, feedback, mix } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio
+                .map_channels(|c| cathar::phaser(c, audio.sample_rate, rate, depth, feedback, mix))
+                .to_file(&out)?;
+            eprintln!("phaser  rate={rate} Hz  →  {out}");
+        }
+        Command::Tremolo { input, out, rate, depth } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio
+                .map_channels(|c| cathar::tremolo(c, audio.sample_rate, rate, depth))
+                .to_file(&out)?;
+            eprintln!("tremolo  rate={rate} Hz  →  {out}");
+        }
+        Command::Overdrive { input, out, drive, mix } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio.map_channels(|c| cathar::overdrive(c, drive, mix)).to_file(&out)?;
+            eprintln!("overdrive  drive={drive}  →  {out}");
+        }
+        Command::Compand { input, out, threshold, ratio, attack, release, makeup } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio
+                .map_channels(|c| {
+                    cathar::compand_dynamic(
+                        c,
+                        audio.sample_rate,
+                        threshold,
+                        ratio,
+                        attack,
+                        release,
+                        makeup,
+                    )
+                })
+                .to_file(&out)?;
+            eprintln!(
+                "compand  threshold={threshold} dB  ratio={ratio}:1  attack={attack}s  release={release}s  →  {out}"
+            );
+        }
+        Command::Contrast { input, out, amount } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            audio.map_channels(|c| cathar::contrast(c, amount)).to_file(&out)?;
+            eprintln!("contrast  amount={amount}  →  {out}");
+        }
+        Command::PsychoDenoise { input, out, alpha, beta } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let cleaned =
+                audio.map_channels(|c| cathar::psycho_denoise(c, audio.sample_rate, alpha, beta));
+            cleaned.to_file(&out)?;
+            eprintln!("psycho-denoise  alpha={alpha}  beta={beta}  →  {out}");
+        }
+        Command::Rebalance { input, reference, out, strength } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let ref_audio = cathar::AudioData::from_file(&reference)?;
+            if audio.sample_rate != ref_audio.sample_rate {
+                anyhow::bail!(
+                    "sample-rate mismatch: input {} Hz, reference {} Hz",
+                    audio.sample_rate,
+                    ref_audio.sample_rate
+                );
+            }
+            let ref_channel = ref_audio
+                .channels
+                .first()
+                .ok_or_else(|| anyhow::anyhow!("reference has no audio channel"))?;
+            audio
+                .map_channels(|c| {
+                    cathar::spectral_rebalance(c, ref_channel, audio.sample_rate, strength)
+                })
+                .to_file(&out)?;
+            eprintln!("rebalanced  reference={reference}  strength={strength}  →  {out}");
+        }
+        Command::Deconvolve { input, impulse, out, regularization } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let ir = cathar::AudioData::from_file(&impulse)?;
+            if audio.sample_rate != ir.sample_rate {
+                anyhow::bail!(
+                    "sample-rate mismatch: input {} Hz, impulse response {} Hz",
+                    audio.sample_rate,
+                    ir.sample_rate
+                );
+            }
+            let ir_channel = ir
+                .channels
+                .first()
+                .ok_or_else(|| anyhow::anyhow!("impulse response has no audio channel"))?;
+            let cleaned = audio.map_channels(|c| cathar::deconvolve(c, ir_channel, regularization));
+            cleaned.to_file(&out)?;
+            eprintln!("deconvolved  IR={impulse}  regularization={regularization}  →  {out}");
+        }
+        Command::Chain { input, preset, out } => {
+            let audio = cathar::AudioData::from_file(&input)?;
+            let chain = parse_chain_file(&preset)?;
+            let stages = chain.stages.len();
+            apply_chain(audio, chain)?.to_file(&out)?;
+            eprintln!("chain  {stages} stage(s) from {preset}  →  {out}");
         }
         Command::Dither { input, out, bits } => {
             let audio = cathar::AudioData::from_file(&input)?;

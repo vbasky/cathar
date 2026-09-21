@@ -23,6 +23,7 @@ mod analysis;
 mod audio;
 mod cqt;
 mod declip;
+mod deconvolve;
 mod decrackle;
 mod deemphasis;
 mod denoise;
@@ -30,6 +31,7 @@ mod dequant;
 mod dewow;
 mod digitize;
 mod edit;
+mod effects;
 mod enhance;
 mod error;
 mod filter;
@@ -39,6 +41,8 @@ mod loudness;
 #[cfg(feature = "ml")]
 mod ml;
 mod pitch;
+mod psycho;
+mod rebalance;
 mod resample;
 mod restore;
 mod sms;
@@ -58,18 +62,22 @@ pub use analysis::{Stats, Suggestion, compute_stats};
 pub use audio::AudioData;
 pub use cqt::{CqtSpec, cqt};
 pub use declip::{DeclipMethod, declip, declip_with_method};
+pub use deconvolve::deconvolve;
 pub use decrackle::decrackle;
 pub use deemphasis::{Emphasis, deemphasis};
 pub use denoise::{
     Denoiser, NoisePrint, SpectralDenoiser, learn_noise_print, learn_noise_print_quiet_windows,
     learn_noise_print_quietest, wiener_denoise,
 };
-pub use dequant::dequantize;
+pub use dequant::{dequantize, dequantize_cosparse};
 pub use dewow::dewow;
 pub use digitize::{elliptical_mono, riaa_deemphasis, vinyl_restore};
 pub use edit::{
     dither, fade, gain_db, pad, remix, remove_dc, reverse, select_channels, silence_strip, trim,
     vad,
+};
+pub use effects::{
+    chorus, compand, compand_dynamic, contrast, echo, flanger, overdrive, phaser, reverb, tremolo,
 };
 pub use enhance::{
     EnhanceMethod, bandwidth_extend, bandwidth_extend_with_method, breath_remove, deess_multiband,
@@ -82,7 +90,9 @@ pub use inpaint::{inpaint_auto, inpaint_gap};
 pub use loudness::{integrated_loudness, normalize_peak, true_peak_dbtp};
 #[cfg(feature = "ml")]
 pub use ml::{NeuralConfig, NeuralDenoiser};
-pub use pitch::{detect_pitch, fundamental_hz};
+pub use pitch::{detect_pitch, detect_pitch_smoothed, fundamental_hz};
+pub use psycho::psycho_denoise;
+pub use rebalance::spectral_rebalance;
 pub use resample::resample;
 pub use restore::{
     DeclickMethod, DeplosiveMethod, declick, declick_with_method, dehum, deplosive,
@@ -91,7 +101,8 @@ pub use restore::{
 pub use sms::{SinusoidalModel, analyze_sms, synthesize_sms};
 pub use spectrum::{Spectrogram, spectrogram};
 pub use stereo::{
-    haas_delay, mono_below, ms_decode, ms_encode, phase_correlation, stereo_width, upmix_mono,
+    haas_delay, mono_below, ms_decode, ms_encode, phase_correlation, stereo_chorus, stereo_flanger,
+    stereo_width, upmix_mono,
 };
 pub use timestretch::{StretchMode, pitch_shift, time_stretch};
 pub use util::{generate_wave, variance};

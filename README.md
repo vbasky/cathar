@@ -97,6 +97,8 @@ grouped here by what they fix; run them in any order, or chain them.
 | Command | What it does | Key flags |
 | --- | --- | --- |
 | `denoise` | Broadband denoiser — spectral subtraction (default) or Wiener filter; `--coherent` keeps the stereo image stable | `--alpha` 3.0, `--beta` 0.01, `--noiseprint <f>`, `--wiener`, `--coherent` |
+| `psycho-denoise` | Bark-scale masking-aware spectral denoising | `--alpha` 3.0, `--beta` 0.02 |
+| `rebalance` | Match long-term spectrum to a clean reference recording | `--reference <file>`, `--strength` |
 | `ml-denoise` *(opt-in)* | **Learned** spectral-gain denoiser — a candle GRU predicts a per-bin suppression mask; load a trained `.safetensors` checkpoint | `--weights <f>` |
 | `noiseprint` | Learn a noise profile from a silence/room-tone clip → JSON | `--out noise.np.json` |
 | `dehum` | Notch out mains hum (50/60 Hz) and its harmonics; `--adaptive` tracks each line at the frequency it actually sits, auto-picks 50 vs 60, and skips harmonics that are not there | `--freq` 60 (`0` = auto), `--harmonics` 5, `--adaptive` |
@@ -110,7 +112,7 @@ grouped here by what they fix; run them in any order, or chain them.
 | `derustle` | Suppress lavalier / clothing rustle (mid-band transient bursts) | `--strength` 4 |
 | `breath` | Detect and high-pass the breaths before speech onsets | — |
 | `riaa` | RIAA playback curve for digitized vinyl; optional elliptical mono on stereo lows | `--elliptical` 200 |
-| `dequantize` | Relax quantization grain from 8/16-bit sources | `--bits` 16, `--strength` 0.7 |
+| `dequantize` | Relax quantization grain with lattice or co-sparse recovery | `--bits` 16, `--strength` 0.7, `--method cosparse`, `--iterations` 4 |
 | `deemphasis` | Analog playback de-emphasis (FM 50/75 µs, CD/IEC 50/15 µs) | `--curve fm50\|fm75\|cd` |
 
 ### Repair — reconstruct damaged samples
@@ -121,6 +123,7 @@ grouped here by what they fix; run them in any order, or chain them.
 | `declip` | Rebuild clipped peaks (A-SPADE by default; survey methods available) | `--threshold` 0.95, `--method spade\|cubic\|social\|omp\|nmf\|neural` |
 | `repair` | Paint out isolated transient spectral artifacts (whistles, bursts, glitches) | `--strength` 4.0 |
 | `inpaint` | Reconstruct dropouts/mutes by autoregressive (Janssen) interpolation — explicit span or auto zero/NaN detection | `--start-ms`, `--len-ms`, `--iterations` 3, `--max-gap-ms` 50 |
+| `deconvolve` | Correct a recording with a measured impulse response using regularised spectral inversion | `--impulse <file>`, `--regularization` |
 
 ### Restore timing & pitch drift
 
@@ -147,6 +150,11 @@ grouped here by what they fix; run them in any order, or chain them.
 | --- | --- | --- |
 | `enhance` | Bandwidth extension — resample up and synthesise the missing highs | `--rate` 48000, `--method replicate\|interpolate\|harmonic\|dsre` |
 | `normalize` | Loudness (LUFS, true EBU R128) or peak (dBFS) normalisation | `--target` -16, `--peak`, `--true-peak` -1 |
+| `echo` / `reverb` | Add deterministic delay or synthetic room ambience | `--delay-ms`, `--feedback`, `--room`, `--mix` |
+| `chorus` / `flanger` / `phaser` | Modulated-delay and phase modulation effects | `--rate`, `--depth-ms`, `--feedback`, `--mix` |
+| `tremolo` / `overdrive` | Amplitude modulation or soft-clipping drive | `--rate`, `--depth`, `--drive`, `--mix` |
+| `compand` / `contrast` | Time-varying dynamics curve or bounded waveform contrast | `--threshold`, `--ratio`, `--attack`, `--release`, `--makeup`, `--amount` |
+| `chain` | Run a reusable JSON preset containing multiple stages | `--preset chain.json` |
 
 ### Utility
 
