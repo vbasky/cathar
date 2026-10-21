@@ -45,4 +45,4 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 rayon.workspace = true
 ratatui = { version = "0.30.0", optional = true }
-rodio = { version = "0.22.2", default-features = false, features = ["playback"], optional = true }
+rodio = { version = "0.23.0", default-features = false, features = ["playback"], optional = true }
